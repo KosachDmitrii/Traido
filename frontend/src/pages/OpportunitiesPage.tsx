@@ -64,12 +64,18 @@ function viabilityView(
 export function OpportunitiesPage() {
   const t = useT();
   const { desk, showFlash, refreshAll } = useDesk();
-  const buys = desk?.buy_opportunities ?? [];
+  const entriesAllowed = desk?.session?.entries_allowed !== false;
+  const buys = [...(desk?.buy_opportunities ?? [])].sort((a, b) => {
+    const aOk =
+      entriesAllowed && a.viability?.buyable === true && a.viability.state === "live" ? 0 : 1;
+    const bOk =
+      entriesAllowed && b.viability?.buyable === true && b.viability.state === "live" ? 0 : 1;
+    return aOk - bOk;
+  });
   const sells = desk?.sell_opportunities ?? [];
   const [busyId, setBusyId] = useState<string | null>(null);
   const [qtyById, setQtyById] = useState<Record<string, number>>({});
   const [now, setNow] = useState(() => Date.now());
-  const entriesAllowed = desk?.session?.entries_allowed !== false;
 
   useEffect(() => {
     const tick = window.setInterval(() => setNow(Date.now()), 30_000);

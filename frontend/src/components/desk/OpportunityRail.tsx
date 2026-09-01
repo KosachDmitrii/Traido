@@ -128,7 +128,14 @@ function buyEnabled(
 
 export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props) {
   const t = useT();
-  const buys = desk?.buy_opportunities ?? [];
+  const entriesAllowed = desk?.session?.entries_allowed !== false;
+  // Actionable BUY cards float above waits/locked proposals so the operator
+  // sees what can clear the book right now, not a stack of WAIT plans.
+  const buys = [...(desk?.buy_opportunities ?? [])].sort((a, b) => {
+    const aOk = entriesAllowed && viabilityView(a.viability, t).buyable ? 0 : 1;
+    const bOk = entriesAllowed && viabilityView(b.viability, t).buyable ? 0 : 1;
+    return aOk - bOk;
+  });
   const waits = desk?.entry_watches ?? [];
   const sells = desk?.sell_opportunities ?? [];
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -204,8 +211,6 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
     return () => window.clearInterval(tick);
   }, []);
 
-  const entriesAllowed = desk?.session?.entries_allowed !== false;
-
   return (
     <aside className="rail">
       <h2>{t("rail.title")}</h2>
@@ -226,31 +231,6 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
           </div>
         </div>
       ) : null}
-
-      {waits.map((w) => (
-        <div className="block block--waiting" key={w.id}>
-          <div className="title">{w.symbol}</div>
-          <div className="detail">
-            {t("rail.wait.header", {
-              thesis: (w.thesis || "bullish").toUpperCase(),
-              q: w.entry_quality_at_creation,
-            })}
-            <br />
-            <span className="opp-levels">
-              <span>{t("rail.wait.now", { p: w.current_price_at_creation })}</span>
-              <span>
-                {t("rail.wait.zone", { lo: w.entry_zone_low, hi: w.entry_zone_high })}
-              </span>
-              <span>{t("rail.wait.target", { t: w.planned_target })}</span>
-            </span>
-            <span className="opp-viability opp-viability--blocked">
-              {t("rail.wait.conditions", {
-                c: (w.required_conditions || []).slice(0, 3).join(", "),
-              })}
-            </span>
-          </div>
-        </div>
-      ))}
 
       {buys.map((opp) => {
         const c = opp.candidate;
@@ -360,6 +340,31 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
           </div>
         );
       })}
+
+      {waits.map((w) => (
+        <div className="block block--waiting" key={w.id}>
+          <div className="title">{w.symbol}</div>
+          <div className="detail">
+            {t("rail.wait.header", {
+              thesis: (w.thesis || "bullish").toUpperCase(),
+              q: w.entry_quality_at_creation,
+            })}
+            <br />
+            <span className="opp-levels">
+              <span>{t("rail.wait.now", { p: w.current_price_at_creation })}</span>
+              <span>
+                {t("rail.wait.zone", { lo: w.entry_zone_low, hi: w.entry_zone_high })}
+              </span>
+              <span>{t("rail.wait.target", { t: w.planned_target })}</span>
+            </span>
+            <span className="opp-viability opp-viability--blocked">
+              {t("rail.wait.conditions", {
+                c: (w.required_conditions || []).slice(0, 3).join(", "),
+              })}
+            </span>
+          </div>
+        </div>
+      ))}
 
       {sells.map((ex) => {
         const p = ex.proposal;

@@ -65,6 +65,37 @@ looked at nothing, and the universe stays unscanned long after the queue
 cleared.
 """
 
+HUNTING_RETRY_SECONDS = 30
+"""How soon to come back when there is nothing to confirm.
+
+Open BUY cards are the only proposals the operator can act on. WAIT watches are
+plans, not proposals — sleeping a full interval while the confirm queue is empty
+leaves the desk staring at waits with nothing to approve. Hunt until a BUY
+appears; then return to the configured cadence.
+"""
+
+
+def open_buy_count() -> int:
+    """Cards awaiting confirmation — not WAIT watches."""
+    from trading.opportunities import OPPORTUNITIES
+
+    return len(OPPORTUNITIES.list_open())
+
+
+def choose_scan_delay(
+    *,
+    paused_on_full_queue: bool,
+    open_buys: int,
+    interval: float,
+    seconds_until_due: float,
+) -> float:
+    """Pick the wait after a cycle. Empty confirm queue hunts; full queue retries."""
+    if paused_on_full_queue:
+        return min(PAUSED_RETRY_SECONDS, interval)
+    if open_buys <= 0:
+        return min(HUNTING_RETRY_SECONDS, interval)
+    return max(0.0, seconds_until_due)
+
 
 @dataclass
 class ScannerStatus:
@@ -484,12 +515,13 @@ async def scanner_loop() -> None:
             )
         STATUS.schedule = _schedule.as_dict()
 
-        # A cycle halted by a full queue did no work, so waiting a full cadence
-        # charges the universe a whole interval for having looked at nothing.
-        delay = (
-            min(PAUSED_RETRY_SECONDS, interval)
-            if status.funnel.paused_on_full_queue
-            else _schedule.seconds_until_due()
+        # Full queue → retry soon (no work done). Empty confirm queue → hunt.
+        # Only an open BUY earns the configured cadence.
+        delay = choose_scan_delay(
+            paused_on_full_queue=status.funnel.paused_on_full_queue,
+            open_buys=open_buy_count(),
+            interval=interval,
+            seconds_until_due=_schedule.seconds_until_due(),
         )
         await wait_before_next_cycle(delay)
 

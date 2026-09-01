@@ -440,6 +440,10 @@ export const ru: Record<MessageKey, string> = {
   "eval.regime.col.dd": "Просадка",
 
   "toast.dismiss": "Закрыть",
+  "toast.buyable.titleOne": "{symbol} можно купить",
+  "toast.buyable.titleMany": "Можно купить: {symbols}",
+  "toast.buyable.detail": "Условия сошлись — подтвердите BUY на карточке.",
+
   "toast.error.unknown": "Неизвестная ошибка",
   "toast.error.alpacaRateLimit.title": "Лимит Alpaca",
   "toast.error.alpacaRateLimit.detail":

@@ -21,6 +21,12 @@ import {
   subscribeDeskEvents,
 } from "@/lib/api";
 import { useI18n } from "@/i18n/I18nProvider";
+import {
+  collectBuyable,
+  installBuyableAudioUnlock,
+  playBuyableChime,
+  unlockBuyableAudioNow,
+} from "@/lib/buyableAlert";
 import { humanizeError, type FlashMessage } from "@/lib/messages";
 import { useToastQueue, type FlashSlot, type Toast } from "@/lib/toasts";
 
@@ -72,6 +78,8 @@ export function DeskProvider({ children }: { children: ReactNode }) {
   const lightInFlight = useRef(false);
   const lightQueued = useRef(false);
   const brokerBusy = useRef(false);
+  /** Null until the first desk payload — seed without alerting on reload. */
+  const seenBuyableRef = useRef<Set<string> | null>(null);
 
   // The queue lives here, above the toast layer, so that a message raised on a
   // page that draws no toasts still expires there. Owning the countdown in the
@@ -231,6 +239,76 @@ export function DeskProvider({ children }: { children: ReactNode }) {
     () => (light ? mergeDesk(light, broker) : null),
     [light, broker],
   );
+
+  // Arm Web Audio after the first click/key so autoplay policy allows the chime.
+  useEffect(() => installBuyableAudioUnlock(), []);
+
+  const notifyBuyable = useCallback(
+    (symbols: string[]) => {
+      const unique = [...new Set(symbols.filter(Boolean))];
+      if (unique.length === 0) return;
+      unlockBuyableAudioNow();
+      playBuyableChime();
+      showFlash({
+        kind: "info",
+        title:
+          unique.length === 1
+            ? t("toast.buyable.titleOne", { symbol: unique[0] })
+            : t("toast.buyable.titleMany", { symbols: unique.join(", ") }),
+        detail: t("toast.buyable.detail"),
+      });
+    },
+    [showFlash, t],
+  );
+
+  // Sound + toast when a card flips to buyable (not on the first paint of already-live ones).
+  useEffect(() => {
+    if (!light) return;
+    const current = collectBuyable(light);
+    const seen = seenBuyableRef.current;
+    if (seen === null) {
+      seenBuyableRef.current = new Set(current.keys());
+      return;
+    }
+    const symbols: string[] = [];
+    for (const [id, symbol] of current) {
+      if (!seen.has(id)) symbols.push(symbol);
+    }
+    seenBuyableRef.current = new Set(current.keys());
+    if (symbols.length === 0) return;
+    notifyBuyable(symbols);
+  }, [light, notifyBuyable]);
+
+  // Demo: ?demoBuyable=AAPL or window event — reproduce the buyable signal without a live card.
+  useEffect(() => {
+    const fire = (symbol: string) => notifyBuyable([symbol || "DEMO"]);
+
+    const onDemo = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ symbol?: string }>).detail;
+      fire(detail?.symbol ?? "DEMO");
+    };
+    window.addEventListener("traido:buyable-demo", onDemo);
+
+    const params = new URLSearchParams(window.location.search);
+    const demo = params.get("demoBuyable");
+    if (demo !== null) {
+      const symbol = demo === "1" || demo === "" ? "AAPL" : demo.toUpperCase();
+      // Defer so the toast layer is mounted; strip the query so refresh does not loop.
+      const tmr = window.setTimeout(() => {
+        fire(symbol);
+        params.delete("demoBuyable");
+        const q = params.toString();
+        const next = `${window.location.pathname}${q ? `?${q}` : ""}${window.location.hash}`;
+        window.history.replaceState({}, "", next);
+      }, 400);
+      return () => {
+        window.clearTimeout(tmr);
+        window.removeEventListener("traido:buyable-demo", onDemo);
+      };
+    }
+
+    return () => window.removeEventListener("traido:buyable-demo", onDemo);
+  }, [notifyBuyable]);
 
   const value = useMemo(
     () => ({

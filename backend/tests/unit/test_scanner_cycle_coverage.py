@@ -8,6 +8,10 @@ the tail; and a scanner that paces empty cycles like real ones leaves the desk
 idle for minutes after the operator has cleared the very thing that stopped it.
 None of them shows up as an error.
 
+The same silence applies when the confirm queue is empty and only WAIT watches
+remain: sleeping the configured interval then is pacing a hunt like a nap on a
+full desk. Empty BUY queue → short retry; open BUY → configured cadence.
+
 The coverage tests here changed shape with the staged funnel. There is no
 per-cycle symbol cap and no rotation cursor any more — the cheap stages look at
 the whole universe every cycle, and cost is controlled by how few names reach
@@ -51,6 +55,9 @@ def quiet_scanner(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(scanner, "WAKE_POLL_SECONDS", 0.01)
     scanner.STATUS.cycle = 0
     scanner.STATUS.error = None
+    from agents.scanner.funnel import ScanFunnel
+
+    scanner.STATUS.funnel = ScanFunnel()
 
 
 def _watchlist(symbols: list[str], *, max_open: int = 5) -> dict:
@@ -67,6 +74,15 @@ def _empty_result() -> SimpleNamespace:
     return SimpleNamespace(status="no_candidate", candidate=None, risk=None, opportunity=None)
 
 
+def _fake_open(n: int) -> list:
+    """Stand-ins for open BUY cards. Must expose `.candidate.symbol` — the cycle
+    reads that set to skip duplicates, and a bare `None` blows up mid-scan."""
+    return [
+        SimpleNamespace(candidate=SimpleNamespace(symbol=f"OPEN{i}"))
+        for i in range(n)
+    ]
+
+
 def _install(
     monkeypatch: pytest.MonkeyPatch,
     cfg: dict,
@@ -76,10 +92,12 @@ def _install(
     """Wire a cycle up and return the list that records what reached Stage 3."""
     seen: list[str] = []
     symbols = list(cfg["universe"])
+    open_cards = _fake_open(open_proposals)
 
     monkeypatch.setattr(scanner, "load_watchlist", lambda: cfg)
     monkeypatch.setattr(scanner, "universe_service", lambda _s=None: universe_service_for(symbols))
-    monkeypatch.setattr(scan_cycle.OPPORTUNITIES, "list_open", lambda: [None] * open_proposals)
+    monkeypatch.setattr(scan_cycle.OPPORTUNITIES, "list_open", lambda: list(open_cards))
+    monkeypatch.setattr(scanner, "open_buy_count", lambda: open_proposals)
     # These tests ask which symbols a cycle covered. Queue hygiene is a separate
     # question, tested on its own in `test_stale_proposals_are_taken_down.py`.
     monkeypatch.setattr(scan_cycle, "withdraw_unactionable", lambda *a, **k: 0)
@@ -234,15 +252,31 @@ async def test_a_productive_cycle_waits_for_its_next_slot(
     *after* finishing turns a four-minute cycle and a five-minute interval into
     a nine-minute period. Here a cycle that took almost no time leaves almost
     the whole interval, and a cycle that took two minutes would leave three.
+
+    Only when there is already something to confirm — otherwise the desk hunts.
     """
+    cfg = _watchlist(["A", "B"])
+    cfg["scan_interval_seconds"] = 300
+    _install(monkeypatch, cfg, open_proposals=1)
+
+    waits = await _waits_of_one_cycle(monkeypatch)
+
+    assert len(waits) == 1
+    assert 295.0 < waits[0] <= 300.0
+
+
+@pytest.mark.asyncio
+async def test_empty_buy_queue_hunts_sooner_than_the_cadence(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No open BUY → keep scanning. WAIT watches do not earn a full nap."""
     cfg = _watchlist(["A", "B"])
     cfg["scan_interval_seconds"] = 300
     _install(monkeypatch, cfg, open_proposals=0)
 
     waits = await _waits_of_one_cycle(monkeypatch)
 
-    assert len(waits) == 1
-    assert 295.0 < waits[0] <= 300.0
+    assert waits == [scanner.HUNTING_RETRY_SECONDS]
 
 
 @pytest.mark.asyncio

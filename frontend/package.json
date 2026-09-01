@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "preinstall": "node -e \"delete process.env.npm_config_devdir; delete process.env.NPM_CONFIG_DEVDIR\"",
-    "dev": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR vite --host 127.0.0.1 --port 3000",
+    "dev": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR vite --host 0.0.0.0 --port 3000",
     "build": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR tsc -b && env -u npm_config_devdir -u NPM_CONFIG_DEVDIR vite build",
-    "preview": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR vite preview --host 127.0.0.1 --port 3000",
+    "preview": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR vite preview --host 0.0.0.0 --port 3000",
     "lint": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR tsc --noEmit"
   },
   "dependencies": {

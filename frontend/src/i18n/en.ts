@@ -438,6 +438,10 @@ export const en = {
   "eval.regime.col.dd": "Drawdown",
 
   "toast.dismiss": "Dismiss",
+  "toast.buyable.titleOne": "{symbol} is buyable",
+  "toast.buyable.titleMany": "Buyable: {symbols}",
+  "toast.buyable.detail": "Conditions cleared — confirm BUY on the card.",
+
   "toast.error.unknown": "Unknown error",
   "toast.error.alpacaRateLimit.title": "Alpaca rate limit",
   "toast.error.alpacaRateLimit.detail":
