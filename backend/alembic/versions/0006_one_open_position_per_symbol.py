@@ -20,7 +20,8 @@ import sqlalchemy as sa
 
 from alembic import op
 
-revision: str = "0006_one_open_position_per_symbol"
+# Must fit alembic_version.version_num VARCHAR(32).
+revision: str = "0006_one_open_pos_per_sym"
 down_revision: str | None = "0005_stage71_exit_intents"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
