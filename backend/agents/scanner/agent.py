@@ -65,13 +65,23 @@ looked at nothing, and the universe stays unscanned long after the queue
 cleared.
 """
 
-HUNTING_RETRY_SECONDS = 30
+HUNTING_RETRY_SECONDS = 90
 """How soon to come back when there is nothing to confirm.
 
 Open BUY cards are the only proposals the operator can act on. WAIT watches are
 plans, not proposals — sleeping a full interval while the confirm queue is empty
-leaves the desk staring at waits with nothing to approve. Hunt until a BUY
-appears; then return to the configured cadence.
+leaves the desk staring at waits with nothing to approve. Hunt faster than the
+configured cadence, but not so fast that the next universe pass lands inside
+Alpaca's rate-limit window: 30s after a full EXTENDED scan is what earned the
+429 storm (snapshot batch failed → empty cycle → hunt → 429 again).
+"""
+
+PROVIDER_COOLDOWN_SECONDS = 180
+"""How long to wait after a cycle that could not read the book.
+
+A failed snapshot/bars batch is usually a 429. Hunting into that window does not
+find proposals — it spends the remaining quota on retries and keeps the desk
+blind for longer.
 """
 
 
@@ -88,10 +98,17 @@ def choose_scan_delay(
     open_buys: int,
     interval: float,
     seconds_until_due: float,
+    provider_failed: bool = False,
 ) -> float:
-    """Pick the wait after a cycle. Empty confirm queue hunts; full queue retries."""
+    """Pick the wait after a cycle.
+
+    Full queue → short retry (no vendor work done). Provider failure → cool down.
+    Empty confirm queue → hunt. Open BUY → configured cadence.
+    """
     if paused_on_full_queue:
         return min(PAUSED_RETRY_SECONDS, interval)
+    if provider_failed:
+        return min(PROVIDER_COOLDOWN_SECONDS, interval)
     if open_buys <= 0:
         return min(HUNTING_RETRY_SECONDS, interval)
     return max(0.0, seconds_until_due)
@@ -123,6 +140,14 @@ class ScannerStatus:
     ai_budget: dict[str, float | int] = field(default_factory=dict)
     schedule: dict[str, float | int | None] = field(default_factory=dict)
     shortlist: list[str] = field(default_factory=list)
+
+
+def cycle_provider_failed(status: ScannerStatus) -> bool:
+    """True when the cycle could not finish a vendor read — do not hunt into it."""
+    if status.funnel.provider_failed > 0:
+        return True
+    err = (status.error or "").lower()
+    return "snapshot_batch_failed" in err or "bars_batch_failed" in err or "429" in err
 
 
 STATUS = ScannerStatus()
@@ -515,13 +540,14 @@ async def scanner_loop() -> None:
             )
         STATUS.schedule = _schedule.as_dict()
 
-        # Full queue → retry soon (no work done). Empty confirm queue → hunt.
+        # Full queue → retry soon. Provider 429 → cool down. Empty BUY queue → hunt.
         # Only an open BUY earns the configured cadence.
         delay = choose_scan_delay(
             paused_on_full_queue=status.funnel.paused_on_full_queue,
             open_buys=open_buy_count(),
             interval=interval,
             seconds_until_due=_schedule.seconds_until_due(),
+            provider_failed=cycle_provider_failed(status),
         )
         await wait_before_next_cycle(delay)
 

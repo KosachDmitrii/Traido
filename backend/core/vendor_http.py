@@ -87,7 +87,13 @@ async def get_with_retry(
             last = exc
 
         if attempt < attempts - 1:
-            await sleep(base_delay * (2**attempt))
+            delay = base_delay * (2**attempt)
+            # 429 is "slow down for a while", not "try again in a few hundred ms".
+            # The short exponential above is fine for a blip 503; on a rate limit
+            # it only spends the remaining quota on retries and prolongs the ban.
+            if isinstance(last, httpx.HTTPStatusError) and last.response.status_code == 429:
+                delay = max(delay, 5.0 * (2**attempt))
+            await sleep(delay)
 
     assert last is not None  # only reachable after a caught failure
     raise last

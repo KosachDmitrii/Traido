@@ -279,6 +279,32 @@ async def test_empty_buy_queue_hunts_sooner_than_the_cadence(
     assert waits == [scanner.HUNTING_RETRY_SECONDS]
 
 
+def test_provider_failure_cools_down_instead_of_hunting() -> None:
+    """A 429 cycle must not be followed by another hunt into the hot window."""
+    delay = scanner.choose_scan_delay(
+        paused_on_full_queue=False,
+        open_buys=0,
+        interval=300.0,
+        seconds_until_due=300.0,
+        provider_failed=True,
+    )
+    assert delay == scanner.PROVIDER_COOLDOWN_SECONDS
+    assert delay > scanner.HUNTING_RETRY_SECONDS
+
+
+def test_cycle_provider_failed_reads_funnel_and_error() -> None:
+    from agents.scanner.funnel import ScanFunnel
+
+    ok = scanner.ScannerStatus()
+    assert scanner.cycle_provider_failed(ok) is False
+
+    hurt = scanner.ScannerStatus(funnel=ScanFunnel(provider_failed=12))
+    assert scanner.cycle_provider_failed(hurt) is True
+
+    errored = scanner.ScannerStatus(error="snapshot_batch_failed: HTTPStatusError(429)")
+    assert scanner.cycle_provider_failed(errored) is True
+
+
 @pytest.mark.asyncio
 async def test_the_retry_never_outlasts_the_configured_interval(
     monkeypatch: pytest.MonkeyPatch,

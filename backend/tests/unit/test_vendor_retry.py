@@ -104,6 +104,22 @@ async def test_the_backoff_grows_between_attempts() -> None:
     assert slept == [0.4, 0.8]
 
 
+@pytest.mark.asyncio
+async def test_a_429_backs_off_harder_than_a_blip() -> None:
+    """Rate limits need seconds, not the short 503 backoff."""
+    slept: list[float] = []
+
+    async def record(seconds: float) -> None:
+        slept.append(seconds)
+
+    vendor = _Vendor(429)
+    async with httpx.AsyncClient(transport=vendor.transport()) as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await get_with_retry(client, "https://x/y", attempts=3, base_delay=0.4, sleep=record)
+
+    assert slept == [5.0, 10.0]
+
+
 def test_a_failure_is_named_by_status_not_by_the_vendors_message() -> None:
     request = httpx.Request("GET", f"https://finnhub.io/api/v1/x?token={KEY}")
     exc = httpx.HTTPStatusError(
