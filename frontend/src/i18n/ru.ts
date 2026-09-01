@@ -17,10 +17,18 @@ export const ru: Record<MessageKey, string> = {
   "nav.evaluation": "Оценка",
   "nav.logs": "Логи",
   "nav.settings": "Настройки",
+  "nav.aria": "Основная навигация",
+  "nav.collapse": "Свернуть",
+  "nav.expand": "Развернуть навигацию",
 
   "lang.en": "EN",
   "lang.ru": "RU",
   "lang.switch": "Язык",
+
+  "pager.aria": "Постраничная навигация",
+  "pager.pageSize": "Размер:",
+  "pager.prev": "Назад",
+  "pager.next": "Вперёд",
 
   "topbar.gap.minutes": "{n}м",
   "topbar.gap.hoursMinutes": "{h}ч {m}м",
@@ -160,6 +168,9 @@ export const ru: Record<MessageKey, string> = {
   "rail.wait.conditions": "BUY недоступен в WAIT — условия: {c}",
   "rail.buy.header":
     "{thesis} · ENTRY СЕЙЧАС · Качество {q}/100 · Conf {conf}% · R:R {rr} · Qty {qty}",
+  "rail.buy.quality": "Качество {q}/100",
+  "rail.buy.conf": "Conf {conf}%",
+  "rail.buy.rr": "R:R {rr}",
   "rail.sell.header": "Вход {e} · Сейчас {n} · P&L {p}%",
 
   "opp.levels.entry": "Вход",
@@ -167,6 +178,8 @@ export const ru: Record<MessageKey, string> = {
   "opp.levels.target": "Цель",
   "opp.levels.tgt": "Цель",
   "opp.levels.qty": "Qty",
+  "opp.qty.label": "Qty",
+  "opp.qty.max": "макс {n}",
   "opp.viability.wide": "Книга слишком широкая · ждём",
   "opp.viability.drifted": "Цена ушла от карточки · ждём",
   "opp.viability.pastSetup": "Сетап уже пройден",
@@ -184,6 +197,7 @@ export const ru: Record<MessageKey, string> = {
 
   "desk.positions.title": "Позиции",
   "desk.positions.sub": "Ledger + брокер Alpaca ({freshness})",
+  "desk.positions.link": "Все позиции →",
   "desk.positions.empty.title": "Пусто",
   "desk.positions.empty.detail": "Нет открытых позиций",
   "desk.positions.stat.qty": "Qty",
@@ -206,7 +220,9 @@ export const ru: Record<MessageKey, string> = {
   "desk.review.notesEmpty": "Пока нет заметок review",
   "desk.review.noteLabel": "заметка",
   "desk.review.recentTitle": "Недавно закрытые",
+  "desk.review.recentSub": "Последние закрытые сделки из журнала",
   "desk.review.recentEmpty": "Закройте сделку — появится в журнале",
+  "desk.review.recentLink": "Журнал →",
 
   "desk.agents.title": "AI-агенты",
   "desk.agents.subIdle": "Статус пайплайна · последний проход",
@@ -268,6 +284,7 @@ export const ru: Record<MessageKey, string> = {
   "opportunities.buy.meta": "Conf {conf}% · R:R {rr}",
   "opportunities.sell.pnl": "PnL {n}%",
   "opportunities.sell.entryNow": "Вход · Сейчас",
+  "opportunities.sell.now": "Сейчас",
 
   "positions.page.open": "Открытые позиции · {n}",
   "positions.page.orders": "Открытые ордера · {n}",
@@ -366,7 +383,7 @@ export const ru: Record<MessageKey, string> = {
   "eval.verdict.FAIL_SAMPLE": "FAIL · выборка",
   "eval.verdict.NOT_EVALUATED": "Не оценено",
   "eval.verdict.INSUFFICIENT_SAMPLE": "Мало данных",
-  "eval.verdict.meta": "{sym} · {bars} баров · {n} out-of-sample сделок",
+  "eval.verdict.meta": "{sym}{name} · {bars} баров · {n} out-of-sample сделок",
   "eval.f3.title": "F3 диагностика входа",
   "eval.f3.sub": "Качество сигнала · WAIT · исторический MFE",
   "eval.f3.refresh": "Обновить",
@@ -444,6 +461,11 @@ export const ru: Record<MessageKey, string> = {
   "toast.error.killSwitch.title": "Kill switch включён",
   "toast.error.killSwitch.detail": "Торговля заблокирована. Выключите kill switch, чтобы снова подтверждать сделки.",
   "toast.error.riskReject.title": "Risk Engine отклонил",
+  "toast.error.qtyAboveRisk.title": "Qty выше лимита Risk",
+  "toast.error.qtyAboveRisk.detail":
+    "Вы запросили больше shares, чем Risk разрешил при approve. Уменьшите qty и попробуйте снова.",
+  "toast.error.qtyInvalid.title": "Неверный qty",
+  "toast.error.qtyInvalid.detail": "Нужна минимум 1 целая акция, не больше max Risk.",
   "toast.error.unauthorized.title": "Нет доступа к API",
   "toast.error.unauthorized.detail":
     "Проверьте TRAIDO_API_KEY в Настройках (или localStorage) или откройте desk с разрешённого origin.",

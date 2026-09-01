@@ -1,9 +1,10 @@
 import { useCallback, useState } from "react";
-import { KeyRound, Languages, Radar, ShieldAlert } from "lucide-react";
+import { KeyRound, Languages, ScanSearch, ShieldAlert } from "lucide-react";
 import { runScanner, setKillSwitch } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Locale } from "@/i18n";
+import { Button, Input, SegmentedControl, SwitchControl } from "@/ui";
 
 export function SettingsPage() {
   const { desk, refreshAll, showFlash, killSwitch: kill, refreshKillSwitch } = useDesk();
@@ -98,7 +99,7 @@ export function SettingsPage() {
 
       <article className={`settings-card${kill === "on" ? " settings-card--danger" : ""}`}>
         <div className="settings-card__icon" aria-hidden>
-          <ShieldAlert size={22} strokeWidth={1.75} absoluteStrokeWidth />
+          <ShieldAlert size={20} strokeWidth={1.5} absoluteStrokeWidth />
         </div>
         <div className="settings-card__body">
           <div className="settings-card__head">
@@ -115,22 +116,28 @@ export function SettingsPage() {
             <li>{t("settings.kill.keeps")}</li>
             <li>{t("settings.kill.when")}</li>
           </ul>
-          <div className="settings-card__actions">
-            <button
-              type="button"
-              className={kill === "on" ? "btn-ghost" : "btn-ink"}
+          <div className="settings-kill-control">
+            <div className="settings-kill-control__copy">
+              <strong>
+                {kill === "on" ? t("settings.kill.disable") : t("settings.kill.enable")}
+              </strong>
+              <span>{t("settings.kill.lead")}</span>
+            </div>
+            <SwitchControl
+              checked={kill === "on"}
+              onCheckedChange={() => void toggleKill()}
               disabled={busy || kill === "loading" || kill === "unreadable"}
-              onClick={toggleKill}
-            >
-              {kill === "on" ? t("settings.kill.disable") : t("settings.kill.enable")}
-            </button>
+              aria-label={
+                kill === "on" ? t("settings.kill.disable") : t("settings.kill.enable")
+              }
+            />
           </div>
         </div>
       </article>
 
       <article className="settings-card">
         <div className="settings-card__icon" aria-hidden>
-          <KeyRound size={22} strokeWidth={1.75} absoluteStrokeWidth />
+          <KeyRound size={20} strokeWidth={1.5} absoluteStrokeWidth />
         </div>
         <div className="settings-card__body">
           <div className="settings-card__head">
@@ -142,22 +149,22 @@ export function SettingsPage() {
             <li>{t("settings.api.hint")}</li>
           </ul>
           <div className="settings-card__actions settings-card__actions--stack">
-            <input
+            <Input
               className="logs-search"
               type="password"
               autoComplete="off"
               spellCheck={false}
               placeholder={t("settings.api.placeholder")}
               value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
+              onValueChange={setApiKey}
             />
             <div className="settings-card__btnrow">
-              <button type="button" className="btn-ink" onClick={saveKey}>
+              <Button variant="ink" onClick={saveKey}>
                 {t("settings.api.save")}
-              </button>
-              <button type="button" className="btn-ghost" onClick={clearKey} disabled={!apiKey}>
+              </Button>
+              <Button variant="ghost" onClick={clearKey} disabled={!apiKey}>
                 {t("settings.api.clear")}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -165,7 +172,7 @@ export function SettingsPage() {
 
       <article className="settings-card">
         <div className="settings-card__icon" aria-hidden>
-          <Radar size={22} strokeWidth={1.75} absoluteStrokeWidth />
+          <ScanSearch size={20} strokeWidth={1.5} absoluteStrokeWidth />
         </div>
         <div className="settings-card__body">
           <div className="settings-card__head">
@@ -188,16 +195,16 @@ export function SettingsPage() {
             <li>{t("settings.scanner.hint")}</li>
           </ul>
           <div className="settings-card__actions">
-            <button type="button" className="btn-ink" disabled={busy} onClick={scanNow}>
+            <Button variant="accent" disabled={busy} onClick={scanNow}>
               {t("settings.scanner.run")}
-            </button>
+            </Button>
           </div>
         </div>
       </article>
 
       <article className="settings-card">
         <div className="settings-card__icon" aria-hidden>
-          <Languages size={22} strokeWidth={1.75} absoluteStrokeWidth />
+          <Languages size={20} strokeWidth={1.5} absoluteStrokeWidth />
         </div>
         <div className="settings-card__body">
           <div className="settings-card__head">
@@ -208,19 +215,15 @@ export function SettingsPage() {
             <li>{t("settings.lang.what")}</li>
           </ul>
           <div className="settings-card__actions">
-            <div className="lang-toggle" role="group" aria-label={t("lang.switch")}>
-              {(["en", "ru"] as Locale[]).map((code) => (
-                <button
-                  key={code}
-                  type="button"
-                  className={`lang-toggle__btn${locale === code ? " is-active" : ""}`}
-                  onClick={() => setLocale(code)}
-                  aria-pressed={locale === code}
-                >
-                  {t(code === "en" ? "lang.en" : "lang.ru")}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              ariaLabel={t("lang.switch")}
+              value={locale}
+              onChange={(code) => setLocale(code as Locale)}
+              options={[
+                { value: "en", label: t("lang.en") },
+                { value: "ru", label: t("lang.ru") },
+              ]}
+            />
           </div>
         </div>
       </article>

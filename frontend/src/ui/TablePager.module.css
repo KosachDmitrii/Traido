@@ -1,0 +1,71 @@
+.Bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 4px;
+}
+
+.Size {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.SizeLabel {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--td-text);
+  white-space: nowrap;
+}
+
+.SizeSelect {
+  min-width: 4.75rem;
+  height: 2.25rem;
+  font-size: 13px;
+  border-radius: var(--td-radius-lg);
+}
+
+.Nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.NavBtn {
+  border: none;
+  background: transparent;
+  padding: 4px 2px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--td-text);
+  cursor: pointer;
+}
+
+.NavBtn:disabled {
+  color: var(--td-text-faint);
+  cursor: default;
+}
+
+.NavBtn:not(:disabled):hover {
+  color: var(--td-accent);
+}
+
+.Page {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 8px;
+  border: 1px solid var(--td-border);
+  border-radius: var(--td-radius-md);
+  background: var(--td-surface);
+  color: var(--td-text);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

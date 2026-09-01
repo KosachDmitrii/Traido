@@ -7,6 +7,7 @@ from fastapi import APIRouter
 from agents.review.agent import build_review
 from broker.factory import create_broker
 from core.config import get_settings
+from market_data.providers.company_name import attach_company_names
 from trading.ledger import LEDGER
 
 router = APIRouter(prefix="/api/v1", tags=["review"])
@@ -15,7 +16,9 @@ router = APIRouter(prefix="/api/v1", tags=["review"])
 @router.get("/review")
 async def review(live_only: bool = True) -> dict:
     """Journal analytics — Review Agent (no trading authority)."""
-    return build_review(live_only=live_only).to_dict()
+    payload = build_review(live_only=live_only).to_dict()
+    await attach_company_names(payload.get("recent") or [], get_settings().finnhub_api_key)
+    return payload
 
 
 @router.get("/positions")
@@ -65,4 +68,5 @@ async def positions() -> dict:
                     "status": row.status,
                 }
             )
+    await attach_company_names(merged, settings.finnhub_api_key)
     return {"positions": merged, "count": len(merged)}

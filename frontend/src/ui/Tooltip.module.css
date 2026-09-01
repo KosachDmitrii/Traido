@@ -1,0 +1,27 @@
+.Trigger {
+  display: inline-flex;
+  max-width: 100%;
+}
+
+.Positioner {
+  z-index: 60;
+  outline: none;
+}
+
+.Popup {
+  box-sizing: border-box;
+  max-width: 16rem;
+  padding: 0.4rem 0.65rem;
+  border-radius: var(--td-radius-md);
+  background: var(--td-ink);
+  color: var(--td-text-on-ink);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  box-shadow: var(--td-shadow-md);
+}
+
+.Popup[data-starting-style],
+.Popup[data-ending-style] {
+  opacity: 0;
+  transform: scale(0.98);
+}

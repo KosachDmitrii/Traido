@@ -105,7 +105,7 @@ export function DeskProvider({ children }: { children: ReactNode }) {
     });
   }, [light, scannerUnavailable, locale, t]);
 
-  const refreshLight = useCallback(async () => {
+  const refreshLight = useCallback(async (signal?: AbortSignal) => {
     if (lightInFlight.current) {
       lightQueued.current = true;
       return;
@@ -114,9 +114,16 @@ export function DeskProvider({ children }: { children: ReactNode }) {
     try {
       do {
         lightQueued.current = false;
-        const next = await fetchDeskLight();
+        if (signal?.aborted) return;
+        const next = await fetchDeskLight(signal);
+        if (signal?.aborted) return;
         if (next) applyLight(next);
       } while (lightQueued.current);
+    } catch (err) {
+      if (signal?.aborted || (err instanceof DOMException && err.name === "AbortError")) {
+        return;
+      }
+      throw err;
     } finally {
       lightInFlight.current = false;
     }
@@ -150,12 +157,13 @@ export function DeskProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     let lightTimer: ReturnType<typeof setTimeout> | null = null;
+    const lightAbort = new AbortController();
 
     const scheduleLight = () => {
       if (!alive) return;
       const running = Boolean(lightRef.current?.scanner?.running);
       lightTimer = setTimeout(() => {
-        refreshLight()
+        refreshLight(lightAbort.signal)
           .catch(() => undefined)
           .finally(() => {
             if (alive) scheduleLight();
@@ -176,13 +184,14 @@ export function DeskProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         if (!alive) return;
-        await refreshLight();
+        await refreshLight(lightAbort.signal);
+        if (!alive) return;
         await refreshBroker(false);
       } catch (err) {
-        if (alive) {
-          showFlash(humanizeError(err instanceof Error ? err.message : String(err)));
-          setScannerUnavailable(true);
-        }
+        if (!alive) return;
+        if (err instanceof DOMException && err.name === "AbortError") return;
+        showFlash(humanizeError(err instanceof Error ? err.message : String(err)));
+        setScannerUnavailable(true);
       } finally {
         if (alive) scheduleLight();
       }
@@ -205,12 +214,13 @@ export function DeskProvider({ children }: { children: ReactNode }) {
         ev.type === "exit_decided" ||
         ev.type === "exit_failed"
       ) {
-        refreshLight().catch(() => undefined);
+        refreshLight(lightAbort.signal).catch(() => undefined);
       }
     });
 
     return () => {
       alive = false;
+      lightAbort.abort();
       if (lightTimer) clearTimeout(lightTimer);
       clearInterval(brokerId);
       unsub();

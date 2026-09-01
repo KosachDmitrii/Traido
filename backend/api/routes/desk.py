@@ -32,6 +32,7 @@ from core.config import get_settings
 from core.desk_bus import DESK_BUS
 from core.enums import UserDecision
 from core.schemas import Position
+from market_data.providers.company_name import attach_company_names
 from trading.desk_viability import attach_buy_viability
 from trading.entry_watches import ENTRY_WATCHES
 from trading.exits import EXITS, ExitOpportunity
@@ -288,6 +289,9 @@ async def desk(
 ):
     buys = await attach_buy_viability(OPPORTUNITIES.list_open())
     payload = _light_payload(buy_opportunities=buys)
+    key = get_settings().finnhub_api_key
+    await attach_company_names(payload["positions"], key)
+    await attach_company_names(payload.get("review", {}).get("recent") or [], key)
     etag = _etag_for(payload)
     if if_none_match and if_none_match == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
@@ -397,6 +401,8 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
 
     if portfolio_dict is not None:
         portfolio_dict = {**portfolio_dict, "open_orders": len(open_orders_out)}
+
+    await attach_company_names(positions_out, get_settings().finnhub_api_key)
 
     snap = {
         "portfolio": portfolio_dict,

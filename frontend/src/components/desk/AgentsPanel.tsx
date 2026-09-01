@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { agentDisplayStatus, type AgentState, type DeskResponse } from "@/lib/api";
 import { WorkingAntsBorder } from "@/components/desk/WorkingAntsBorder";
 import { useT } from "@/i18n/I18nProvider";
-import { formatLocalTime } from "@/lib/time";
+import { formatExchangeTime } from "@/lib/time";
 
 function statusLabel(
   status: string,
@@ -87,7 +87,7 @@ export function AgentsPanel({ desk }: { desk: DeskResponse | null }) {
             </div>
           ) : (
             events.map((e, i) => {
-              const time = formatLocalTime(e.ts);
+              const time = formatExchangeTime(e.ts);
               const lvl = e.level === "warn" || e.level === "error" ? e.level : "";
               const msg = e.symbol ? `${e.symbol}: ${e.message}` : e.message;
               return (

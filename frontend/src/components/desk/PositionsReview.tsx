@@ -1,5 +1,6 @@
 
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import type { DeskPosition, DeskResponse } from "@/lib/api";
 import { closePosition } from "@/lib/api";
 import { BROKER_MS, useDesk } from "@/context/DeskContext";
@@ -84,6 +85,9 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
             <h2>{t("desk.positions.title")}</h2>
             <div className="sub">{t("desk.positions.sub", { freshness })}</div>
           </div>
+          <Link className="sub" to="/positions" style={{ color: "inherit" }}>
+            {t("desk.positions.link")}
+          </Link>
         </div>
         <div className="pos-list">
           {positions.length === 0 ? (
@@ -97,36 +101,41 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
             positions.map((p) => {
               const pnl = pnlView(p);
               const armed = arming === p.symbol;
+              const metrics: { key: string; label: string; value: string }[] = [
+                { key: "qty", label: t("desk.positions.stat.qty"), value: String(p.qty) },
+                { key: "entry", label: t("desk.positions.stat.entry"), value: fmtPx(p.avg_entry) },
+              ];
+              if (p.mark) {
+                metrics.push({
+                  key: "mark",
+                  label: t("desk.positions.stat.mark"),
+                  value: fmtPx(p.mark),
+                });
+              }
+              if (p.stop) {
+                metrics.push({
+                  key: "stop",
+                  label: t("desk.positions.stat.stop"),
+                  value: fmtPx(p.stop),
+                });
+              }
+              if (p.target) {
+                metrics.push({
+                  key: "tgt",
+                  label: t("desk.positions.stat.tgt"),
+                  value: fmtPx(p.target),
+                });
+              }
               return (
                 <div className="pos-row" key={p.symbol}>
-                  <span className="pos-row__dot" />
-                  <div className="pos-row__meta">
-                    <strong>{p.symbol}</strong>
-                    <span className="pos-row__stats">
-                      <span>
-                        {t("desk.positions.stat.qty")} {p.qty}
-                      </span>
-                      <span>
-                        {t("desk.positions.stat.entry")} {fmtPx(p.avg_entry)}
-                      </span>
-                      {p.mark ? (
-                        <span>
-                          {t("desk.positions.stat.mark")} {fmtPx(p.mark)}
-                        </span>
-                      ) : null}
-                      {p.stop ? (
-                        <span>
-                          {t("desk.positions.stat.stop")} {fmtPx(p.stop)}
-                        </span>
-                      ) : null}
-                      {p.target ? (
-                        <span>
-                          {t("desk.positions.stat.tgt")} {fmtPx(p.target)}
-                        </span>
-                      ) : null}
-                    </span>
-                  </div>
-                  <div className="pos-row__side">
+                  <div className="pos-row__head">
+                    <div className="pos-row__title">
+                      <span className="pos-row__dot" aria-hidden />
+                      <div className="pos-row__identity">
+                        <strong>{p.symbol}</strong>
+                        {p.name ? <span className="pos-row__name">{p.name}</span> : null}
+                      </div>
+                    </div>
                     {pnl ? (
                       <div className={pnl.className}>
                         <span className="pos-pnl__arrow" aria-hidden="true">
@@ -152,6 +161,16 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                         </span>
                       </div>
                     )}
+                  </div>
+                  <div className="pos-row__body">
+                    <dl className="pos-row__metrics">
+                      {metrics.map((m) => (
+                        <div className="pos-metric" key={m.key}>
+                          <dt>{m.label}</dt>
+                          <dd className="mono">{m.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
                     <button
                       type="button"
                       className={armed ? "pos-close pos-close--armed" : "pos-close"}
@@ -211,55 +230,65 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
           </div>
         )}
       </div>
-      <div className="card review-card">
-        <div className="card-head">
-          <div>
-            <h2>{t("desk.review.title")}</h2>
-            <div className="sub">{t("desk.review.sub")}</div>
+      <div className="review-stack">
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h2>{t("desk.review.title")}</h2>
+              <div className="sub">{t("desk.review.sub")}</div>
+            </div>
+          </div>
+          <div className="review-feed">
+            {notes.length === 0 ? (
+              <div className="review-line">
+                <span className="review-line__label">—</span>
+                <span>{t("desk.review.notesEmpty")}</span>
+              </div>
+            ) : (
+              notes.map((n, i) => (
+                <div className="review-line" key={i}>
+                  <span className="review-line__label">{t("desk.review.noteLabel")}</span>
+                  <span>{n}</span>
+                </div>
+              ))
+            )}
           </div>
         </div>
-        <div className="review-body">
-          <div className="review-pane">
-            <div className="review-feed">
-              {notes.length === 0 ? (
-                <div className="review-line">
-                  <span className="review-line__label">—</span>
-                  <span>{t("desk.review.notesEmpty")}</span>
-                </div>
-              ) : (
-                notes.map((n, i) => (
-                  <div className="review-line" key={i}>
-                    <span className="review-line__label">{t("desk.review.noteLabel")}</span>
-                    <span>{n}</span>
-                  </div>
-                ))
-              )}
+
+        <div className="card">
+          <div className="card-head">
+            <div>
+              <h2>{t("desk.review.recentTitle")}</h2>
+              <div className="sub">{t("desk.review.recentSub")}</div>
             </div>
+            <Link className="sub" to="/journal" style={{ color: "inherit" }}>
+              {t("desk.review.recentLink")}
+            </Link>
           </div>
-          <div className="review-pane">
-            <div className="sub">{t("desk.review.recentTitle")}</div>
-            <div className="review-feed">
-              {recent.length === 0 ? (
-                <div className="review-line">
-                  <span className="review-line__label">—</span>
-                  <span>{t("desk.review.recentEmpty")}</span>
-                </div>
-              ) : (
-                recent.slice(0, 8).map((trade, i) => {
-                  const pnl = Number(trade.pnl);
-                  const sign = pnl >= 0 ? "+" : "";
-                  return (
-                    <div className="review-line" key={i}>
-                      <span className="review-line__label">{trade.symbol}</span>
-                      <span>
-                        {sign}
-                        {pnl.toFixed(0)} · {(trade.pnl_pct || 0).toFixed(1)}%
-                      </span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
+          <div className="review-feed">
+            {recent.length === 0 ? (
+              <div className="review-line">
+                <span className="review-line__label">—</span>
+                <span>{t("desk.review.recentEmpty")}</span>
+              </div>
+            ) : (
+              recent.slice(0, 8).map((trade, i) => {
+                const pnl = Number(trade.pnl);
+                const sign = pnl >= 0 ? "+" : "";
+                return (
+                  <div className="review-line" key={i}>
+                    <span className="review-line__label">
+                      <strong>{trade.symbol}</strong>
+                      {trade.name ? <span className="review-line__name">{trade.name}</span> : null}
+                    </span>
+                    <span>
+                      {sign}
+                      {pnl.toFixed(0)} · {(trade.pnl_pct || 0).toFixed(1)}%
+                    </span>
+                  </div>
+                );
+              })
+            )}
           </div>
         </div>
       </div>

@@ -1,0 +1,38 @@
+.Panel {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: var(--td-radius-pill);
+  background: var(--td-surface-muted);
+  border: 1px solid transparent;
+}
+
+.Button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  height: 1.85rem;
+  padding: 0 0.75rem;
+  margin: 0;
+  border: none;
+  border-radius: var(--td-radius-pill);
+  background: transparent;
+  color: var(--td-text-muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.Button[data-pressed] {
+  background: var(--td-surface);
+  color: var(--td-text);
+  box-shadow: var(--td-shadow-sm);
+}
+
+.Button:focus-visible {
+  outline: none;
+  box-shadow: var(--td-focus-ring);
+}

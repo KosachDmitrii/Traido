@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
-import { formatLocalTime } from "@/lib/time";
+import { useEffect, useMemo, useState } from "react";
+import { formatExchangeStamp } from "@/lib/time";
 import { useDesk } from "@/context/DeskContext";
 import { useT } from "@/i18n/I18nProvider";
+import { SelectField, TablePager, useTablePager } from "@/ui";
 
 export function LogsPage() {
   const t = useT();
@@ -15,6 +16,15 @@ export function LogsPage() {
     return ["all", ...Array.from(ids).sort()];
   }, [events]);
 
+  const agentOptions = useMemo(
+    () =>
+      agents.map((a) => ({
+        value: a,
+        label: a === "all" ? t("logs.filter.all") : a,
+      })),
+    [agents, t],
+  );
+
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return [...events]
@@ -27,6 +37,13 @@ export function LogsPage() {
       });
   }, [events, agentFilter, query]);
 
+  const pager = useTablePager(rows);
+  const { setPage } = pager;
+
+  useEffect(() => {
+    setPage(1);
+  }, [agentFilter, query, setPage]);
+
   return (
     <section className="card page-card">
       <div className="logs-toolbar">
@@ -36,17 +53,13 @@ export function LogsPage() {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
-        <select
-          className="logs-select"
+        <SelectField
+          className="logs-agent-select"
+          ariaLabel={t("logs.filter.all")}
           value={agentFilter}
-          onChange={(e) => setAgentFilter(e.target.value)}
-        >
-          {agents.map((a) => (
-            <option key={a} value={a}>
-              {a === "all" ? t("logs.filter.all") : a}
-            </option>
-          ))}
-        </select>
+          onChange={setAgentFilter}
+          options={agentOptions}
+        />
       </div>
 
       <div className="activity-feed logs-feed">
@@ -57,12 +70,12 @@ export function LogsPage() {
             <span>{t("logs.empty")}</span>
           </div>
         ) : (
-          rows.map((e, i) => {
+          pager.slice.map((e, i) => {
             const lvl = e.level === "warn" || e.level === "error" ? e.level : "";
             const msg = e.symbol ? `${e.symbol}: ${e.message}` : e.message;
             return (
-              <div className={`row ${lvl}`} key={`${e.ts}-${e.agent}-${i}`} title={e.ts}>
-                <span>{formatLocalTime(e.ts)}</span>
+              <div className={`row ${lvl}`} key={`${e.ts}-${e.agent}-${i}`} title={`${formatExchangeStamp(e.ts)} ET`}>
+                <span className="mono">{formatExchangeStamp(e.ts)}</span>
                 <span className="ag">{e.agent}</span>
                 <span>{msg}</span>
               </div>
@@ -70,6 +83,7 @@ export function LogsPage() {
           })
         )}
       </div>
+      <TablePager pager={pager} />
     </section>
   );
 }

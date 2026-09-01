@@ -16,6 +16,7 @@ from core.config import get_settings
 from core.enums import Timeframe
 from core.universe import default_universe
 from market_data.factory import create_market_data_port
+from market_data.providers.company_name import attach_company_names, get_company_name_resolver
 from quant.backtesting.service import MarketDataUnavailable, evaluate_symbol
 from trading.f3_diagnostics import write_forward_report
 from trading.historical_mfe import ensure_seeded_from_aftermath, sync_from_paper_journal
@@ -57,7 +58,12 @@ async def evaluation(
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    return result.as_dict()
+    payload = result.as_dict()
+    names = await get_company_name_resolver(settings.finnhub_api_key).resolve_many(
+        [payload.get("symbol") or symbol]
+    )
+    payload["name"] = names.get(str(payload.get("symbol") or symbol).upper())
+    return payload
 
 
 @router.get("/evaluation")
@@ -89,4 +95,5 @@ async def evaluation_batch(
         else:
             results.append(outcome.as_dict())
 
+    await attach_company_names(results, settings.finnhub_api_key)
     return {"results": results, "errors": errors}

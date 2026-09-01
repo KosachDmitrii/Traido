@@ -90,6 +90,20 @@ export function humanizeError(raw: string): FlashMessage {
       detail: t("toast.error.killSwitch.detail"),
     };
   }
+  if (upper.includes("OPERATOR_QTY_ABOVE_RISK")) {
+    return {
+      kind: "error",
+      title: t("toast.error.qtyAboveRisk.title"),
+      detail: t("toast.error.qtyAboveRisk.detail"),
+    };
+  }
+  if (upper.includes("OPERATOR_QTY_INVALID")) {
+    return {
+      kind: "error",
+      title: t("toast.error.qtyInvalid.title"),
+      detail: t("toast.error.qtyInvalid.detail"),
+    };
+  }
   if (upper.includes("RISK_REJECT")) {
     return {
       kind: "error",

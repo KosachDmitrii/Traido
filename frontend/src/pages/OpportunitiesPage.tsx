@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { BuyOpportunity } from "@/lib/api";
 import { decideBuy, decideSell } from "@/lib/api";
 import {
@@ -12,24 +12,53 @@ import {
 } from "@/lib/messages";
 import { useDesk } from "@/context/DeskContext";
 import { useT } from "@/i18n/I18nProvider";
+import type { MessageKey } from "@/i18n";
+import { Button } from "@/ui";
 
-function buyable(opp: BuyOpportunity, entriesAllowed: boolean, busy: boolean): boolean {
-  if (busy || !entriesAllowed) return false;
-  return opp.viability?.buyable === true && opp.viability.state === "live";
+function riskMaxQty(opp: BuyOpportunity): number | null {
+  const raw = opp.proposed_qty ?? opp.risk?.sized_qty;
+  if (raw == null || raw === "") return null;
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) && n >= 1 ? n : null;
 }
 
-function viabilityLabel(
+function fmtPx(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return n.toFixed(2);
+}
+
+function ageLabel(
+  createdAt: string | undefined,
+  now: number,
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+): string | null {
+  if (!createdAt) return null;
+  const ms = now - new Date(createdAt).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return null;
+  const min = Math.floor(ms / 60000);
+  if (min < 1) return t("rail.age.justNow");
+  if (min < 60) return t("rail.age.minutes", { n: min });
+  return t("rail.age.hours", { n: Math.floor(min / 60) });
+}
+
+function viabilityView(
   opp: BuyOpportunity,
   entriesAllowed: boolean,
   t: ReturnType<typeof useT>,
-): string | null {
-  if (!entriesAllowed) return t("opp.viability.outsideRth");
+): { buyable: boolean; label: string | null } {
+  if (!entriesAllowed) {
+    return { buyable: false, label: t("opp.viability.outsideRth") };
+  }
   const state = opp.viability?.state ?? "unverified";
-  if (state === "live" && opp.viability?.buyable) return null;
-  if (state === "wide") return t("opp.viability.wide");
-  if (state === "drifted") return t("opp.viability.drifted");
-  if (state === "past_setup") return t("opp.viability.pastSetup");
-  return t("opp.viability.unverified");
+  if (state === "live" && opp.viability?.buyable === true) {
+    return { buyable: true, label: null };
+  }
+  if (state === "wide") return { buyable: false, label: t("opp.viability.wide") };
+  if (state === "drifted") return { buyable: false, label: t("opp.viability.drifted") };
+  if (state === "past_setup") return { buyable: false, label: t("opp.viability.pastSetup") };
+  return { buyable: false, label: t("opp.viability.unverified") };
 }
 
 export function OpportunitiesPage() {
@@ -38,12 +67,38 @@ export function OpportunitiesPage() {
   const buys = desk?.buy_opportunities ?? [];
   const sells = desk?.sell_opportunities ?? [];
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [qtyById, setQtyById] = useState<Record<string, number>>({});
+  const [now, setNow] = useState(() => Date.now());
   const entriesAllowed = desk?.session?.entries_allowed !== false;
 
-  async function onDecide(kind: "buy" | "sell", id: string, act: string, symbol: string) {
+  useEffect(() => {
+    const tick = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(tick);
+  }, []);
+
+  function qtyFor(opp: BuyOpportunity): number | null {
+    const max = riskMaxQty(opp);
+    if (max == null) return null;
+    const chosen = qtyById[opp.id];
+    if (chosen == null || !Number.isFinite(chosen)) return max;
+    return Math.min(max, Math.max(1, Math.floor(chosen)));
+  }
+
+  function setQty(opp: BuyOpportunity, next: number) {
+    const max = riskMaxQty(opp);
+    if (max == null) return;
+    const n = Number.isFinite(next) ? Math.floor(next) : max;
+    setQtyById((prev) => ({ ...prev, [opp.id]: Math.min(max, Math.max(1, n)) }));
+  }
+
+  async function onDecide(
+    kind: "buy" | "sell",
+    id: string,
+    act: string,
+    symbol: string,
+    qty?: number | null,
+  ) {
     setBusyId(id);
-    // The result replaces the pending message in place instead of stacking a
-    // second card next to it — two states of one request, not two events.
     const reachesBroker = act === "approve" || act === "sell";
     let slot;
     if (reachesBroker) {
@@ -61,7 +116,11 @@ export function OpportunitiesPage() {
     }
     try {
       if (kind === "buy") {
-        const data = await decideBuy(id, act === "approve" ? "approve" : "skip");
+        const data = await decideBuy(
+          id,
+          act === "approve" ? "approve" : "skip",
+          act === "approve" && qty != null ? qty : undefined,
+        );
         showFlash(
           act === "skip" ? flashSkipOk(symbol) : flashBuyOk(symbol, String(data.status || "")),
           slot,
@@ -91,43 +150,109 @@ export function OpportunitiesPage() {
         ) : (
           buys.map((opp) => {
             const c = opp.candidate;
-            const canBuy = buyable(opp, entriesAllowed, busyId !== null);
-            const note = viabilityLabel(opp, entriesAllowed, t);
+            const busy = busyId === opp.id;
+            const age = ageLabel(opp.created_at, now, t);
+            const viability = viabilityView(opp, entriesAllowed, t);
+            const canBuy = viability.buyable && busyId === null;
+            const maxQty = riskMaxQty(opp);
+            const chosenQty = qtyFor(opp);
+            const statusNote = viability.label;
             return (
-              <div className="opp-card" key={opp.id}>
-                <div className="opp-card__head">
-                  <strong>{c.symbol}</strong>
-                  <span>
-                    {t("opportunities.buy.meta", {
-                      conf: (c.confidence * 100).toFixed(0),
-                      rr: c.risk_reward,
-                    })}
-                  </span>
-                </div>
-                <div className="opp-card__meta mono">
-                  {t("opp.levels.entry")} {c.entry} · {t("opp.levels.stop")} {c.stop} ·{" "}
-                  {t("opp.levels.tgt")} {c.target}
-                  {opp.risk?.sized_qty ? ` · ${t("opp.levels.qty")} ${opp.risk.sized_qty}` : ""}
-                </div>
-                {note ? <div className="opp-viability opp-viability--blocked">{note}</div> : null}
-                <div className="opp-card__actions">
-                  <button
-                    type="button"
-                    className="btn-ink"
-                    disabled={!canBuy}
-                    onClick={() => onDecide("buy", opp.id, "approve", c.symbol)}
-                  >
-                    {t("action.buy")}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    disabled={busyId !== null}
-                    onClick={() => onDecide("buy", opp.id, "skip", c.symbol)}
-                  >
-                    {t("action.skip")}
-                  </button>
-                </div>
+              <div
+                className={`block accent rail-opp${viability.buyable ? "" : " block--waiting"}`}
+                key={opp.id}
+              >
+                <header className="rail-opp__head">
+                  <div className="rail-opp__title-row">
+                    <div className="title">{c.symbol}</div>
+                    {age ? <span className="rail-opp__age">{age}</span> : null}
+                  </div>
+                  <div className="rail-opp__sub">
+                    {(c.thesis || "bullish").toUpperCase()}
+                    {" · "}
+                    {t("rail.buy.quality", { q: c.entry_quality ?? "—" })}
+                    {" · "}
+                    {t("rail.buy.conf", { conf: ((c.confidence || 0) * 100).toFixed(0) })}
+                    {" · "}
+                    {t("rail.buy.rr", { rr: c.risk_reward })}
+                  </div>
+                </header>
+
+                <dl className="opp-card__levels">
+                  <div>
+                    <dt>{t("opp.levels.entry")}</dt>
+                    <dd className="mono">{fmtPx(c.entry)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t("opp.levels.stop")}</dt>
+                    <dd className="mono">{fmtPx(c.stop)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t("opp.levels.tgt")}</dt>
+                    <dd className="mono">
+                      {fmtPx(c.target)}
+                      {c.target_reachability ? (
+                        <span className="rail-opp__reach"> {c.target_reachability}</span>
+                      ) : null}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>{t("opp.levels.qty")}</dt>
+                    <dd className="mono">{maxQty ?? "—"}</dd>
+                  </div>
+                </dl>
+
+                {statusNote ? (
+                  <p className="opp-card__status opp-viability opp-viability--blocked">
+                    {statusNote}
+                  </p>
+                ) : null}
+
+                <footer className="rail-opp__footer">
+                  {maxQty != null && chosenQty != null ? (
+                    <label className="opp-qty">
+                      <span className="opp-qty__label">{t("opp.qty.label")}</span>
+                      <input
+                        className="opp-qty__input mono"
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={maxQty}
+                        step={1}
+                        value={chosenQty}
+                        disabled={busyId !== null}
+                        onChange={(e) => setQty(opp, Number(e.target.value))}
+                      />
+                      <span className="opp-qty__max">{t("opp.qty.max", { n: maxQty })}</span>
+                    </label>
+                  ) : (
+                    <span />
+                  )}
+                  <div className="actions">
+                    <Button
+                      variant="accent"
+                      disabled={!canBuy}
+                      title={
+                        canBuy
+                          ? undefined
+                          : statusNote ||
+                            (!entriesAllowed
+                              ? t("opp.buy.title.outsideRth")
+                              : t("opp.buy.title.locked"))
+                      }
+                      onClick={() => onDecide("buy", opp.id, "approve", c.symbol, chosenQty)}
+                    >
+                      {busy ? "…" : t("action.buy")}
+                    </Button>
+                    <Button
+                      variant="light"
+                      disabled={busyId !== null}
+                      onClick={() => onDecide("buy", opp.id, "skip", c.symbol)}
+                    >
+                      {t("action.skip")}
+                    </Button>
+                  </div>
+                </footer>
               </div>
             );
           })
@@ -143,32 +268,47 @@ export function OpportunitiesPage() {
             const p = ex.proposal;
             const busy = busyId === ex.id;
             return (
-              <div className="opp-card" key={ex.id}>
-                <div className="opp-card__head">
-                  <strong>{p.symbol}</strong>
-                  <span>{t("opportunities.sell.pnl", { n: p.pnl_pct.toFixed(1) })}</span>
-                </div>
-                <div className="opp-card__meta mono">
-                  {t("opportunities.sell.entryNow")} {p.entry} · {p.current}
-                </div>
-                <div className="opp-card__actions">
-                  <button
-                    type="button"
-                    className="btn-ink"
-                    disabled={busy}
-                    onClick={() => onDecide("sell", ex.id, "sell", p.symbol)}
-                  >
-                    {t("action.sell")}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-ghost"
-                    disabled={busy}
-                    onClick={() => onDecide("sell", ex.id, "hold", p.symbol)}
-                  >
-                    {t("action.hold")}
-                  </button>
-                </div>
+              <div className="block ink rail-opp" key={ex.id}>
+                <header className="rail-opp__head">
+                  <div className="rail-opp__title-row">
+                    <div className="title">{p.symbol}</div>
+                    <span className="rail-opp__age">
+                      {t("opportunities.sell.pnl", { n: p.pnl_pct.toFixed(1) })}
+                    </span>
+                  </div>
+                </header>
+                <dl className="opp-card__levels opp-card__levels--sell">
+                  <div>
+                    <dt>{t("opp.levels.entry")}</dt>
+                    <dd className="mono">{fmtPx(p.entry)}</dd>
+                  </div>
+                  <div>
+                    <dt>{t("opportunities.sell.now")}</dt>
+                    <dd className="mono">{fmtPx(p.current)}</dd>
+                  </div>
+                </dl>
+                {(p.reasons || []).length > 0 ? (
+                  <p className="opp-card__reasons">{(p.reasons || []).join(" · ")}</p>
+                ) : null}
+                <footer className="rail-opp__footer">
+                  <span />
+                  <div className="actions">
+                    <Button
+                      variant="ink"
+                      disabled={busyId !== null}
+                      onClick={() => onDecide("sell", ex.id, "sell", p.symbol)}
+                    >
+                      {busy ? "…" : t("action.sell")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      disabled={busyId !== null}
+                      onClick={() => onDecide("sell", ex.id, "hold", p.symbol)}
+                    >
+                      {t("action.hold")}
+                    </Button>
+                  </div>
+                </footer>
               </div>
             );
           })

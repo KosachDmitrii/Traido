@@ -15,10 +15,18 @@ export const en = {
   "nav.evaluation": "Evaluation",
   "nav.logs": "Logs",
   "nav.settings": "Settings",
+  "nav.aria": "Primary navigation",
+  "nav.collapse": "Collapse",
+  "nav.expand": "Expand navigation",
 
   "lang.en": "EN",
   "lang.ru": "RU",
   "lang.switch": "Language",
+
+  "pager.aria": "Table pagination",
+  "pager.pageSize": "Size:",
+  "pager.prev": "Previous",
+  "pager.next": "Next",
 
   "topbar.gap.minutes": "{n}m",
   "topbar.gap.hoursMinutes": "{h}h {m}m",
@@ -158,6 +166,9 @@ export const en = {
   "rail.wait.conditions": "No BUY while WAIT — conditions: {c}",
   "rail.buy.header":
     "{thesis} · ENTRY GOOD NOW · Quality {q}/100 · Conf {conf}% · R:R {rr} · Qty {qty}",
+  "rail.buy.quality": "Quality {q}/100",
+  "rail.buy.conf": "Conf {conf}%",
+  "rail.buy.rr": "R:R {rr}",
   "rail.sell.header": "Entry {e} · Now {n} · P&L {p}%",
 
   "opp.levels.entry": "Entry",
@@ -165,6 +176,8 @@ export const en = {
   "opp.levels.target": "Target",
   "opp.levels.tgt": "Tgt",
   "opp.levels.qty": "Qty",
+  "opp.qty.label": "Qty",
+  "opp.qty.max": "max {n}",
   "opp.viability.wide": "Book too wide · waiting",
   "opp.viability.drifted": "Price left the card · waiting",
   "opp.viability.pastSetup": "Setup already passed",
@@ -182,13 +195,14 @@ export const en = {
 
   "desk.positions.title": "Positions",
   "desk.positions.sub": "Ledger + Alpaca broker ({freshness})",
+  "desk.positions.link": "All positions →",
   "desk.positions.empty.title": "Flat",
   "desk.positions.empty.detail": "No open positions",
   "desk.positions.stat.qty": "Qty",
   "desk.positions.stat.entry": "Entry",
   "desk.positions.stat.mark": "Mark",
   "desk.positions.stat.stop": "Stop",
-  "desk.positions.stat.tgt": "Tgt",
+  "desk.positions.stat.tgt": "Target",
   "desk.positions.noMark": "No price reported by the broker",
   "desk.positions.close": "Close",
   "desk.positions.close.confirm": "Confirm?",
@@ -204,7 +218,9 @@ export const en = {
   "desk.review.notesEmpty": "No review notes yet",
   "desk.review.noteLabel": "note",
   "desk.review.recentTitle": "Recent closed",
+  "desk.review.recentSub": "Latest closed trades from the journal",
   "desk.review.recentEmpty": "Close a trade to journal",
+  "desk.review.recentLink": "Journal →",
 
   "desk.agents.title": "AI Agents",
   "desk.agents.subIdle": "Pipeline status · last pass",
@@ -266,6 +282,7 @@ export const en = {
   "opportunities.buy.meta": "Conf {conf}% · R:R {rr}",
   "opportunities.sell.pnl": "PnL {n}%",
   "opportunities.sell.entryNow": "Entry · Now",
+  "opportunities.sell.now": "Now",
 
   "positions.page.open": "Open positions · {n}",
   "positions.page.orders": "Open orders · {n}",
@@ -364,7 +381,7 @@ export const en = {
   "eval.verdict.FAIL_SAMPLE": "FAIL · sample",
   "eval.verdict.NOT_EVALUATED": "Not evaluated",
   "eval.verdict.INSUFFICIENT_SAMPLE": "Insufficient sample",
-  "eval.verdict.meta": "{sym} · {bars} bars · {n} out-of-sample trades",
+  "eval.verdict.meta": "{sym}{name} · {bars} bars · {n} out-of-sample trades",
   "eval.f3.title": "F3 entry diagnostics",
   "eval.f3.sub": "Signal quality · WAIT watches · historical MFE",
   "eval.f3.refresh": "Refresh",
@@ -442,6 +459,11 @@ export const en = {
   "toast.error.killSwitch.title": "Kill switch is on",
   "toast.error.killSwitch.detail": "Trading blocked. Turn the kill switch off to confirm again.",
   "toast.error.riskReject.title": "Risk Engine rejected",
+  "toast.error.qtyAboveRisk.title": "Qty above Risk max",
+  "toast.error.qtyAboveRisk.detail":
+    "You asked for more shares than Risk sized at approve. Lower qty and try again.",
+  "toast.error.qtyInvalid.title": "Invalid qty",
+  "toast.error.qtyInvalid.detail": "Buy at least 1 whole share, up to the Risk max.",
   "toast.error.unauthorized.title": "No API access",
   "toast.error.unauthorized.detail":
     "Check TRAIDO_API_KEY in Settings (or localStorage) or open the desk from an allowed origin.",

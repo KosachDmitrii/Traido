@@ -1,9 +1,9 @@
+import { BrandLogo } from "@/layout/BrandLogo";
 import { CircleSlash, Clock, ShieldAlert } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { SessionState } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
 import { useI18n } from "@/i18n/I18nProvider";
-import type { Locale } from "@/i18n";
 
 const DAY_MINUTES = 24 * 60;
 
@@ -59,7 +59,7 @@ const PHASE_TONE: Record<string, string> = {
 
 export function Topbar() {
   const { desk, killSwitch } = useDesk();
-  const { t, locale, setLocale } = useI18n();
+  const { t } = useI18n();
   const session = desk?.session;
   const { fraction, remaining } = session
     ? sessionProgress(session)
@@ -118,70 +118,50 @@ export function Topbar() {
 
   return (
     <header className="topbar">
-      <div className="tb-brand">
-        <span className="tb-brand__mark" />
-        {t("brand.name")}
+      <div className="topbar__left">
+        <BrandLogo name={t("brand.name")} />
       </div>
 
-      <div className={`tb-session${tone ? ` tb-session--${tone}` : ""}`}>
-        <span className="tb-dial" style={{ "--dial": String(fraction) } as CSSProperties}>
-          <svg className="tb-dial__ring" viewBox="0 0 28 28" aria-hidden>
-            <circle className="tb-dial__track" cx="14" cy="14" r="12.5" />
-            <circle className="tb-dial__arc" cx="14" cy="14" r="12.5" />
-          </svg>
-          <Clock size={13} strokeWidth={2} absoluteStrokeWidth aria-hidden />
-        </span>
-        <span className="tb-session__now">
-          <span className="tb-session__clock mono">{session?.et_time ?? "--:--"}</span>
-          <span className="tb-session__zone">
-            {t("topbar.session.zone", { date: session?.et_date ?? "—" })}
+      <div className="topbar__center">
+        <div className={`tb-session${tone ? ` tb-session--${tone}` : ""}`}>
+          <span className="tb-dial" style={{ "--dial": String(fraction) } as CSSProperties}>
+            <svg className="tb-dial__ring" viewBox="0 0 28 28" aria-hidden>
+              <circle className="tb-dial__track" cx="14" cy="14" r="12.5" />
+              <circle className="tb-dial__arc" cx="14" cy="14" r="12.5" />
+            </svg>
+            <Clock size={13} strokeWidth={1.75} absoluteStrokeWidth aria-hidden />
           </span>
-        </span>
-        <span className="tb-session__text">
-          <strong>{copy?.title ?? t("topbar.session.loading")}</strong>
-          <span>{copy?.detail ?? ""}</span>
-        </span>
-      </div>
-
-      <div className="tb-spacer" />
-
-      {killSwitch === "on" ? (
-        <span className="tb-alert" role="status">
-          <ShieldAlert size={15} strokeWidth={1.9} absoluteStrokeWidth aria-hidden />
-          {t("topbar.kill.on")}
-        </span>
-      ) : null}
-      {killSwitch === "unreadable" ? (
-        <span className="tb-alert tb-alert--muted" role="status">
-          <CircleSlash size={15} strokeWidth={1.9} absoluteStrokeWidth aria-hidden />
-          {t("topbar.kill.unreadable")}
-        </span>
-      ) : null}
-
-      <div className="lang-toggle tb-lang" role="group" aria-label={t("lang.switch")}>
-        {(["en", "ru"] as Locale[]).map((code) => (
-          <button
-            key={code}
-            type="button"
-            className={`lang-toggle__btn${locale === code ? " is-active" : ""}`}
-            onClick={() => setLocale(code)}
-            aria-pressed={locale === code}
-          >
-            {t(code === "en" ? "lang.en" : "lang.ru")}
-          </button>
-        ))}
-      </div>
-
-      <span className={`td-paper-banner${live ? " td-paper-banner--live" : ""}`}>
-        {live ? t("topbar.mode.live") : t("topbar.mode.paper")}
-      </span>
-
-      <div className="profile">
-        <div className="avatar" />
-        <div>
-          <strong>Dmitrii</strong>
-          <span>{t("topbar.profile.mode")}</span>
+          <span className="tb-session__now">
+            <span className="tb-session__clock mono">{session?.et_time ?? "--:--"}</span>
+            <span className="tb-session__zone">
+              {t("topbar.session.zone", { date: session?.et_date ?? "—" })}
+            </span>
+          </span>
+          <span className="tb-session__divider" aria-hidden />
+          <span className="tb-session__text">
+            <strong>{copy?.title ?? t("topbar.session.loading")}</strong>
+            <span>{copy?.detail ?? ""}</span>
+          </span>
         </div>
+      </div>
+
+      <div className="topbar__right">
+        {killSwitch === "on" ? (
+          <span className="tb-alert" role="status">
+            <ShieldAlert size={15} strokeWidth={1.75} absoluteStrokeWidth aria-hidden />
+            {t("topbar.kill.on")}
+          </span>
+        ) : null}
+        {killSwitch === "unreadable" ? (
+          <span className="tb-alert tb-alert--muted" role="status">
+            <CircleSlash size={15} strokeWidth={1.75} absoluteStrokeWidth aria-hidden />
+            {t("topbar.kill.unreadable")}
+          </span>
+        ) : null}
+
+        <span className={`td-paper-banner${live ? " td-paper-banner--live" : ""}`}>
+          {live ? t("topbar.mode.live") : t("topbar.mode.paper")}
+        </span>
       </div>
     </header>
   );

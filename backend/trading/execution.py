@@ -294,6 +294,8 @@ class ExecutionService:
         self,
         opportunity_id: UUID,
         decision: UserDecision,
+        *,
+        qty: Decimal | None = None,
     ) -> TradeOpportunity:
         opp = self.store.get(opportunity_id)
         if opp is None:
@@ -434,7 +436,43 @@ class ExecutionService:
             )
             raise RuntimeError(f"RISK_REJECT:{','.join(risk.reasons)}")
 
-        qty = round_order_qty(risk.sized_qty)
+        max_qty = round_order_qty(risk.sized_qty)
+        if qty is None:
+            order_qty = max_qty
+        else:
+            # Operator may take less risk than the engine sized, never more.
+            # Rounding down matches whole-share entries; a request above the
+            # live max is refused rather than silently clipped — clipping would
+            # make APPROVE mean something the operator did not press.
+            order_qty = round_order_qty(qty)
+            if order_qty < 1:
+                self._release_opportunity(opp, risk)
+                await self.audit.append(
+                    "OperatorQtyInvalid",
+                    "execution",
+                    {
+                        "opportunity_id": str(opp.id),
+                        "requested_qty": str(qty),
+                        "max_qty": str(max_qty),
+                    },
+                    pipeline_run_id=opp.candidate.pipeline_run_id,
+                )
+                raise RuntimeError("OPERATOR_QTY_INVALID")
+            if order_qty > max_qty:
+                self._release_opportunity(opp, risk)
+                await self.audit.append(
+                    "OperatorQtyAboveRisk",
+                    "execution",
+                    {
+                        "opportunity_id": str(opp.id),
+                        "requested_qty": str(order_qty),
+                        "max_qty": str(max_qty),
+                        "repriced_entry": str(priced.entry),
+                    },
+                    pipeline_run_id=opp.candidate.pipeline_run_id,
+                )
+                raise RuntimeError(f"OPERATOR_QTY_ABOVE_RISK:{order_qty}>{max_qty}")
+
         limit_px = round_equity_price(priced.entry)
         stop_px = round_equity_price(priced.stop)
 
@@ -447,7 +485,7 @@ class ExecutionService:
         )
         self.store.update(opp)
 
-        if qty <= 0:
+        if order_qty <= 0:
             self._release_opportunity(opp, risk)
             await self.audit.append(
                 "EntrySizeBelowOneShare",
@@ -461,6 +499,7 @@ class ExecutionService:
             )
             raise RuntimeError("SIZE_BELOW_ONE_SHARE")
 
+        qty = order_qty
         liquidity = self._liquidity_gate(opp, bars, qty=qty, price=limit_px, spread=spread)
         if liquidity is not None:
             self._release_opportunity(opp, risk)

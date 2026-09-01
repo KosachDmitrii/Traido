@@ -1,0 +1,23 @@
+.Input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  margin: 0;
+  border: 1px solid var(--td-border-strong);
+  border-radius: var(--td-radius-md);
+  background: var(--td-surface);
+  color: var(--td-text);
+  font: inherit;
+  font-size: 0.875rem;
+}
+
+.Input::placeholder {
+  color: var(--td-text-faint);
+}
+
+.Input:focus {
+  outline: none;
+  border-color: var(--td-accent);
+  box-shadow: var(--td-focus-ring);
+}

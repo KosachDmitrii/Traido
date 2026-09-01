@@ -1,11 +1,14 @@
 import { useDesk } from "@/context/DeskContext";
 import { useT } from "@/i18n/I18nProvider";
+import { TablePager, useTablePager } from "@/ui";
 
 export function PositionsPage() {
   const t = useT();
   const { desk } = useDesk();
   const positions = desk?.positions ?? [];
   const orders = desk?.open_orders ?? [];
+  const posPager = useTablePager(positions);
+  const orderPager = useTablePager(orders);
 
   return (
     <section className="card page-card">
@@ -30,10 +33,13 @@ export function PositionsPage() {
                 </td>
               </tr>
             ) : (
-              positions.map((p) => (
+              posPager.slice.map((p) => (
                 <tr key={p.symbol}>
                   <td>
-                    <strong>{p.symbol}</strong>
+                    <div className="symbol-cell">
+                      <strong>{p.symbol}</strong>
+                      {p.name ? <span className="symbol-cell__name">{p.name}</span> : null}
+                    </div>
                   </td>
                   <td className="mono">{p.qty}</td>
                   <td className="mono">{p.avg_entry}</td>
@@ -46,6 +52,7 @@ export function PositionsPage() {
           </tbody>
         </table>
       </div>
+      <TablePager pager={posPager} />
 
       <h3 className="page-section-title">{t("positions.page.orders", { n: orders.length })}</h3>
       <div className="table-wrap">
@@ -68,7 +75,7 @@ export function PositionsPage() {
                 </td>
               </tr>
             ) : (
-              orders.map((o) => (
+              orderPager.slice.map((o) => (
                 <tr key={o.broker_order_id || `${o.symbol}-${o.qty}`}>
                   <td>
                     <strong>{o.symbol}</strong>
@@ -84,6 +91,7 @@ export function PositionsPage() {
           </tbody>
         </table>
       </div>
+      <TablePager pager={orderPager} />
     </section>
   );
 }

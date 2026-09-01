@@ -5,6 +5,7 @@ import { fetchEvaluation, fetchF3Diagnostics } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
 import { useT } from "@/i18n/I18nProvider";
 import type { MessageKey } from "@/i18n";
+import { TablePager, useTablePager } from "@/ui";
 
 function SymbolPicker({
   symbols,
@@ -236,6 +237,8 @@ export function EvaluationPage() {
   const wait = f3?.wait_effectiveness;
   const sig = f3?.signal_quality;
   const tgt = f3?.target_quality;
+  const regimeRows = data?.by_regime ?? [];
+  const regimePager = useTablePager(regimeRows);
 
   return (
     <div className="eval-page">
@@ -342,6 +345,7 @@ export function EvaluationPage() {
                 <span className="sub">
                   {t("eval.verdict.meta", {
                     sym: data.symbol,
+                    name: data.name ? ` · ${data.name}` : "",
                     bars: data.bars,
                     n: data.oos_trade_count,
                   })}
@@ -454,7 +458,7 @@ export function EvaluationPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.by_regime.map((r, i) => (
+                  {regimePager.slice.map((r, i) => (
                     <tr key={`${r.regime}-${i}`}>
                       <td>{r.regime.replace(/_/g, " ")}</td>
                       <td className="mono">{r.bars}</td>
@@ -467,6 +471,7 @@ export function EvaluationPage() {
                   ))}
                 </tbody>
               </table>
+              <TablePager pager={regimePager} />
             </section>
           ) : null}
         </>

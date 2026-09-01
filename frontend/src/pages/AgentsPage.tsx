@@ -2,16 +2,16 @@ import { useCallback, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import type { LucideIcon } from "lucide-react";
 import {
-  BookOpen,
-  Bot,
-  ChartSpline,
+  Briefcase,
+  CandlestickChart,
   ChevronRight,
-  Eye,
-  Gauge,
-  Route,
-  Rss,
-  ScanLine,
-  Shield,
+  ClipboardCheck,
+  Compass,
+  Cpu,
+  Globe2,
+  Newspaper,
+  Radar,
+  ShieldCheck,
 } from "lucide-react";
 import { agentDisplayStatus, type AgentState } from "@/lib/api";
 import { ScanFunnelCard } from "@/components/desk/ScanFunnelCard";
@@ -19,7 +19,7 @@ import { WorkingAntsBorder } from "@/components/desk/WorkingAntsBorder";
 import { useDesk } from "@/context/DeskContext";
 import { useT } from "@/i18n/I18nProvider";
 import type { MessageKey } from "@/i18n";
-import { formatLocalDateTime, formatLocalTime } from "@/lib/time";
+import { formatExchangeDateTime, formatExchangeTime } from "@/lib/time";
 
 type Accent = "mustard" | "taupe" | "ink" | "sage";
 
@@ -34,7 +34,7 @@ type AgentMeta = {
 
 const AGENT_META: Record<string, AgentMeta> = {
   scanner: {
-    icon: ScanLine,
+    icon: Radar,
     blurbKey: "agents.meta.scanner.blurb",
     accent: "mustard",
     tipKey: "agents.meta.scanner.tip",
@@ -42,7 +42,7 @@ const AGENT_META: Record<string, AgentMeta> = {
     feedsTo: ["technical", "news", "market"],
   },
   technical: {
-    icon: ChartSpline,
+    icon: CandlestickChart,
     blurbKey: "agents.meta.technical.blurb",
     accent: "taupe",
     tipKey: "agents.meta.technical.tip",
@@ -50,7 +50,7 @@ const AGENT_META: Record<string, AgentMeta> = {
     feedsTo: ["strategy"],
   },
   news: {
-    icon: Rss,
+    icon: Newspaper,
     blurbKey: "agents.meta.news.blurb",
     accent: "sage",
     tipKey: "agents.meta.news.tip",
@@ -58,7 +58,7 @@ const AGENT_META: Record<string, AgentMeta> = {
     feedsTo: ["strategy"],
   },
   market: {
-    icon: Gauge,
+    icon: Globe2,
     blurbKey: "agents.meta.market.blurb",
     accent: "taupe",
     tipKey: "agents.meta.market.tip",
@@ -66,7 +66,7 @@ const AGENT_META: Record<string, AgentMeta> = {
     feedsTo: ["strategy"],
   },
   strategy: {
-    icon: Route,
+    icon: Compass,
     blurbKey: "agents.meta.strategy.blurb",
     accent: "mustard",
     tipKey: "agents.meta.strategy.tip",
@@ -74,7 +74,7 @@ const AGENT_META: Record<string, AgentMeta> = {
     feedsTo: ["risk"],
   },
   risk: {
-    icon: Shield,
+    icon: ShieldCheck,
     blurbKey: "agents.meta.fallback.blurb",
     accent: "ink",
     tipKey: "agents.meta.fallback.tip",
@@ -82,7 +82,7 @@ const AGENT_META: Record<string, AgentMeta> = {
     feedsTo: ["position"],
   },
   position: {
-    icon: Eye,
+    icon: Briefcase,
     blurbKey: "agents.meta.position.blurb",
     accent: "ink",
     tipKey: "agents.meta.position.tip",
@@ -90,7 +90,7 @@ const AGENT_META: Record<string, AgentMeta> = {
     feedsTo: ["review"],
   },
   review: {
-    icon: BookOpen,
+    icon: ClipboardCheck,
     blurbKey: "agents.meta.review.blurb",
     accent: "sage",
     tipKey: "agents.meta.review.tip",
@@ -142,7 +142,7 @@ function AgentNode({
     null,
   );
   const meta = AGENT_META[agent.id] ?? {
-    icon: Bot,
+    icon: Cpu,
     blurbKey: "agents.meta.fallback.blurb" as MessageKey,
     accent: "taupe" as const,
     tipKey: "agents.meta.fallback.tip" as MessageKey,
@@ -157,7 +157,7 @@ function AgentNode({
 
   const showTip = useCallback((el: HTMLElement) => {
     const r = el.getBoundingClientRect();
-    const tipH = 220;
+    const tipH = 280;
     const spaceBelow = window.innerHeight - r.bottom;
     const place: "above" | "below" = spaceBelow < tipH && r.top > tipH ? "above" : "below";
     const left = Math.min(window.innerWidth - 16, Math.max(16, r.left + r.width / 2));
@@ -172,13 +172,14 @@ function AgentNode({
       className={`ag-tip ag-tip--fixed ag-tip--${tipPos.place}`}
       style={{ left: tipPos.left, top: tipPos.top }}
     >
-      <strong>{agent.name}</strong>
-      <p>{t(meta.tipKey)}</p>
-      <dl>
-        <div>
-          <dt>{t("agents.tip.status")}</dt>
-          <dd>{statusLabel(status, t)}</dd>
-        </div>
+      <header className="ag-tip__head">
+        <strong className="ag-tip__title">{agent.name}</strong>
+        <span className={`ag-tip__badge ag-tip__badge--${status}`}>
+          {statusLabel(status, t)}
+        </span>
+      </header>
+      <p className="ag-tip__blurb">{t(meta.tipKey)}</p>
+      <dl className="ag-tip__meta">
         <div>
           <dt>{t("agents.tip.score")}</dt>
           <dd>{scoreHint(agent, t)}</dd>
@@ -189,7 +190,7 @@ function AgentNode({
         </div>
         <div>
           <dt>{t("agents.tip.updated")}</dt>
-          <dd>{formatLocalDateTime(agent.updated_at)}</dd>
+          <dd>{formatExchangeDateTime(agent.updated_at)}</dd>
         </div>
         {fromNames.length ? (
           <div>
@@ -204,7 +205,7 @@ function AgentNode({
           </div>
         ) : null}
       </dl>
-      <p className="ag-tip__live">{detail}</p>
+      {detail ? <p className="ag-tip__live">{detail}</p> : null}
     </div>
   ) : null;
 
@@ -220,7 +221,7 @@ function AgentNode({
       onBlur={() => setTipPos(null)}
     >
       <span className={`ag-node__icon ag-node__icon--${meta.accent}`}>
-        <Icon size={16} strokeWidth={1.75} absoluteStrokeWidth aria-hidden />
+        <Icon size={15} strokeWidth={1.5} absoluteStrokeWidth aria-hidden />
       </span>
       <span className="ag-node__body">
         <span className="ag-node__name">{agent.name}</span>
@@ -284,18 +285,18 @@ export function AgentsPage() {
         <div className="ag-sheet__rows">
           {ordered.map((a) => {
             const meta = AGENT_META[a.id];
-            const Icon = meta?.icon ?? Bot;
+            const Icon = meta?.icon ?? Cpu;
             const status = agentDisplayStatus(a);
             return (
               <div className={`ag-row ag-row--${status}`} key={a.id}>
                 <span className={`ag-row__ico ag-row__ico--${meta?.accent || "taupe"}`}>
-                  <Icon size={15} strokeWidth={1.75} absoluteStrokeWidth aria-hidden />
+                  <Icon size={14} strokeWidth={1.5} absoluteStrokeWidth aria-hidden />
                 </span>
                 <strong>{a.name}</strong>
                 <span className={`ag-row__pill ag-row__pill--${status}`}>{statusLabel(status, t)}</span>
                 <span className="ag-row__score mono">{formatScore(a, t)}</span>
                 <span className="ag-row__detail">{a.detail || a.last_symbol || "—"}</span>
-                <span className="ag-row__time mono">{formatLocalTime(a.updated_at)}</span>
+                <span className="ag-row__time mono">{formatExchangeTime(a.updated_at)}</span>
               </div>
             );
           })}

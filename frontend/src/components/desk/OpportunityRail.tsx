@@ -14,6 +14,7 @@ import {
   type FlashMessage,
 } from "@/lib/messages";
 import type { FlashSlot } from "@/lib/toasts";
+import { Button } from "@/ui";
 
 function formatOppQty(opp: BuyOpportunity): string {
   const executed = opp.executed_qty;
@@ -30,6 +31,21 @@ function formatOppQty(opp: BuyOpportunity): string {
   }
   if (approved != null && approved !== "") return String(approved);
   return proposed != null && proposed !== "" ? String(proposed) : "—";
+}
+
+/** Whole-share Risk max shown on the card (floor of proposed/sized qty). */
+function riskMaxQty(opp: BuyOpportunity): number | null {
+  const raw = opp.proposed_qty ?? opp.risk?.sized_qty;
+  if (raw == null || raw === "") return null;
+  const n = Math.floor(Number(raw));
+  return Number.isFinite(n) && n >= 1 ? n : null;
+}
+
+function fmtPx(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  return n.toFixed(2);
 }
 
 type Props = {
@@ -116,44 +132,59 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
   const waits = desk?.entry_watches ?? [];
   const sells = desk?.sell_opportunities ?? [];
   const [busyId, setBusyId] = useState<string | null>(null);
+  /** Operator qty per card; defaults to Risk max until edited. */
+  const [qtyById, setQtyById] = useState<Record<string, number>>({});
 
-  // Ticks on its own because the desk poll answers 304 when nothing changed,
-  // and a card nobody has touched is precisely the one whose age matters. Left
-  // to the payload, the label would freeze at the age it was first drawn with.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const tick = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(tick);
-  }, []);
+  function qtyFor(opp: BuyOpportunity): number | null {
+    const max = riskMaxQty(opp);
+    if (max == null) return null;
+    const chosen = qtyById[opp.id];
+    if (chosen == null || !Number.isFinite(chosen)) return max;
+    return Math.min(max, Math.max(1, Math.floor(chosen)));
+  }
 
-  async function onDecide(kind: "buy" | "sell", id: string, act: string, symbol: string) {
+  function setQty(opp: BuyOpportunity, next: number) {
+    const max = riskMaxQty(opp);
+    if (max == null) return;
+    const n = Number.isFinite(next) ? Math.floor(next) : max;
+    setQtyById((prev) => ({ ...prev, [opp.id]: Math.min(max, Math.max(1, n)) }));
+  }
+
+  async function onDecide(
+    kind: "buy" | "sell",
+    id: string,
+    act: string,
+    symbol: string,
+    qty?: number | null,
+  ) {
     setBusyId(id);
-    // Held for the whole request: the answer belongs in the row that announced
-    // the question, not on a second card above it.
-    let slot: FlashSlot;
+    let slot: FlashSlot | undefined;
     if (kind === "buy" && act === "approve") {
       slot = onFlash(flashPending(t("toast.pending.sendBuy", { symbol })));
     } else if (kind === "sell" && act === "sell") {
       slot = onFlash(flashPending(t("toast.pending.sendSell", { symbol })));
     } else {
-      slot = onFlash(flashPendingLocal(t("toast.pending.action", { symbol, act: act.toUpperCase() })));
+      slot = onFlash(
+        flashPendingLocal(t("toast.pending.action", { symbol, act: act.toUpperCase() })),
+      );
     }
-
     try {
       if (kind === "buy") {
-        const data = await decideBuy(id, act === "approve" ? "approve" : "skip");
-        if (act === "skip") {
-          onFlash(flashSkipOk(symbol), slot);
-        } else {
-          onFlash(flashBuyOk(symbol, String(data.status || "")), slot);
-        }
+        const data = await decideBuy(
+          id,
+          act === "approve" ? "approve" : "skip",
+          act === "approve" && qty != null ? qty : undefined,
+        );
+        onFlash(
+          act === "skip" ? flashSkipOk(symbol) : flashBuyOk(symbol, String(data.status || "")),
+          slot,
+        );
       } else {
         const data = await decideSell(id, act as "sell" | "hold");
-        if (act === "hold") {
-          onFlash(flashHoldOk(symbol), slot);
-        } else {
-          onFlash(flashSellOk(symbol, String(data.status || "")), slot);
-        }
+        onFlash(
+          act === "hold" ? flashHoldOk(symbol) : flashSellOk(symbol, String(data.status || "")),
+          slot,
+        );
       }
       await onRefresh();
     } catch (err) {
@@ -163,6 +194,15 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
       setBusyId(null);
     }
   }
+
+  // Ticks on its own because the desk poll answers 304 when nothing changed,
+  // and a card nobody has touched is precisely the one whose age matters. Left
+  // to the payload, the label would freeze at the age it was first drawn with.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const tick = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(tick);
+  }, []);
 
   const entriesAllowed = desk?.session?.entries_allowed !== false;
 
@@ -218,65 +258,105 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
         const age = ageLabel(opp.created_at, now, t);
         const viability = viabilityView(opp.viability, t);
         const canBuy = buyEnabled(opp, desk, busyId, t);
+        const maxQty = riskMaxQty(opp);
+        const chosenQty = qtyFor(opp);
+        const statusNote = !entriesAllowed
+          ? t("opp.viability.outsideRth")
+          : viability.label;
         return (
-          <div className={`block accent${viability.buyable ? "" : " block--waiting"}`} key={opp.id}>
-            <div className="title">{c.symbol}</div>
-            <div className="detail">
-              {t("rail.buy.header", {
-                thesis: (c.thesis || "bullish").toUpperCase(),
-                q: c.entry_quality ?? "—",
-                conf: ((c.confidence || 0) * 100).toFixed(0),
-                rr: c.risk_reward,
-                qty: formatOppQty(opp),
-              })}
-              {age ? ` · ${age}` : ""}
-              <br />
-              <span className="opp-levels">
-                <span>
-                  {t("opp.levels.entry")} {c.entry}
-                </span>
-                <span>
-                  {t("opp.levels.stop")} {c.stop}
-                </span>
-                <span>
-                  {t("opp.levels.target")} {c.target}
-                  {c.target_reachability ? ` (${c.target_reachability})` : ""}
-                </span>
-              </span>
-              {!entriesAllowed ? (
-                <span className="opp-viability opp-viability--blocked">
-                  {t("opp.viability.outsideRth")}
-                </span>
-              ) : viability.label ? (
-                <span className={`opp-viability ${viability.className}`}>{viability.label}</span>
-              ) : null}
-            </div>
-            <div className="actions">
-              <button
-                className="btn-ink"
-                type="button"
-                disabled={!canBuy}
-                title={
-                  canBuy
-                    ? undefined
-                    : viability.label ||
-                      (!entriesAllowed
-                        ? t("opp.buy.title.outsideRth")
-                        : t("opp.buy.title.locked"))
-                }
-                onClick={() => onDecide("buy", opp.id, "approve", c.symbol)}
-              >
-                {busy && busyId === opp.id ? "…" : t("action.buy")}
-              </button>
-              <button
-                className="btn-light"
-                type="button"
-                disabled={busyId !== null}
-                onClick={() => onDecide("buy", opp.id, "skip", c.symbol)}
-              >
-                {t("action.skip")}
-              </button>
-            </div>
+          <div
+            className={`block accent rail-opp${viability.buyable ? "" : " block--waiting"}`}
+            key={opp.id}
+          >
+            <header className="rail-opp__head">
+              <div className="rail-opp__title-row">
+                <div className="title">{c.symbol}</div>
+                {age ? <span className="rail-opp__age">{age}</span> : null}
+              </div>
+              <div className="rail-opp__sub">
+                {(c.thesis || "bullish").toUpperCase()}
+                {" · "}
+                {t("rail.buy.quality", { q: c.entry_quality ?? "—" })}
+                {" · "}
+                {t("rail.buy.conf", { conf: ((c.confidence || 0) * 100).toFixed(0) })}
+                {" · "}
+                {t("rail.buy.rr", { rr: c.risk_reward })}
+              </div>
+            </header>
+
+            <dl className="opp-card__levels">
+              <div>
+                <dt>{t("opp.levels.entry")}</dt>
+                <dd className="mono">{fmtPx(c.entry)}</dd>
+              </div>
+              <div>
+                <dt>{t("opp.levels.stop")}</dt>
+                <dd className="mono">{fmtPx(c.stop)}</dd>
+              </div>
+              <div>
+                <dt>{t("opp.levels.tgt")}</dt>
+                <dd className="mono">
+                  {fmtPx(c.target)}
+                  {c.target_reachability ? (
+                    <span className="rail-opp__reach"> {c.target_reachability}</span>
+                  ) : null}
+                </dd>
+              </div>
+              <div>
+                <dt>{t("opp.levels.qty")}</dt>
+                <dd className="mono">{maxQty ?? formatOppQty(opp)}</dd>
+              </div>
+            </dl>
+
+            {statusNote ? (
+              <p className="opp-card__status opp-viability opp-viability--blocked">{statusNote}</p>
+            ) : null}
+
+            <footer className="rail-opp__footer">
+              {maxQty != null && chosenQty != null ? (
+                <label className="opp-qty">
+                  <span className="opp-qty__label">{t("opp.qty.label")}</span>
+                  <input
+                    className="opp-qty__input mono"
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    max={maxQty}
+                    step={1}
+                    value={chosenQty}
+                    disabled={busyId !== null}
+                    onChange={(e) => setQty(opp, Number(e.target.value))}
+                  />
+                  <span className="opp-qty__max">{t("opp.qty.max", { n: maxQty })}</span>
+                </label>
+              ) : (
+                <span />
+              )}
+              <div className="actions">
+                <Button
+                  variant="accent"
+                  disabled={!canBuy}
+                  title={
+                    canBuy
+                      ? undefined
+                      : statusNote ||
+                        (!entriesAllowed
+                          ? t("opp.buy.title.outsideRth")
+                          : t("opp.buy.title.locked"))
+                  }
+                  onClick={() => onDecide("buy", opp.id, "approve", c.symbol, chosenQty)}
+                >
+                  {busy && busyId === opp.id ? "…" : t("action.buy")}
+                </Button>
+                <Button
+                  variant="light"
+                  disabled={busyId !== null}
+                  onClick={() => onDecide("buy", opp.id, "skip", c.symbol)}
+                >
+                  {t("action.skip")}
+                </Button>
+              </div>
+            </footer>
           </div>
         );
       })}
@@ -297,22 +377,20 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
               {(p.reasons || []).join(" · ")}
             </div>
             <div className="actions">
-              <button
-                className="btn-accent"
-                type="button"
+              <Button
+                variant="ink"
                 disabled={busyId !== null}
                 onClick={() => onDecide("sell", ex.id, "sell", p.symbol)}
               >
                 {busy ? "…" : t("action.sell")}
-              </button>
-              <button
-                className="btn-ghost"
-                type="button"
+              </Button>
+              <Button
+                variant="ghost"
                 disabled={busyId !== null}
                 onClick={() => onDecide("sell", ex.id, "hold", p.symbol)}
               >
                 {t("action.hold")}
-              </button>
+              </Button>
             </div>
           </div>
         );

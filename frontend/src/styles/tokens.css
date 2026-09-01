@@ -1,63 +1,56 @@
 /**
- * Traido design tokens — locked from user references (Cabin / MedSync soft UI).
- * Sources: docs/design/references/*
- *
- * Brand palette (from Cabin board):
- *   Taupe   #B5A18B
- *   Accent  #FFCF88
- *   Canvas  #E4E0E0
- *   Ink     #201F1E
+ * Traido tokens — matched to Mercury product dashboard screenshots.
+ * Light sidebar wash, white workspace, cool grays, blue CTA, emerald inflows.
  */
 
 :root {
-  /* Canvas & surfaces — warm soft UI */
-  --td-bg: #e4e0e0;
-  --td-bg-warm: #f3efe8;
+  /* Surfaces */
+  --td-bg: #f9fafb;
+  --td-bg-warm: #f3f4f6;
   --td-surface: #ffffff;
-  --td-surface-2: #f7f4ef;
-  --td-surface-muted: #ebe6df;
-  --td-border: rgba(32, 31, 30, 0.08);
-  --td-border-strong: rgba(32, 31, 30, 0.16);
+  --td-surface-2: #f9fafb;
+  --td-surface-muted: #f3f4f6;
+  --td-border: #e5e7eb;
+  --td-border-strong: #d1d5db;
 
   /* Ink */
-  --td-text: #201f1e;
-  --td-text-muted: #7a736c;
-  --td-text-faint: #a39b92;
-  --td-text-on-accent: #201f1e;
-  --td-text-on-ink: #f7f4ef;
+  --td-text: #111827;
+  --td-text-muted: #6b7280;
+  --td-text-faint: #9ca3af;
+  --td-text-on-accent: #ffffff;
+  --td-text-on-ink: #ffffff;
 
-  /* Brand (Cabin) */
-  --td-accent: #ffcf88;
-  --td-accent-hover: #ffd79a;
-  --td-accent-pressed: #f0bc6e;
-  --td-taupe: #b5a18b;
-  --td-taupe-muted: rgba(181, 161, 139, 0.28);
-  --td-ink: #201f1e;
+  /* Brand — Mercury CTA blue */
+  --td-accent: #3b82f6;
+  --td-accent-hover: #2563eb;
+  --td-accent-pressed: #1d4ed8;
+  --td-taupe: #9ca3af;
+  --td-taupe-muted: #f3f4f6;
+  --td-ink: #111827;
 
-  /* Semantic — desaturated to fit warm palette (not neon trading cliché) */
-  --td-bull: #3d8f6a;
-  --td-bull-muted: rgba(61, 143, 106, 0.14);
-  --td-bear: #c45c4a;
-  --td-bear-muted: rgba(196, 92, 74, 0.14);
-  --td-warn: #d4a017;
-  --td-warn-muted: rgba(212, 160, 23, 0.16);
-  --td-paper: #ffcf88;
-  --td-kill: #c45c4a;
+  /* Semantic — emerald inflows; sober outflows; soft rose for failures */
+  --td-bull: #10b981;
+  --td-bull-muted: rgba(16, 185, 129, 0.12);
+  --td-bear: #111827;
+  --td-bear-muted: #f3f4f6;
+  --td-warn: #d97706;
+  --td-warn-muted: rgba(217, 119, 6, 0.12);
+  --td-paper: #3b82f6;
+  --td-kill: #e11d48;
 
   /* Agent status */
-  --td-agent-working: #3d8f6a;
-  --td-agent-idle: #a39b92;
-  --td-agent-error: #c45c4a;
-  /* marching ants on working agent cards (Changes-badge green) */
-  --ag-ants: #8bbf9f;
+  --td-agent-working: #10b981;
+  --td-agent-idle: #9ca3af;
+  --td-agent-error: #e11d48;
+  --ag-ants: #3b82f6;
 
   /* Chart */
-  --td-chart-primary: #ffcf88;
-  --td-chart-secondary: #b5a18b;
-  --td-chart-ink: #201f1e;
-  --td-chart-grid: rgba(32, 31, 30, 0.06);
-  --td-chart-area-top: rgba(255, 207, 136, 0.45);
-  --td-chart-area-bottom: rgba(255, 207, 136, 0.02);
+  --td-chart-primary: #3b82f6;
+  --td-chart-secondary: #93c5fd;
+  --td-chart-ink: #111827;
+  --td-chart-grid: rgba(17, 24, 39, 0.06);
+  --td-chart-area-top: rgba(59, 130, 246, 0.22);
+  --td-chart-area-bottom: rgba(59, 130, 246, 0.02);
 
   /* Spacing */
   --td-space-1: 4px;
@@ -68,55 +61,56 @@
   --td-space-6: 32px;
   --td-space-7: 48px;
 
-  /* Soft UI radii — generous, matching MedSync cards */
-  --td-radius-sm: 10px;
-  --td-radius-md: 16px;
-  --td-radius-lg: 24px;
-  --td-radius-xl: 32px;
+  /* Radii */
+  --td-radius-sm: 6px;
+  --td-radius-md: 8px;
+  --td-radius-lg: 12px;
+  --td-radius-xl: 16px;
   --td-radius-pill: 999px;
 
-  /* Type — geometric sans (not Inter); mono for figures */
-  --td-font-sans: "Plus Jakarta Sans", "Manrope", ui-sans-serif, system-ui, sans-serif;
-  --td-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  /* Type */
+  --td-font-sans: "Helvetica Neue", Helvetica, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+  --td-font-mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --td-fs-xs: 12px;
   --td-fs-sm: 13px;
   --td-fs-md: 15px;
-  --td-fs-lg: 18px;
-  --td-fs-xl: 24px;
-  --td-fs-2xl: 32px;
-  --td-fs-3xl: 40px;
-  --td-lh-tight: 1.2;
+  --td-fs-lg: 16px;
+  --td-fs-xl: 20px;
+  --td-fs-2xl: 28px;
+  --td-fs-3xl: 36px;
+  --td-lh-tight: 1.15;
   --td-lh-body: 1.5;
-  --td-tracking-label: 0.02em;
+  --td-tracking-label: 0.01em;
 
-  /* Soft diffuse elevation (MedSync floating cards) */
-  --td-shadow-sm: 0 2px 8px rgba(32, 31, 30, 0.04);
-  --td-shadow-md: 0 8px 28px rgba(32, 31, 30, 0.06);
-  --td-shadow-lg: 0 16px 48px rgba(32, 31, 30, 0.08);
-  --td-focus-ring: 0 0 0 2px var(--td-surface), 0 0 0 4px var(--td-accent);
+  /* Elevation — hairlines first, soft shadow second */
+  --td-shadow-sm: 0 1px 2px rgba(17, 24, 39, 0.04);
+  --td-shadow-md: 0 4px 16px rgba(17, 24, 39, 0.06);
+  --td-shadow-lg: 0 12px 32px rgba(17, 24, 39, 0.08);
+  --td-focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px rgba(59, 130, 246, 0.35);
 }
 
-/* ── Component primitives (Stage 6 reference) ───────────────────────────── */
+/* ── Primitives ───────────────────────────────────────────────────────────── */
 
 .td-card {
   background: var(--td-surface);
   border-radius: var(--td-radius-lg);
-  box-shadow: var(--td-shadow-md);
+  box-shadow: none;
   border: 1px solid var(--td-border);
   padding: var(--td-space-5);
 }
 
 .td-stat {
   background: var(--td-surface);
-  border-radius: var(--td-radius-md);
-  box-shadow: var(--td-shadow-sm);
+  border-radius: var(--td-radius-lg);
+  box-shadow: none;
+  border: 1px solid var(--td-border);
   padding: var(--td-space-4) var(--td-space-5);
 }
 
 .td-stat__value {
   font-family: var(--td-font-sans);
   font-size: var(--td-fs-2xl);
-  font-weight: 700;
+  font-weight: 600;
   color: var(--td-text);
   letter-spacing: -0.02em;
 }
@@ -124,6 +118,7 @@
 .td-stat__label {
   font-size: var(--td-fs-sm);
   color: var(--td-text-muted);
+  font-weight: 400;
 }
 
 .td-pill {
@@ -133,9 +128,10 @@
   border-radius: var(--td-radius-pill);
   padding: 4px 10px;
   font-size: var(--td-fs-xs);
-  font-weight: 600;
-  background: var(--td-accent);
-  color: var(--td-text-on-accent);
+  font-weight: 500;
+  background: var(--td-surface-muted);
+  color: var(--td-text-muted);
+  border: none;
 }
 
 .td-pill--ink {
@@ -149,77 +145,78 @@
 }
 
 .td-nav-item--active {
-  background: var(--td-surface);
-  border-radius: var(--td-radius-pill);
-  box-shadow: var(--td-shadow-sm);
+  background: var(--td-surface-muted);
+  border-radius: var(--td-radius-md);
+  color: var(--td-text);
 }
 
 .td-search {
-  border-radius: var(--td-radius-pill);
+  border-radius: var(--td-radius-md);
   background: var(--td-surface);
   border: 1px solid var(--td-border);
-  box-shadow: var(--td-shadow-sm);
 }
 
 .td-btn-primary {
   background: var(--td-accent);
   color: var(--td-text-on-accent);
-  border-radius: var(--td-radius-pill);
-  font-weight: 700;
+  border-radius: var(--td-radius-md);
+  font-weight: 500;
   border: none;
-  padding: 12px 22px;
+  padding: 10px 16px;
 }
 
 .td-btn-ink {
   background: var(--td-ink);
   color: var(--td-text-on-ink);
-  border-radius: var(--td-radius-pill);
-  font-weight: 700;
+  border-radius: var(--td-radius-md);
+  font-weight: 500;
   border: none;
-  padding: 12px 22px;
+  padding: 10px 16px;
 }
 
 .td-btn-ghost {
   background: transparent;
   color: var(--td-text-muted);
-  border-radius: var(--td-radius-pill);
-  border: 1px solid var(--td-border-strong);
-  padding: 12px 22px;
+  border-radius: var(--td-radius-md);
+  border: 1px solid var(--td-border);
+  padding: 10px 16px;
 }
 
 .td-pnl-pos {
   color: var(--td-bull);
 }
+
 .td-pnl-neg {
-  color: var(--td-bear);
+  color: var(--td-text);
 }
 
 .td-paper-banner {
-  background: var(--td-paper);
-  color: var(--td-ink);
+  background: #eff6ff;
+  color: #1d4ed8;
   font-family: var(--td-font-sans);
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  font-size: var(--td-fs-xs);
+  font-size: 11px;
   border-radius: var(--td-radius-pill);
-  padding: 6px 14px;
+  border: none;
+  padding: 6px 12px;
 }
 
-/* Live money must not look like the paper badge the eye has learned to ignore. */
 .td-paper-banner--live {
-  background: var(--td-kill);
-  color: #fff;
+  background: #fff1f2;
+  color: #be123c;
 }
 
 .td-block-accent {
-  background: var(--td-accent);
-  color: var(--td-ink);
-  border-radius: var(--td-radius-md);
+  background: #eff6ff;
+  color: var(--td-text);
+  border-radius: var(--td-radius-lg);
+  border: 1px solid #bfdbfe;
 }
 
 .td-block-ink {
   background: var(--td-ink);
   color: var(--td-text-on-ink);
-  border-radius: var(--td-radius-md);
+  border-radius: var(--td-radius-lg);
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { fetchReview, type ReviewPayload } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
 import { useT } from "@/i18n/I18nProvider";
+import { TablePager, useTablePager } from "@/ui";
 
 export function JournalPage() {
   const t = useT();
@@ -22,6 +23,7 @@ export function JournalPage() {
 
   const r = review || desk?.review;
   const recent = r?.recent ?? [];
+  const pager = useTablePager(recent);
 
   return (
     <section className="card page-card">
@@ -57,12 +59,15 @@ export function JournalPage() {
                 </td>
               </tr>
             ) : (
-              recent.map((trade, i) => {
+              pager.slice.map((trade, i) => {
                 const pnl = Number(trade.pnl);
                 return (
                   <tr key={trade.id || i}>
                     <td>
-                      <strong>{trade.symbol}</strong>
+                      <div className="symbol-cell">
+                        <strong>{trade.symbol}</strong>
+                        {trade.name ? <span className="symbol-cell__name">{trade.name}</span> : null}
+                      </div>
                     </td>
                     <td className="mono">{trade.entry ?? "—"}</td>
                     <td className="mono">{trade.exit ?? "—"}</td>
@@ -79,6 +84,7 @@ export function JournalPage() {
           </tbody>
         </table>
       </div>
+      <TablePager pager={pager} />
     </section>
   );
 }

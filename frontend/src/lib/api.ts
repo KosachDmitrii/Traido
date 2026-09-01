@@ -204,6 +204,8 @@ export type SellOpportunity = {
 
 export type DeskPosition = {
   symbol: string;
+  /** Full company name from Finnhub profile2, when available. */
+  name?: string | null;
   qty: string;
   avg_entry: string;
   stop?: string | null;
@@ -237,6 +239,8 @@ export type ReviewPayload = {
   recent?: Array<{
     id?: string;
     symbol: string;
+    /** Full company name from Finnhub profile2, when available. */
+    name?: string | null;
     entry?: string;
     exit?: string;
     pnl: string;
@@ -351,12 +355,13 @@ export function mergeDesk(light: DeskLight, broker: BrokerSnapshot | null): Desk
 }
 
 /** Returns null on 304 Not Modified. */
-export async function fetchDeskLight(): Promise<DeskLight | null> {
+export async function fetchDeskLight(signal?: AbortSignal): Promise<DeskLight | null> {
   const headers = apiHeaders();
   if (deskEtag) headers["If-None-Match"] = deskEtag;
   const res = await fetch(apiUrl("/api/v1/desk"), {
     headers,
     cache: "no-store",
+    signal,
   });
   if (res.status === 304) return null;
   const data = await res.json().catch(() => ({}));
@@ -393,11 +398,19 @@ export async function fetchDesk(): Promise<DeskResponse> {
   return mergeDesk(light, broker);
 }
 
-export async function decideBuy(id: string, decision: "approve" | "skip") {
+export async function decideBuy(
+  id: string,
+  decision: "approve" | "skip",
+  qty?: number,
+) {
+  const body: { decision: "approve" | "skip"; qty?: number } = { decision };
+  if (decision === "approve" && qty != null && Number.isFinite(qty)) {
+    body.qty = qty;
+  }
   const res = await fetch(apiUrl(`/api/v1/opportunities/${id}/decide`), {
     method: "POST",
     headers: apiHeaders(true),
-    body: JSON.stringify({ decision }),
+    body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -499,6 +512,8 @@ export type RegimeResult = {
 
 export type EvaluationResult = {
   symbol: string;
+  /** Full company name from Finnhub profile2, when available. */
+  name?: string | null;
   timeframe: string;
   generated_at: string;
   bars: number;

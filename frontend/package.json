@@ -11,6 +11,7 @@
     "lint": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR tsc --noEmit"
   },
   "dependencies": {
+    "@base-ui/react": "^1.7.0",
     "lucide-react": "^1.37.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

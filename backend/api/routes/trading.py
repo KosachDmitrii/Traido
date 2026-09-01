@@ -1,7 +1,6 @@
 """Opportunity confirmation + portfolio + kill switch."""
 
-from __future__ import annotations
-
+from decimal import Decimal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -24,6 +23,8 @@ router = APIRouter(prefix="/api/v1", tags=["trading"])
 
 class DecisionBody(BaseModel):
     decision: UserDecision = Field(description="approve or skip")
+    # Optional on approve: whole shares ≤ the live risk max. Omitted → risk size.
+    qty: Decimal | None = Field(default=None, ge=0, description="Shares to buy (≤ risk max)")
 
 
 class KillSwitchBody(BaseModel):
@@ -48,9 +49,11 @@ async def get_opportunity(opportunity_id: UUID) -> TradeOpportunity:
 async def decide_opportunity(opportunity_id: UUID, body: DecisionBody) -> TradeOpportunity:
     if body.decision not in {UserDecision.APPROVE, UserDecision.SKIP}:
         raise HTTPException(status_code=400, detail="decision must be approve or skip")
+    if body.decision == UserDecision.SKIP and body.qty is not None:
+        raise HTTPException(status_code=400, detail="qty is only valid on approve")
     service = build_execution_service()
     try:
-        result = await service.decide(opportunity_id, body.decision)
+        result = await service.decide(opportunity_id, body.decision, qty=body.qty)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -67,7 +70,6 @@ async def decide_opportunity(opportunity_id: UUID, body: DecisionBody) -> TradeO
     # This decision may have been the one holding the queue full.
     wake_scanner()
     return result
-
 
 @router.get("/portfolio", response_model=PortfolioSnapshot)
 async def portfolio() -> PortfolioSnapshot:
