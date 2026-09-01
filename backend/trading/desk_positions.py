@@ -54,3 +54,41 @@ def protective_stop_for_display(
         return candidates[0].stop_price
 
     return min(candidates, key=lambda order: abs(order.qty - qty)).stop_price
+
+
+def resolve_protective_stop(
+    *,
+    symbol: str,
+    qty: Decimal,
+    open_orders: list[OrderRecord],
+    stop_order_id: str | None = None,
+) -> tuple[Decimal | None, str | None]:
+    """Resting protective stop price and broker order id, if any."""
+    sym = symbol.upper()
+    if stop_order_id:
+        for order in open_orders:
+            if order.broker_order_id == stop_order_id and order.stop_price is not None:
+                return order.stop_price, order.broker_order_id
+
+    candidates = [
+        order
+        for order in open_orders
+        if order.symbol.upper() == sym
+        and order.side == OrderSide.SELL
+        and order.order_type in _STOP_ORDER_TYPES
+        and order.stop_price is not None
+        and order.broker_order_id
+    ]
+    if not candidates:
+        return None, None
+
+    for order in candidates:
+        if order.qty == qty:
+            return order.stop_price, order.broker_order_id
+
+    if len(candidates) == 1:
+        order = candidates[0]
+        return order.stop_price, order.broker_order_id
+
+    order = min(candidates, key=lambda o: abs(o.qty - qty))
+    return order.stop_price, order.broker_order_id

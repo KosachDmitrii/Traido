@@ -160,6 +160,66 @@ class PositionLedger:
             session.refresh(row)
             return row
 
+    def adopt_broker_position(
+        self,
+        *,
+        symbol: str,
+        qty: Decimal,
+        avg_entry: Decimal,
+        stop_price: Decimal | None,
+        target_price: Decimal | None,
+        strategy_version: str,
+        trading_mode: str,
+        entry_reasons: list[str],
+        opportunity_id: uuid.UUID | None = None,
+        broker_entry_order_id: str | None = None,
+        stop_order_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+        opened_at: datetime | None = None,
+    ) -> OpenPositionRow:
+        """Record a broker-held position the book lost track of.
+
+        Reconciliation refuses to invent ledger rows for unexplained broker
+        positions; this is the operator-driven backfill when execution truth is
+        known and the venue already holds the shares.
+        """
+        SessionLocal = _session_factory(self._engine)
+        body = dict(payload or {})
+        if stop_order_id:
+            body["stop_order_id"] = stop_order_id
+        body.setdefault("fill_price", str(avg_entry))
+        if stop_price is not None and target_price is not None:
+            body.setdefault(
+                "risk_reward",
+                _realised_risk_reward(entry=avg_entry, stop=stop_price, target=target_price),
+            )
+        row = OpenPositionRow(
+            id=uuid.uuid4(),
+            opportunity_id=opportunity_id,
+            symbol=symbol.upper(),
+            qty=qty,
+            avg_entry=avg_entry,
+            stop_price=stop_price,
+            target_price=target_price,
+            strategy_version=strategy_version,
+            trading_mode=trading_mode,
+            status="open",
+            entry_reasons=list(entry_reasons),
+            broker_entry_order_id=broker_entry_order_id,
+            payload=body,
+            opened_at=opened_at or datetime.now(UTC),
+        )
+        with self._lock, SessionLocal() as session:
+            clash = self._open_clash(session, row.symbol)
+            if clash is not None:
+                raise DuplicateOpenPosition(
+                    f"{row.symbol} already has an open position ({clash.id}, qty {clash.qty})"
+                )
+            session.add(row)
+            session.commit()
+            session.refresh(row)
+            return row
+
     def _open_clash(self, session: Session, symbol: str) -> OpenPositionRow | None:
         """The open row already held for this symbol, if any."""
         return (
