@@ -250,7 +250,10 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
           >
             <header className="rail-opp__head">
               <div className="rail-opp__title-row">
-                <div className="title">{c.symbol}</div>
+                <div className="rail-opp__identity">
+                  <div className="title">{c.symbol}</div>
+                  {c.name ? <div className="rail-opp__name">{c.name}</div> : null}
+                </div>
                 {age ? <span className="rail-opp__age">{age}</span> : null}
               </div>
               <div className="rail-opp__sub">
@@ -343,7 +346,10 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
 
       {waits.map((w) => (
         <div className="block block--waiting" key={w.id}>
-          <div className="title">{w.symbol}</div>
+          <div className="rail-opp__identity">
+            <div className="title">{w.symbol}</div>
+            {w.name ? <div className="rail-opp__name">{w.name}</div> : null}
+          </div>
           <div className="detail">
             {t("rail.wait.header", {
               thesis: (w.thesis || "bullish").toUpperCase(),
@@ -371,7 +377,10 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
         const busy = busyId === ex.id;
         return (
           <div className="block ink" key={ex.id}>
-            <div className="title">{p.symbol}</div>
+            <div className="rail-opp__identity">
+              <div className="title">{p.symbol}</div>
+              {p.name ? <div className="rail-opp__name">{p.name}</div> : null}
+            </div>
             <div className="detail">
               {t("rail.sell.header", {
                 e: p.entry,

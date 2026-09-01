@@ -315,6 +315,24 @@ async def desk(
     key = get_settings().finnhub_api_key
     await attach_company_names(payload["positions"], key)
     await attach_company_names(payload.get("review", {}).get("recent") or [], key)
+    # Cards: name sits next to the ticker on BUY / WAIT / SELL — display only.
+    await attach_company_names(
+        [
+            b["candidate"]
+            for b in payload.get("buy_opportunities") or []
+            if isinstance(b.get("candidate"), dict)
+        ],
+        key,
+    )
+    await attach_company_names(payload.get("entry_watches") or [], key)
+    await attach_company_names(
+        [
+            s["proposal"]
+            for s in payload.get("sell_opportunities") or []
+            if isinstance(s.get("proposal"), dict)
+        ],
+        key,
+    )
     etag = _etag_for(payload)
     if if_none_match and if_none_match == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})

@@ -170,7 +170,10 @@ export function OpportunitiesPage() {
               >
                 <header className="rail-opp__head">
                   <div className="rail-opp__title-row">
-                    <div className="title">{c.symbol}</div>
+                    <div className="rail-opp__identity">
+                      <div className="title">{c.symbol}</div>
+                      {c.name ? <div className="rail-opp__name">{c.name}</div> : null}
+                    </div>
                     {age ? <span className="rail-opp__age">{age}</span> : null}
                   </div>
                   <div className="rail-opp__sub">
@@ -277,7 +280,10 @@ export function OpportunitiesPage() {
               <div className="block ink rail-opp" key={ex.id}>
                 <header className="rail-opp__head">
                   <div className="rail-opp__title-row">
-                    <div className="title">{p.symbol}</div>
+                    <div className="rail-opp__identity">
+                      <div className="title">{p.symbol}</div>
+                      {p.name ? <div className="rail-opp__name">{p.name}</div> : null}
+                    </div>
                     <span className="rail-opp__age">
                       {t("opportunities.sell.pnl", { n: p.pnl_pct.toFixed(1) })}
                     </span>

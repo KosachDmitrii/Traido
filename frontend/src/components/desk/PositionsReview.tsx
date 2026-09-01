@@ -283,7 +283,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                     </span>
                     <span>
                       {sign}
-                      {pnl.toFixed(0)} · {(trade.pnl_pct || 0).toFixed(1)}%
+                      {pnl.toFixed(2)} · {(trade.pnl_pct || 0).toFixed(2)}%
                     </span>
                   </div>
                 );

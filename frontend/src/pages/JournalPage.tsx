@@ -75,7 +75,7 @@ export function JournalPage() {
                       {pnl >= 0 ? "+" : ""}
                       {pnl.toFixed(2)}
                     </td>
-                    <td className="mono">{(trade.pnl_pct ?? 0).toFixed(1)}%</td>
+                    <td className="mono">{(trade.pnl_pct ?? 0).toFixed(2)}%</td>
                     <td>{(trade.strategy_version || "").split("@")[0] || "—"}</td>
                   </tr>
                 );

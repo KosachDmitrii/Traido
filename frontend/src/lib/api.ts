@@ -139,6 +139,8 @@ export type BuyOpportunity = {
   created_at?: string;
   candidate: {
     symbol: string;
+    /** Full company name from Finnhub profile2, when available. */
+    name?: string | null;
     confidence: number;
     entry: string;
     stop: string;
@@ -173,6 +175,8 @@ export type BuyOpportunity = {
 export type EntryWatchCard = {
   id: string;
   symbol: string;
+  /** Full company name from Finnhub profile2, when available. */
+  name?: string | null;
   status: string;
   thesis: string;
   entry_quality_at_creation: number;
@@ -194,6 +198,8 @@ export type SellOpportunity = {
   status: string;
   proposal: {
     symbol: string;
+    /** Full company name from Finnhub profile2, when available. */
+    name?: string | null;
     entry: string;
     current: string;
     pnl_pct: number;

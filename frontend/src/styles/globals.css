@@ -1239,8 +1239,30 @@ h1, h2, h3, p {
   gap: 10px;
 }
 
-.rail-opp__title-row .title {
+.rail-opp__identity {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.block > .rail-opp__identity {
+  margin-bottom: 6px;
+}
+
+.rail-opp__title-row .title,
+.rail-opp__identity .title {
   margin-bottom: 0;
+}
+
+.rail-opp__name {
+  font-size: 12px;
+  font-weight: 450;
+  color: var(--td-text-muted);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .rail-opp__sub {
