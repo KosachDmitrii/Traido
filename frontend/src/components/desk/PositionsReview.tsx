@@ -25,13 +25,16 @@ function fmtPx(value: string | number | null | undefined): string {
 
 function pnlView(p: DeskPosition) {
   if (p.pnl_pct === null || p.pnl_pct === undefined) return null;
-  const up = p.pnl_pct >= 0;
+  const cash = p.pnl === null || p.pnl === undefined ? null : Number(p.pnl);
+  // Prefer the dollar sign when both are present — pct can round to 0.00% while
+  // cash is still a few cents red/green, and the arrow must match the cash line.
+  const up = cash !== null && Number.isFinite(cash) ? cash >= 0 : p.pnl_pct >= 0;
   return {
     up,
     arrow: up ? "▲" : "▼",
     className: up ? "pos-pnl pos-pnl--up" : "pos-pnl pos-pnl--down",
-    pct: `${up ? "+" : ""}${p.pnl_pct.toFixed(2)}%`,
-    cash: p.pnl === null || p.pnl === undefined ? null : Number(p.pnl),
+    pct: `${p.pnl_pct > 0 ? "+" : ""}${p.pnl_pct.toFixed(2)}%`,
+    cash,
   };
 }
 
@@ -145,7 +148,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                           <strong>{pnl.pct}</strong>
                           {pnl.cash === null ? null : (
                             <span>
-                              {pnl.up ? "+" : ""}
+                              {pnl.cash > 0 ? "+" : ""}
                               {pnl.cash.toFixed(2)}
                             </span>
                           )}
