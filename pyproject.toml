@@ -1,0 +1,84 @@
+[project]
+name = "traido"
+version = "0.1.0"
+description = "Traido — AI trading desk (paper-first)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115.0",
+  "uvicorn[standard]>=0.32.0",
+  "pydantic>=2.9.0",
+  "pydantic-settings>=2.6.0",
+  "sqlalchemy[asyncio]>=2.0.36",
+  "alembic>=1.14.0",
+  "asyncpg>=0.30.0",
+  # Sync driver for the journal engine; resolve_sync_database_url() rewrites
+  # asyncpg URLs to psycopg, so Postgres journals need this installed.
+  "psycopg[binary]>=3.2.0",
+  "redis>=5.2.0",
+  "httpx>=0.28.0",
+  "python-dotenv>=1.0.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-asyncio>=0.24.0",
+  "ruff>=0.8.0",
+  "mypy>=1.13.0",
+]
+# Only needed by broker/ibkr/live_transport.py, which is never imported unless a
+# deployment explicitly selects a live IB session. ib_async is the maintained
+# successor to ib_insync; see docs/architecture/vendor-lock.md.
+ibkr = [
+  "ib_async>=1.0.3",
+]
+
+[build-system]
+requires = ["setuptools>=75.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = [
+  "agents",
+  "api",
+  "broker",
+  "core",
+  "database",
+  "market_data",
+  "notifications",
+  "quant",
+  "risk",
+  "trading",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's dependency markers are called in argument defaults by design.
+extend-immutable-calls = [
+  "fastapi.Query",
+  "fastapi.Path",
+  "fastapi.Body",
+  "fastapi.Header",
+  "fastapi.Depends",
+]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# The capital path: anything that can size, price, or place a trade. Extend
+# this list rather than loosening it.
+packages = ["core", "risk", "broker", "quant", "trading"]
+
+[[tool.mypy.overrides]]
+# Optional IBKR extra, absent from the default environment by design. Its
+# absence must not fail the typecheck of everything else.
+module = ["ib_async.*"]
+ignore_missing_imports = true

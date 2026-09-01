@@ -1,0 +1,22 @@
+{
+  "universe_groups": [
+    "technology",
+    "communication",
+    "consumer_discretionary",
+    "consumer_staples",
+    "financials",
+    "healthcare",
+    "energy",
+    "industrials",
+    "materials",
+    "utilities",
+    "real_estate"
+  ],
+  "include_etfs": ["broad", "sector"],
+  "timeframes": ["1d", "1h"],
+  "scan_interval_seconds": 300,
+  "max_open_buy_opportunities": 5,
+  "max_symbols_per_cycle": 60,
+  "enabled": true,
+  "_note": "Set \"universe\": [...] to override with an explicit list, or \"universe_preset\": \"core\" for the original ten names. Symbols and sectors live in configs/universe.json."
+}

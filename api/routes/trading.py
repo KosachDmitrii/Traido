@@ -1,0 +1,107 @@
+"""Opportunity confirmation + portfolio + kill switch."""
+
+from __future__ import annotations
+
+from uuid import UUID
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, Field
+
+from agents.scanner.agent import wake_scanner
+from api.deps import build_execution_service
+from broker.factory import create_broker
+from core.audit import create_audit
+from core.config import get_settings
+from core.desk_bus import DESK_BUS
+from core.enums import UserDecision
+from core.schemas import PortfolioSnapshot, TradeOpportunity
+from notifications.telegram import get_notifier
+from risk.kill_switch import get_kill_switch_state, is_kill_switch_on, set_kill_switch
+from trading.opportunities import OPPORTUNITIES
+
+router = APIRouter(prefix="/api/v1", tags=["trading"])
+
+
+class DecisionBody(BaseModel):
+    decision: UserDecision = Field(description="approve or skip")
+
+
+class KillSwitchBody(BaseModel):
+    enabled: bool
+    reason: str | None = None
+
+
+@router.get("/opportunities", response_model=list[TradeOpportunity])
+async def list_opportunities() -> list[TradeOpportunity]:
+    return OPPORTUNITIES.list_open()
+
+
+@router.get("/opportunities/{opportunity_id}", response_model=TradeOpportunity)
+async def get_opportunity(opportunity_id: UUID) -> TradeOpportunity:
+    opp = OPPORTUNITIES.get(opportunity_id)
+    if opp is None:
+        raise HTTPException(status_code=404, detail="opportunity_not_found")
+    return opp
+
+
+@router.post("/opportunities/{opportunity_id}/decide", response_model=TradeOpportunity)
+async def decide_opportunity(opportunity_id: UUID, body: DecisionBody) -> TradeOpportunity:
+    if body.decision not in {UserDecision.APPROVE, UserDecision.SKIP}:
+        raise HTTPException(status_code=400, detail="decision must be approve or skip")
+    service = build_execution_service()
+    try:
+        result = await service.decide(opportunity_id, body.decision)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        DESK_BUS.bump_desk(kind="decide_failed", opportunity_id=str(opportunity_id))
+        DESK_BUS.bump_broker(kind="decide_failed")
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    DESK_BUS.bump_desk(
+        kind="decide",
+        opportunity_id=str(opportunity_id),
+        status=result.status.value,
+    )
+    if body.decision == UserDecision.APPROVE:
+        DESK_BUS.bump_broker(kind="decide")
+    # This decision may have been the one holding the queue full.
+    wake_scanner()
+    return result
+
+
+@router.get("/portfolio", response_model=PortfolioSnapshot)
+async def portfolio() -> PortfolioSnapshot:
+    settings = get_settings()
+    broker = create_broker(settings)
+    snap = await broker.get_portfolio()
+    return snap.model_copy(update={"kill_switch": is_kill_switch_on()})
+
+
+@router.get("/kill-switch")
+async def get_kill_switch() -> dict:
+    state = get_kill_switch_state()
+    return {
+        "enabled": state.enabled,
+        "source": state.source,
+        "changed_at": state.changed_at,
+        "actor": state.actor,
+        "reason": state.reason,
+    }
+
+
+@router.post("/kill-switch")
+async def post_kill_switch(body: KillSwitchBody) -> dict:
+    enabled = set_kill_switch(body.enabled, actor="user", reason=body.reason or "")
+    audit = create_audit()
+    await audit.append(
+        "KillSwitchUpdated",
+        "user",
+        {"enabled": enabled, "reason": body.reason or ""},
+    )
+
+    settings = get_settings()
+    notifier = get_notifier(settings.telegram_bot_token, settings.telegram_chat_id)
+    if notifier.configured:
+        await notifier.send_kill_switch(enabled=enabled, actor="user")
+
+    return {"enabled": enabled}

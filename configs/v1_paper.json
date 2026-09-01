@@ -1,0 +1,38 @@
+{
+  "paper_defaults": {
+    "starting_equity_usd": 100000,
+    "trading_mode": "confirmation",
+    "broker_env": "paper"
+  },
+  "vendors": {
+    "broker_paper": "alpaca_paper",
+    "broker_live_future": "ibkr",
+    "market_data": "alpaca",
+    "market_data_scale_future": "massive",
+    "news": "finnhub",
+    "macro": "fred",
+    "llm": "anthropic_claude",
+    "notify_confirm": "telegram"
+  },
+  "risk_limits_v1": {
+    "max_risk_per_trade_pct": 1.0,
+    "max_position_pct": 5.0,
+    "max_daily_loss_pct": 2.0,
+    "max_weekly_loss_pct": 5.0,
+    "max_portfolio_drawdown_pct": 10.0,
+    "allow_leverage": false,
+    "allow_short": false,
+    "allow_options": false
+  },
+  "scan": {
+    "timeframes": ["1d", "4h", "1h", "15m"],
+    "min_overall_score": 75,
+    "min_risk_reward": 2.0
+  },
+  "safety": {
+    "llm_may_place_orders": false,
+    "llm_may_run_sql": false,
+    "protective_stops_auto": true,
+    "kill_switch_default": false
+  }
+}

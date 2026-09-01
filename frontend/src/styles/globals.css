@@ -1,0 +1,2003 @@
+@import "./tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  font-family: var(--td-font-sans);
+  background: var(--td-bg);
+  color: var(--td-text);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+@keyframes agent-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--td-agent-working) 45%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+:root {
+  /* Shared by the shell grid and the header, so the header's brand block ends
+     exactly where the content column begins. Two hardcoded copies would drift. */
+  --shell-nav: 220px;
+  --shell-gap: 20px;
+  --shell-pad: 20px;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--shell-nav) 1fr 320px;
+  gap: var(--shell-gap);
+  flex: 1;
+  padding: var(--shell-pad);
+  animation: fade-in 0.45s ease;
+}
+
+.shell--wide {
+  grid-template-columns: var(--shell-nav) 1fr;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: var(--td-radius-pill);
+  color: var(--td-text-muted);
+  font-weight: 500;
+  font-size: 14px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  text-decoration: none;
+}
+
+.nav-item.active {
+  background: var(--td-surface);
+  color: var(--td-text);
+  box-shadow: var(--td-shadow-sm);
+}
+
+.nav-item svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex-shrink: 0;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px var(--shell-pad);
+  background: var(--td-surface);
+  border-bottom: 1px solid var(--td-border);
+  /* Sticky rather than scrolled away: the session phase and the kill switch
+     decide whether a click further down the page can do anything. */
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+.tb-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 var(--shell-nav);
+  margin-right: calc(var(--shell-gap) - 12px);
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.tb-brand__mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--td-accent);
+}
+
+.tb-spacer {
+  flex: 1;
+  min-width: 0;
+}
+
+.tb-session {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 20px 8px 16px;
+  border-radius: var(--td-radius-pill);
+  background: var(--td-surface);
+  box-shadow: var(--td-shadow-sm);
+  border: 1px solid var(--td-border);
+  color: var(--td-text-muted);
+}
+
+/* Tinted by phase rather than by "is anything wrong", because this badge is
+   never absent — a single always-green header is one the eye stops reading. */
+.tb-session--open {
+  border-color: rgba(61, 143, 106, 0.35);
+}
+
+.tb-session--soon {
+  border-color: rgba(212, 160, 23, 0.35);
+}
+
+.tb-session--late {
+  border-color: rgba(181, 161, 139, 0.45);
+}
+
+/* Clock face: a progress ring around the icon, filled by `--dial` (0…1). */
+.tb-dial {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  color: var(--td-text-muted);
+}
+
+.tb-dial__ring {
+  position: absolute;
+  inset: 0;
+  width: 28px;
+  height: 28px;
+  /* Start the arc at twelve o'clock, where a clock starts. */
+  transform: rotate(-90deg);
+}
+
+.tb-dial__track,
+.tb-dial__arc {
+  fill: none;
+  stroke-width: 2;
+}
+
+.tb-dial__track {
+  stroke: var(--td-border-strong);
+}
+
+.tb-dial__arc {
+  stroke: var(--td-text-faint);
+  stroke-linecap: round;
+  /* 2πr for r=12.5. */
+  stroke-dasharray: 78.54;
+  stroke-dashoffset: calc(78.54 * (1 - var(--dial, 0)));
+  transition: stroke-dashoffset 700ms ease;
+}
+
+.tb-session--open .tb-dial__arc {
+  stroke: var(--td-bull);
+}
+
+.tb-session--soon .tb-dial__arc {
+  stroke: var(--td-warn);
+}
+
+.tb-session--late .tb-dial__arc {
+  stroke: var(--td-taupe);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tb-dial__arc {
+    transition: none;
+  }
+}
+
+.tb-session__now {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.tb-session__clock {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--td-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The clock is the exchange's, not the reader's. Small enough to stay a label
+   rather than compete with the time it qualifies. */
+.tb-session__zone {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--td-text-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tb-session__text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.tb-session__text strong {
+  font-size: 13px;
+  color: var(--td-text);
+}
+
+.tb-session__text span {
+  font-size: 11px;
+  color: var(--td-text-muted);
+}
+
+.tb-alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: var(--td-radius-pill);
+  background: var(--td-kill);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.tb-alert--muted {
+  background: var(--td-surface-muted);
+  color: var(--td-text-muted);
+}
+
+.profile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px 8px 8px;
+  border-radius: var(--td-radius-pill);
+  background: var(--td-surface);
+  box-shadow: var(--td-shadow-sm);
+}
+
+.avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--td-accent), var(--td-taupe));
+}
+
+.profile strong {
+  display: block;
+  font-size: 13px;
+}
+
+.profile span {
+  font-size: 11px;
+  color: var(--td-text-muted);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+
+.stat {
+  background: var(--td-surface);
+  border-radius: var(--td-radius-md);
+  box-shadow: var(--td-shadow-sm);
+  padding: 16px 20px;
+  border: 1px solid var(--td-border);
+}
+
+.stat .label {
+  font-size: 13px;
+  color: var(--td-text-muted);
+  margin-bottom: 8px;
+}
+
+.stat .row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.stat .value {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat .value.mono {
+  font-family: var(--td-font-mono);
+  font-size: 22px;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.card {
+  background: var(--td-surface);
+  border-radius: var(--td-radius-lg);
+  box-shadow: var(--td-shadow-md);
+  border: 1px solid var(--td-border);
+  padding: 24px;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.card .sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--td-text-muted);
+}
+
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.area {
+  width: 100%;
+  height: 180px;
+}
+
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 160px;
+  padding-top: 12px;
+}
+
+.bars span {
+  flex: 1;
+  border-radius: 999px 999px 8px 8px;
+  background: var(--td-taupe);
+  opacity: 0.85;
+  transition: height 0.45s ease;
+  min-height: 8%;
+}
+
+.agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Three columns, not a flex row: the marker, the name, and the score have to
+   line up down the list, and a flex row lets each one land wherever the row
+   above happened to end. The scanner's detail wraps to three lines while the
+   others take one, so centring floated its dot and its score into the gap
+   between the rows either side of it. */
+.agent {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) 34px;
+  align-items: start;
+  gap: 12px;
+  position: relative;
+  padding: 6px 8px;
+  margin: 0 -8px;
+  border-radius: 12px;
+}
+
+.agent--working::before {
+  display: none;
+}
+
+.ag-ants {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 2;
+}
+
+.ag-ants rect {
+  x: 0.5px;
+  y: 0.5px;
+  width: calc(100% - 1px);
+  height: calc(100% - 1px);
+  fill: none;
+  stroke: var(--ag-ants);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  stroke-dasharray: 2 2;
+  stroke-linecap: butt;
+  animation: ag-ants-dash 0.28s linear infinite;
+}
+
+@keyframes ag-ants-dash {
+  to {
+    stroke-dashoffset: -4;
+  }
+}
+
+.agent .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--td-agent-idle);
+  flex-shrink: 0;
+  /* Sits on the name's line rather than the row's middle, so the column of
+     markers reads straight regardless of how far a detail wraps. */
+  margin-top: 5px;
+}
+
+.agent .dot.working {
+  background: var(--td-agent-working);
+  animation: agent-pulse 1.4s ease-out infinite;
+}
+
+.agent .dot.done {
+  background: #6b8f71;
+}
+
+.agent .dot.error {
+  background: var(--td-agent-error);
+}
+
+.agent .meta {
+  min-width: 0;
+}
+
+.agent .meta strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.agent .meta span {
+  display: block;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--td-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.agent .score {
+  font-family: var(--td-font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  /* Right-aligned in a fixed track with fixed-width digits: 0, 74 and — all end
+     at the same edge, which is the only way a column of scores is scannable. */
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+}
+
+/* ── Open position: which way it is going, and the way out ───────────────── */
+
+/* Positions are not agents. Reusing `.agent` (dot · name · score) put Close into
+   the 34px score track, which is why it rendered as a broken circle overlapping
+   the label — four children in a three-column grid. */
+.pos-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pos-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 4px;
+}
+
+.pos-row--empty {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pos-row__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #6b8f71;
+  flex-shrink: 0;
+}
+
+.pos-row__meta {
+  min-width: 0;
+}
+
+.pos-row__meta strong {
+  display: block;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.pos-row__stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  margin-top: 2px;
+  font-family: var(--td-font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--td-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.pos-row__stats span {
+  white-space: nowrap;
+}
+
+/* PnL and Close share one cell so a fourth grid child cannot wrap under the
+   stats again — that was the broken circle / orphaned Close on the desk. */
+.pos-row__side {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.pos-pnl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--td-font-mono);
+  font-size: 13px;
+  line-height: 1.15;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.pos-pnl__arrow {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.pos-pnl__figures {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 4.5rem;
+}
+
+.pos-pnl__figures span {
+  font-size: 11px;
+  opacity: 0.75;
+}
+
+.pos-pnl--up {
+  color: var(--td-bull);
+}
+
+.pos-pnl--down {
+  color: var(--td-bear);
+}
+
+/* No mark from the broker. Muted rather than green or red, because an
+   unpriced position is not a flat one and must not read as either. */
+.pos-pnl--unknown {
+  color: var(--td-text-faint);
+}
+
+.pos-close {
+  padding: 6px 14px;
+  border-radius: var(--td-radius-sm);
+  border: 1px solid var(--td-border-strong);
+  background: var(--td-surface);
+  color: var(--td-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.pos-close:hover:not(:disabled) {
+  border-color: var(--td-bear);
+  color: var(--td-bear);
+}
+
+/* Armed fills the button with bear; the hover rule above would paint the
+   label the same colour and erase "Confirm?". Keep it white on the fill. */
+.pos-close--armed:hover:not(:disabled) {
+  color: #fff;
+}
+
+.pos-close--armed {
+  background: var(--td-bear);
+  border-color: var(--td-bear);
+  color: #fff;
+}
+
+.pos-close:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* One column, two equal-height bands: notes on top, recent closed below.
+   The card stretches with the Positions neighbour in `.grid-2`, so each band
+   takes half of whatever height that neighbour set. */
+.review-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.review-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.review-pane {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-pane > .sub {
+  margin: 0;
+  flex-shrink: 0;
+}
+
+.review-feed {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+  font-family: var(--td-font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.review-line {
+  display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  color: var(--td-text-muted);
+}
+
+.review-line__label {
+  color: var(--td-text);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-line > span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 494px;
+  overflow: auto;
+  margin-top: 4px;
+  font-family: var(--td-font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.activity-feed .row {
+  display: grid;
+  grid-template-columns: 56px 72px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  color: var(--td-text-muted);
+}
+
+/* A grid track sized `1fr` still refuses to shrink below its content's minimum
+   width, and a vendor error carries an unbroken 180-character URL. The row grew
+   past the card, the feed scrolled sideways to fit it, and every other row was
+   dragged out of column with it. `minmax(0, 1fr)` lets the track shrink;
+   `anywhere` gives the URL somewhere to break. */
+.activity-feed .row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Timestamps only line up if their digits are one width. */
+.activity-feed .row > span:first-child {
+  font-variant-numeric: tabular-nums;
+}
+
+.activity-feed .row .ag {
+  color: var(--td-text);
+  font-weight: 600;
+  overflow-wrap: normal;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.activity-feed .row.warn {
+  color: #9a6b3f;
+}
+
+.activity-feed .row.error {
+  color: var(--td-bear);
+}
+
+.rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.rail h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.stage-note {
+  margin: 0;
+  font-size: 13px;
+  color: var(--td-text-muted);
+  line-height: 1.45;
+}
+
+.flash {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: var(--td-radius-md);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border: 1px solid var(--td-border);
+  animation: fade-in 0.25s ease;
+}
+
+.flash__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.flash__title {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.flash__detail {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.92;
+}
+
+.flash__close {
+  border: none;
+  background: transparent;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+  color: inherit;
+  opacity: 0.7;
+}
+
+.flash--ok {
+  background: var(--td-bull-muted);
+  color: var(--td-text);
+  border-color: color-mix(in srgb, var(--td-bull) 25%, transparent);
+}
+
+.flash--error {
+  background: var(--td-bear-muted);
+  color: var(--td-text);
+  border-color: color-mix(in srgb, var(--td-bear) 30%, transparent);
+}
+
+.flash--pending {
+  background: color-mix(in srgb, var(--td-accent) 45%, var(--td-surface));
+  color: var(--td-ink);
+}
+
+.flash--info {
+  background: var(--td-surface-2);
+  color: var(--td-text);
+}
+
+/* ── Toast ──────────────────────────────────────────────────────────────────
+   Reuses the .flash colour variants; only the placement and motion differ.
+
+   Anchored to the bottom and laid out in reverse, so the oldest message sits
+   at the bottom and each new one appears above it. Nothing already on screen
+   moves when one arrives — the stack grows into empty space instead of pushing
+   the message being read out from under the pointer. */
+
+/* Must match EXIT_MS in lib/toasts.ts: the row is unmounted when this ends. */
+:root {
+  --toast-exit: 200ms;
+}
+
+.toast-layer {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-end;
+  max-height: calc(100vh - 48px);
+  /* The layer spans nothing the pointer can hit; only the toast itself does,
+     or an invisible strip would swallow clicks on the cards underneath. */
+  pointer-events: none;
+}
+
+/* The row, as distinct from the card in it. Collapsing the row is what makes
+   the stack settle downward when the oldest message goes, rather than jump. */
+.toast-slot {
+  display: grid;
+  grid-template-rows: 1fr;
+  margin-top: 10px;
+  transition:
+    grid-template-rows var(--toast-exit) ease,
+    margin-top var(--toast-exit) ease;
+}
+
+/* A grid item's own box is the floor the track cannot shrink past, so the item
+   has to be something with no padding of its own. Collapsing the card directly
+   stopped at 30px — its padding — and that 30px came back as a jump the moment
+   the row unmounted, which is the jump the collapse exists to remove. */
+.toast-slot__inner {
+  min-height: 0;
+}
+
+.toast-slot--leaving {
+  grid-template-rows: 0fr;
+  margin-top: 0;
+}
+
+/* Clipped only while collapsing. At rest this would cut the drop shadow off;
+   for the 200ms the card is fading and sliding out, nobody can see it go. */
+.toast-slot--leaving .toast-slot__inner {
+  overflow: hidden;
+}
+
+.toast {
+  pointer-events: auto;
+  width: min(360px, calc(100vw - 48px));
+  margin-bottom: 0;
+  padding: 14px 16px;
+  border-radius: var(--td-radius-lg);
+  box-shadow: var(--td-shadow-md), 0 12px 32px rgba(32, 31, 30, 0.14);
+  animation: toast-in 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Opaque, unlike the inline banner. The `--*-muted` tints are 14% alpha, which
+   is fine for a banner sitting on the page background but not for a card that
+   floats over a proposal — the two texts overlap and neither can be read. The
+   same tint is mixed into the surface instead of laid over it, so the colour
+   stays what it was and only the see-through goes. */
+.toast.flash--ok {
+  background: color-mix(in srgb, var(--td-bull) 14%, var(--td-surface));
+}
+
+.toast.flash--error {
+  background: color-mix(in srgb, var(--td-bear) 14%, var(--td-surface));
+}
+
+.toast--leaving {
+  /* Slides out to the right while the row collapses under it, which also hides
+     the moment the clipped shadow snaps off. */
+  animation: toast-out var(--toast-exit) ease forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+
+@keyframes toast-out {
+  to {
+    opacity: 0;
+    transform: translateX(24px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .toast--leaving {
+    animation-duration: 0.01ms;
+  }
+
+  .toast-slot {
+    transition: none;
+  }
+}
+
+.block button:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
+
+.block {
+  border-radius: var(--td-radius-md);
+  padding: 16px;
+  margin-bottom: 12px;
+  animation: fade-in 0.35s ease;
+}
+
+.block.accent {
+  background: var(--td-accent);
+  color: var(--td-ink);
+}
+
+/* Standing proposal whose live book no longer clears the entry gate. Kept on
+   the rail (the book can come back) but visually quieter so BUY is not the
+   loudest thing on a card that cannot currently place. */
+.block.accent.block--waiting {
+  background: color-mix(in srgb, var(--td-accent) 55%, var(--td-surface));
+}
+
+.opp-levels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.opp-levels span {
+  white-space: nowrap;
+}
+
+.opp-viability {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.opp-viability--blocked {
+  color: color-mix(in srgb, var(--td-ink) 72%, transparent);
+}
+
+.block.ink {
+  background: var(--td-ink);
+  color: var(--td-text-on-ink);
+}
+
+.block.surface {
+  background: var(--td-surface);
+  border: 1px solid var(--td-border);
+  box-shadow: var(--td-shadow-sm);
+}
+
+.block .title {
+  font-weight: 700;
+  font-size: 15px;
+  margin-bottom: 6px;
+}
+
+.block .detail {
+  font-size: 12px;
+  line-height: 1.45;
+  opacity: 0.9;
+  font-family: var(--td-font-mono);
+}
+
+.block .actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.block button {
+  border: none;
+  border-radius: var(--td-radius-pill);
+  padding: 10px 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn-ink {
+  background: var(--td-ink);
+  color: var(--td-text-on-ink);
+}
+
+.btn-light {
+  background: var(--td-surface);
+  color: var(--td-ink);
+}
+
+.btn-accent {
+  background: var(--td-accent);
+  color: var(--td-ink);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: inherit;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent) !important;
+}
+
+.page-card {
+  margin-top: 4px;
+}
+
+.page-section-title {
+  margin: 22px 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--td-text-muted);
+  text-transform: uppercase;
+}
+
+.empty-hint {
+  color: var(--td-text-muted);
+  font-size: 14px;
+  padding: 8px 0;
+}
+
+.opp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.opp-card {
+  padding: 14px 16px;
+  border-radius: var(--td-radius-md, 14px);
+  background: color-mix(in srgb, var(--td-surface) 88%, var(--td-ink) 4%);
+  border: 1px solid color-mix(in srgb, var(--td-ink) 8%, transparent);
+}
+
+.opp-card__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.opp-card__head span {
+  font-size: 12px;
+  color: var(--td-text-muted);
+}
+
+.opp-card__meta {
+  font-size: 12px;
+  color: var(--td-text-muted);
+  margin-bottom: 12px;
+}
+
+.opp-card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.opp-card__actions button {
+  flex: 1;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.data-table th {
+  text-align: left;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--td-text-muted);
+  padding: 8px 10px 10px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--td-ink) 10%, transparent);
+}
+
+.data-table td {
+  padding: 10px 10px 10px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--td-ink) 6%, transparent);
+  vertical-align: middle;
+}
+
+.mono {
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.td-pnl-pos {
+  color: #2f6b4f;
+}
+
+.td-pnl-neg {
+  color: #8b3a2f;
+}
+
+.notes-list {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  color: var(--td-ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.logs-toolbar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.logs-search,
+.logs-select {
+  border: 1px solid color-mix(in srgb, var(--td-ink) 12%, transparent);
+  background: var(--td-surface);
+  border-radius: var(--td-radius-pill);
+  padding: 10px 14px;
+  font: inherit;
+  color: var(--td-ink);
+  outline: none;
+}
+
+.logs-search {
+  flex: 1;
+  min-width: 180px;
+}
+
+.logs-select {
+  min-width: 140px;
+  cursor: pointer;
+}
+
+.logs-feed {
+  max-height: calc(100vh - 260px);
+  overflow-y: auto;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--td-ink) 6%, transparent);
+  flex-wrap: wrap;
+}
+
+.settings-row .logs-search {
+  flex: 1;
+}
+
+/* ── Agents page (compact horizontal rail) ─────────────────────────────── */
+
+.ag-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: fade-in 0.35s ease;
+}
+
+.ag-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-radius: var(--td-radius-md);
+  background: var(--td-ink);
+  color: var(--td-text-on-ink);
+  box-shadow: var(--td-shadow-sm);
+}
+
+.ag-bar__title {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ag-bar h2,
+.ag-bar__link {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--td-text-on-ink);
+  text-decoration: none;
+}
+
+.ag-bar__link:hover {
+  color: var(--td-accent);
+}
+
+.ag-bar__sub {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--td-text-on-ink) 55%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 42ch;
+}
+
+.ag-bar__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: var(--td-radius-pill);
+  background: color-mix(in srgb, var(--td-text-on-ink) 10%, transparent);
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--td-text-on-ink) 70%, transparent);
+}
+
+.ag-chip b {
+  color: var(--td-text-on-ink);
+  font-weight: 700;
+}
+
+.ag-chip--live {
+  background: var(--td-bull-muted);
+  color: #9dceb3;
+}
+
+.ag-chip--accent {
+  background: var(--td-accent);
+  color: var(--td-ink);
+}
+
+.ag-rail {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 14px;
+  border-radius: var(--td-radius-lg);
+  background:
+    linear-gradient(180deg, var(--td-surface) 0%, var(--td-surface-2) 100%);
+  border: 1px solid var(--td-border);
+  box-shadow: var(--td-shadow-sm);
+  overflow-x: auto;
+}
+
+.ag-rail__row {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+}
+
+.ag-lane {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--td-radius-md);
+  background: color-mix(in srgb, var(--td-bg) 35%, transparent);
+  border: 1px solid transparent;
+}
+
+.ag-lane--hot {
+  background: color-mix(in srgb, var(--td-accent) 14%, var(--td-surface));
+  border-color: color-mix(in srgb, var(--td-accent) 28%, transparent);
+}
+
+.ag-lane__head {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--td-text-muted);
+  padding: 0 2px;
+}
+
+.ag-lane__nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ag-rail__join {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  flex-shrink: 0;
+  color: var(--td-taupe);
+  opacity: 0.75;
+}
+
+.ag-node {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 9px;
+  border-radius: 12px;
+  border: 1px solid var(--td-border);
+  background: var(--td-surface);
+  box-shadow: var(--td-shadow-sm);
+  text-align: left;
+  cursor: default;
+  font: inherit;
+  color: inherit;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.ag-node:hover,
+.ag-node:focus-visible {
+  transform: translateY(-1px);
+  box-shadow: var(--td-shadow-md);
+  border-color: color-mix(in srgb, var(--td-ink) 16%, transparent);
+  z-index: 5;
+  outline: none;
+}
+
+.ag-node--working {
+  border: 1px solid transparent;
+  box-shadow: none;
+}
+
+.ag-node--working::before {
+  display: none;
+}
+
+
+.ag-node__icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+}
+
+.ag-node__icon--mustard {
+  background: color-mix(in srgb, var(--td-accent) 55%, var(--td-surface));
+}
+
+.ag-node__icon--taupe {
+  background: color-mix(in srgb, var(--td-taupe) 30%, var(--td-surface));
+}
+
+.ag-node__icon--sage {
+  background: var(--td-bull-muted);
+  color: var(--td-bull);
+}
+
+.ag-node__icon--ink {
+  background: var(--td-ink);
+  color: var(--td-text-on-ink);
+}
+
+.ag-node__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.ag-node__name {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+.ag-node__meta {
+  font-size: 10px;
+  color: var(--td-text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ag-node__score {
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 22px;
+  text-align: right;
+  color: var(--td-text-muted);
+}
+
+.ag-node__score--done {
+  color: var(--td-ink);
+}
+
+.ag-node__score--working {
+  color: var(--td-bull);
+}
+
+.ag-tip {
+  width: min(280px, 86vw);
+  padding: 12px;
+  border-radius: var(--td-radius-md);
+  background: var(--td-ink);
+  color: var(--td-text-on-ink);
+  box-shadow: var(--td-shadow-lg);
+  text-align: left;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.ag-tip--fixed {
+  position: fixed;
+  transform: translateX(-50%);
+}
+
+.ag-tip--above {
+  transform: translateX(-50%) translateY(-100%);
+}
+
+.ag-tip--above::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -6px;
+  border: 6px solid transparent;
+  border-top-color: var(--td-ink);
+}
+
+.ag-tip--below::after {
+  content: "";
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-left: -6px;
+  border: 6px solid transparent;
+  border-bottom-color: var(--td-ink);
+}
+
+.ag-tip strong {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.ag-tip p {
+  margin: 0 0 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: color-mix(in srgb, var(--td-text-on-ink) 75%, transparent);
+}
+
+.ag-tip dl {
+  margin: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.ag-tip dl > div {
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 6px;
+  font-size: 10px;
+}
+
+.ag-tip dt {
+  color: color-mix(in srgb, var(--td-text-on-ink) 42%, transparent);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ag-tip dd {
+  margin: 0;
+}
+
+.ag-tip__live {
+  margin-top: 8px !important;
+  padding-top: 7px;
+  border-top: 1px solid color-mix(in srgb, var(--td-text-on-ink) 14%, transparent);
+  font-family: var(--td-font-mono);
+  font-size: 10px !important;
+  color: var(--td-accent) !important;
+}
+
+.ag-sheet {
+  padding: 16px 18px !important;
+}
+
+.ag-sheet__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ag-row {
+  display: grid;
+  grid-template-columns: 28px 110px 72px 40px 1fr 64px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px;
+  border-radius: 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--td-ink) 5%, transparent);
+}
+
+.ag-row:last-child {
+  border-bottom: none;
+}
+
+.ag-row--working {
+  background: color-mix(in srgb, var(--td-accent) 12%, transparent);
+}
+
+.ag-row__ico {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+}
+
+.ag-row__ico--mustard {
+  background: color-mix(in srgb, var(--td-accent) 50%, var(--td-surface));
+}
+
+.ag-row__ico--taupe {
+  background: color-mix(in srgb, var(--td-taupe) 28%, var(--td-surface));
+}
+
+.ag-row__ico--sage {
+  background: var(--td-bull-muted);
+  color: var(--td-bull);
+}
+
+.ag-row__ico--ink {
+  background: var(--td-ink);
+  color: var(--td-text-on-ink);
+}
+
+.ag-row strong {
+  font-size: 13px;
+}
+
+.ag-row__pill {
+  justify-self: start;
+  padding: 2px 8px;
+  border-radius: var(--td-radius-pill);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  background: var(--td-surface-muted);
+  color: var(--td-text-muted);
+}
+
+.ag-row__pill--working {
+  background: var(--td-bull-muted);
+  color: var(--td-bull);
+}
+
+.ag-row__pill--done {
+  background: color-mix(in srgb, #6b8f71 16%, transparent);
+  color: #4f7358;
+}
+
+.ag-row__pill--error {
+  background: var(--td-bear-muted);
+  color: var(--td-bear);
+}
+
+.ag-row__score {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ag-row__detail {
+  font-size: 12px;
+  color: var(--td-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ag-row__time {
+  font-size: 11px;
+  color: var(--td-text-faint);
+  text-align: right;
+}
+
+@media (max-width: 1100px) {
+  .shell,
+  .shell--wide {
+    grid-template-columns: 1fr;
+  }
+
+  .stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* No nav column to line up with once the sidebar wraps into a row. */
+  .tb-brand {
+    flex: 0 0 auto;
+    margin-right: 0;
+  }
+
+  .nav-item {
+    width: auto;
+  }
+
+  .ag-bar__sub {
+    max-width: 28ch;
+  }
+
+  .ag-row {
+    grid-template-columns: 28px 1fr auto;
+    grid-template-areas:
+      "ico name score"
+      "ico detail detail";
+  }
+
+  .ag-row__ico { grid-area: ico; }
+  .ag-row strong { grid-area: name; }
+  .ag-row__score { grid-area: score; }
+  .ag-row__detail { grid-area: detail; }
+  .ag-row__pill,
+  .ag-row__time {
+    display: none;
+  }
+}
+
+/* ── Evaluation page ─────────────────────────────────────────────────────── */
+
+.eval-page {
+  display: grid;
+  gap: 14px;
+}
+
+.eval-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+  z-index: 2;
+}
+
+.eval-symbol-picker {
+  position: relative;
+  min-width: 180px;
+}
+
+.eval-symbol-picker__field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  border: 1px solid color-mix(in srgb, var(--td-ink) 12%, transparent);
+  background: var(--td-surface);
+  border-radius: var(--td-radius-pill);
+  color: var(--td-text-muted);
+}
+
+.eval-symbol-picker__input {
+  border: 0 !important;
+  background: transparent !important;
+  padding-left: 0 !important;
+  min-width: 120px;
+  width: 140px;
+}
+
+.eval-symbol-picker__menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  min-width: 180px;
+  max-height: min(70vh, 520px);
+  overflow-y: auto;
+  background: var(--td-surface);
+  border: 1px solid color-mix(in srgb, var(--td-ink) 10%, transparent);
+  border-radius: var(--td-radius-md, 14px);
+  box-shadow: 0 10px 28px rgba(32, 31, 30, 0.08);
+  padding: 6px;
+  z-index: 20;
+}
+
+.eval-symbol-picker__option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--td-ink);
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.eval-symbol-picker__option:hover,
+.eval-symbol-picker__option.is-active {
+  background: color-mix(in srgb, var(--td-accent) 45%, var(--td-surface));
+}
+
+.eval-symbol-picker__empty,
+.eval-symbol-picker__more {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--td-text-muted);
+}
+
+.eval-refresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--td-radius-pill);
+  border: 1px solid color-mix(in srgb, var(--td-ink) 14%, transparent);
+  background: var(--td-surface);
+  color: var(--td-ink);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.eval-refresh:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.eval-verdict {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: var(--td-radius-md, 14px);
+  border: 1px solid color-mix(in srgb, var(--td-ink) 10%, transparent);
+  background: color-mix(in srgb, var(--td-surface) 90%, var(--td-ink) 3%);
+}
+
+.eval-verdict > div {
+  display: grid;
+  gap: 2px;
+}
+
+.eval-verdict--pass {
+  border-color: color-mix(in srgb, var(--td-agent-working) 55%, transparent);
+  color: var(--td-agent-working);
+}
+
+.eval-verdict--fail {
+  border-color: color-mix(in srgb, var(--td-agent-error) 55%, transparent);
+  color: var(--td-agent-error);
+}
+
+.eval-verdict--warn {
+  border-color: color-mix(in srgb, var(--td-accent) 65%, transparent);
+}
+
+.eval-verdict strong {
+  font-size: 15px;
+}
+
+.eval-verdict .sub {
+  color: var(--td-text-muted);
+}
+
+.eval-warnings {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--td-text-muted);
+  font-size: 13px;
+  display: grid;
+  gap: 4px;
+}
+
+.eval-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.eval-metric {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: var(--td-radius-md, 14px);
+  background: color-mix(in srgb, var(--td-surface) 88%, var(--td-ink) 4%);
+  border: 1px solid color-mix(in srgb, var(--td-ink) 8%, transparent);
+}
+
+.eval-metric__label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--td-text-muted);
+}
+
+.eval-metric__value {
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.eval-metric__hint {
+  font-size: 11px;
+  color: var(--td-text-muted);
+}
+
+.eval-metric--good .eval-metric__value {
+  color: var(--td-agent-working);
+}
+
+.eval-metric--bad .eval-metric__value {
+  color: var(--td-agent-error);
+}
+
+.eval-metric--muted .eval-metric__value {
+  color: var(--td-text-muted);
+}
+
+/* ── Scan funnel ────────────────────────────────────────────────────────────
+   Reads top to bottom as the pipeline runs: each row is a stage, and the bar
+   is that stage's share of the universe. The shape is the message — a funnel
+   that narrows sharply at one row is where the operator should look. */
+
+.scan-funnel__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.scan-funnel__row {
+  display: grid;
+  grid-template-columns: 118px 62px 64px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+  border-radius: 8px;
+}
+
+.scan-funnel__row--dim {
+  opacity: 0.6;
+}
+
+.scan-funnel__label {
+  font-size: 12px;
+}
+
+.scan-funnel__note {
+  font-size: 9px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--td-text-muted);
+}
+
+.scan-funnel__value {
+  text-align: right;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.scan-funnel__bar {
+  height: 6px;
+  border-radius: var(--td-radius-pill);
+  background: color-mix(in srgb, var(--td-ink) 6%, transparent);
+  overflow: hidden;
+}
+
+.scan-funnel__bar i {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--td-accent);
+}
+
+.scan-funnel__aside {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid color-mix(in srgb, var(--td-ink) 6%, transparent);
+  font-size: 11px;
+  color: var(--td-text-muted);
+}
+
+.scan-funnel__warn {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--td-bear-muted);
+  color: var(--td-bear);
+  font-size: 11px;
+}

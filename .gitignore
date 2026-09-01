@@ -1,0 +1,36 @@
+# Python
+.venv/
+.venv*/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+dist/
+build/
+
+# Env & secrets
+.env
+.env.local
+*.pem
+credentials*.json
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+
+data/
+!data/.gitkeep
+
+# Node / Next.js
+web/dashboard/node_modules/
+web/dashboard/.next/
+web/dashboard/out/
+frontend/node_modules/
+frontend/dist/
+
+# Docker
+docker-compose.override.yml

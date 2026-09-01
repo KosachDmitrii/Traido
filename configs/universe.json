@@ -1,0 +1,73 @@
+{
+  "benchmark": "SPY",
+  "description": "Liquid US equities and ETFs. Membership criterion is tradability, not opinion: every name here clears roughly $200M average daily dollar volume, so a retail-sized order is invisible and the modelled spread is realistic. Sector groups drive the Risk Engine concentration cap.",
+  "groups": {
+    "technology": [
+      "AAPL", "MSFT", "NVDA", "AVGO", "AMD", "CRM", "ORCL", "ADBE", "CSCO",
+      "ACN", "INTU", "TXN", "QCOM", "AMAT", "MU", "LRCX", "KLAC", "NOW",
+      "PANW", "ANET", "SNPS", "CDNS", "INTC", "IBM", "DELL", "MRVL", "SMCI"
+    ],
+    "communication": [
+      "GOOGL", "META", "NFLX", "DIS", "TMUS", "CMCSA", "VZ", "T", "EA", "WBD"
+    ],
+    "consumer_discretionary": [
+      "AMZN", "TSLA", "HD", "MCD", "NKE", "LOW", "SBUX", "BKNG", "TJX",
+      "ABNB", "GM", "F", "CMG", "ORLY", "MAR"
+    ],
+    "consumer_staples": [
+      "WMT", "COST", "PG", "KO", "PEP", "PM", "MO", "MDLZ", "CL", "TGT",
+      "KHC", "STZ"
+    ],
+    "financials": [
+      "JPM", "BAC", "WFC", "GS", "MS", "SCHW", "BLK", "AXP", "C", "SPGI",
+      "CB", "PGR", "COF", "USB", "PNC", "V", "MA", "PYPL"
+    ],
+    "healthcare": [
+      "UNH", "JNJ", "LLY", "ABBV", "MRK", "PFE", "TMO", "ABT", "DHR", "AMGN",
+      "BMY", "GILD", "ISRG", "VRTX", "CVS", "MDT", "REGN", "ZTS", "HCA"
+    ],
+    "energy": [
+      "XOM", "CVX", "COP", "SLB", "EOG", "MPC", "PSX", "VLO", "OXY", "WMB"
+    ],
+    "industrials": [
+      "CAT", "BA", "HON", "UNP", "GE", "RTX", "DE", "LMT", "UPS", "ADP",
+      "ETN", "EMR", "CSX", "NSC", "FDX", "PH"
+    ],
+    "materials": [
+      "LIN", "SHW", "FCX", "NEM", "APD", "ECL", "DOW", "NUE"
+    ],
+    "utilities": [
+      "NEE", "DUK", "SO", "D", "AEP", "SRE", "EXC"
+    ],
+    "real_estate": [
+      "PLD", "AMT", "EQIX", "SPG", "O", "CCI", "PSA"
+    ]
+  },
+  "etfs": {
+    "broad": ["SPY", "QQQ", "IWM", "DIA", "VTI", "RSP"],
+    "sector": [
+      "XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"
+    ],
+    "other": ["GLD", "SLV", "TLT", "IEF", "HYG", "LQD", "EEM", "EFA", "SMH", "XBI"]
+  },
+  "sector_etf": {
+    "technology": "XLK",
+    "communication": "XLC",
+    "consumer_discretionary": "XLY",
+    "consumer_staples": "XLP",
+    "financials": "XLF",
+    "healthcare": "XLV",
+    "energy": "XLE",
+    "industrials": "XLI",
+    "materials": "XLB",
+    "utilities": "XLU",
+    "real_estate": "XLRE"
+  },
+  "presets": {
+    "core": ["AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "AMD", "NFLX", "JPM"],
+    "mega_cap": [
+      "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "TSLA", "AVGO", "LLY",
+      "JPM", "UNH", "XOM", "V", "MA", "COST", "WMT", "PG", "JNJ", "HD", "ORCL"
+    ]
+  }
+}

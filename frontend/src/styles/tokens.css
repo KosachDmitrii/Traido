@@ -1,0 +1,225 @@
+/**
+ * Traido design tokens — locked from user references (Cabin / MedSync soft UI).
+ * Sources: docs/design/references/*
+ *
+ * Brand palette (from Cabin board):
+ *   Taupe   #B5A18B
+ *   Accent  #FFCF88
+ *   Canvas  #E4E0E0
+ *   Ink     #201F1E
+ */
+
+:root {
+  /* Canvas & surfaces — warm soft UI */
+  --td-bg: #e4e0e0;
+  --td-bg-warm: #f3efe8;
+  --td-surface: #ffffff;
+  --td-surface-2: #f7f4ef;
+  --td-surface-muted: #ebe6df;
+  --td-border: rgba(32, 31, 30, 0.08);
+  --td-border-strong: rgba(32, 31, 30, 0.16);
+
+  /* Ink */
+  --td-text: #201f1e;
+  --td-text-muted: #7a736c;
+  --td-text-faint: #a39b92;
+  --td-text-on-accent: #201f1e;
+  --td-text-on-ink: #f7f4ef;
+
+  /* Brand (Cabin) */
+  --td-accent: #ffcf88;
+  --td-accent-hover: #ffd79a;
+  --td-accent-pressed: #f0bc6e;
+  --td-taupe: #b5a18b;
+  --td-taupe-muted: rgba(181, 161, 139, 0.28);
+  --td-ink: #201f1e;
+
+  /* Semantic — desaturated to fit warm palette (not neon trading cliché) */
+  --td-bull: #3d8f6a;
+  --td-bull-muted: rgba(61, 143, 106, 0.14);
+  --td-bear: #c45c4a;
+  --td-bear-muted: rgba(196, 92, 74, 0.14);
+  --td-warn: #d4a017;
+  --td-warn-muted: rgba(212, 160, 23, 0.16);
+  --td-paper: #ffcf88;
+  --td-kill: #c45c4a;
+
+  /* Agent status */
+  --td-agent-working: #3d8f6a;
+  --td-agent-idle: #a39b92;
+  --td-agent-error: #c45c4a;
+  /* marching ants on working agent cards (Changes-badge green) */
+  --ag-ants: #8bbf9f;
+
+  /* Chart */
+  --td-chart-primary: #ffcf88;
+  --td-chart-secondary: #b5a18b;
+  --td-chart-ink: #201f1e;
+  --td-chart-grid: rgba(32, 31, 30, 0.06);
+  --td-chart-area-top: rgba(255, 207, 136, 0.45);
+  --td-chart-area-bottom: rgba(255, 207, 136, 0.02);
+
+  /* Spacing */
+  --td-space-1: 4px;
+  --td-space-2: 8px;
+  --td-space-3: 12px;
+  --td-space-4: 16px;
+  --td-space-5: 24px;
+  --td-space-6: 32px;
+  --td-space-7: 48px;
+
+  /* Soft UI radii — generous, matching MedSync cards */
+  --td-radius-sm: 10px;
+  --td-radius-md: 16px;
+  --td-radius-lg: 24px;
+  --td-radius-xl: 32px;
+  --td-radius-pill: 999px;
+
+  /* Type — geometric sans (not Inter); mono for figures */
+  --td-font-sans: "Plus Jakarta Sans", "Manrope", ui-sans-serif, system-ui, sans-serif;
+  --td-font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --td-fs-xs: 12px;
+  --td-fs-sm: 13px;
+  --td-fs-md: 15px;
+  --td-fs-lg: 18px;
+  --td-fs-xl: 24px;
+  --td-fs-2xl: 32px;
+  --td-fs-3xl: 40px;
+  --td-lh-tight: 1.2;
+  --td-lh-body: 1.5;
+  --td-tracking-label: 0.02em;
+
+  /* Soft diffuse elevation (MedSync floating cards) */
+  --td-shadow-sm: 0 2px 8px rgba(32, 31, 30, 0.04);
+  --td-shadow-md: 0 8px 28px rgba(32, 31, 30, 0.06);
+  --td-shadow-lg: 0 16px 48px rgba(32, 31, 30, 0.08);
+  --td-focus-ring: 0 0 0 2px var(--td-surface), 0 0 0 4px var(--td-accent);
+}
+
+/* ── Component primitives (Stage 6 reference) ───────────────────────────── */
+
+.td-card {
+  background: var(--td-surface);
+  border-radius: var(--td-radius-lg);
+  box-shadow: var(--td-shadow-md);
+  border: 1px solid var(--td-border);
+  padding: var(--td-space-5);
+}
+
+.td-stat {
+  background: var(--td-surface);
+  border-radius: var(--td-radius-md);
+  box-shadow: var(--td-shadow-sm);
+  padding: var(--td-space-4) var(--td-space-5);
+}
+
+.td-stat__value {
+  font-family: var(--td-font-sans);
+  font-size: var(--td-fs-2xl);
+  font-weight: 700;
+  color: var(--td-text);
+  letter-spacing: -0.02em;
+}
+
+.td-stat__label {
+  font-size: var(--td-fs-sm);
+  color: var(--td-text-muted);
+}
+
+.td-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: var(--td-radius-pill);
+  padding: 4px 10px;
+  font-size: var(--td-fs-xs);
+  font-weight: 600;
+  background: var(--td-accent);
+  color: var(--td-text-on-accent);
+}
+
+.td-pill--ink {
+  background: var(--td-ink);
+  color: var(--td-text-on-ink);
+}
+
+.td-pill--muted {
+  background: var(--td-surface-muted);
+  color: var(--td-text-muted);
+}
+
+.td-nav-item--active {
+  background: var(--td-surface);
+  border-radius: var(--td-radius-pill);
+  box-shadow: var(--td-shadow-sm);
+}
+
+.td-search {
+  border-radius: var(--td-radius-pill);
+  background: var(--td-surface);
+  border: 1px solid var(--td-border);
+  box-shadow: var(--td-shadow-sm);
+}
+
+.td-btn-primary {
+  background: var(--td-accent);
+  color: var(--td-text-on-accent);
+  border-radius: var(--td-radius-pill);
+  font-weight: 700;
+  border: none;
+  padding: 12px 22px;
+}
+
+.td-btn-ink {
+  background: var(--td-ink);
+  color: var(--td-text-on-ink);
+  border-radius: var(--td-radius-pill);
+  font-weight: 700;
+  border: none;
+  padding: 12px 22px;
+}
+
+.td-btn-ghost {
+  background: transparent;
+  color: var(--td-text-muted);
+  border-radius: var(--td-radius-pill);
+  border: 1px solid var(--td-border-strong);
+  padding: 12px 22px;
+}
+
+.td-pnl-pos {
+  color: var(--td-bull);
+}
+.td-pnl-neg {
+  color: var(--td-bear);
+}
+
+.td-paper-banner {
+  background: var(--td-paper);
+  color: var(--td-ink);
+  font-family: var(--td-font-sans);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: var(--td-fs-xs);
+  border-radius: var(--td-radius-pill);
+  padding: 6px 14px;
+}
+
+/* Live money must not look like the paper badge the eye has learned to ignore. */
+.td-paper-banner--live {
+  background: var(--td-kill);
+  color: #fff;
+}
+
+.td-block-accent {
+  background: var(--td-accent);
+  color: var(--td-ink);
+  border-radius: var(--td-radius-md);
+}
+
+.td-block-ink {
+  background: var(--td-ink);
+  color: var(--td-text-on-ink);
+  border-radius: var(--td-radius-md);
+}

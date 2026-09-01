@@ -1,0 +1,80 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: traido
+      POSTGRES_PASSWORD: traido
+      POSTGRES_DB: traido
+    ports:
+      - "5432:5432"
+    volumes:
+      - traido_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U traido -d traido"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - traido_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Schema is owned by Alembic. The API refuses to create tables on Postgres,
+  # so migrations must succeed before it will start.
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      TRAIDO_JOURNAL_DATABASE_URL: postgresql+psycopg://traido:traido@db:5432/traido
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      TRAIDO_ENV: production
+      TRAIDO_JOURNAL_DATABASE_URL: postgresql+psycopg://traido:traido@db:5432/traido
+      DATABASE_URL: postgresql+asyncpg://traido:traido@db:5432/traido
+      REDIS_URL: redis://redis:6379/0
+      TRAIDO_CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    ports:
+      - "8000:8000"
+    volumes:
+      - traido_data:/app/data
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  traido_pg:
+  traido_redis:
+  traido_data:

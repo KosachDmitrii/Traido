@@ -1,0 +1,27 @@
+{
+  "name": "traido-frontend",
+  "version": "0.6.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "preinstall": "node -e \"delete process.env.npm_config_devdir; delete process.env.NPM_CONFIG_DEVDIR\"",
+    "dev": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR vite --host 127.0.0.1 --port 3000",
+    "build": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR tsc -b && env -u npm_config_devdir -u NPM_CONFIG_DEVDIR vite build",
+    "preview": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR vite preview --host 127.0.0.1 --port 3000",
+    "lint": "env -u npm_config_devdir -u NPM_CONFIG_DEVDIR tsc --noEmit"
+  },
+  "dependencies": {
+    "lucide-react": "^1.37.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.18.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@types/react-router-dom": "^5.3.3",
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5",
+    "vite": "^6.3.5"
+  }
+}
