@@ -1,30 +1,32 @@
 import { useDesk } from "@/context/DeskContext";
+import { useT } from "@/i18n/I18nProvider";
 
 export function PositionsPage() {
+  const t = useT();
   const { desk } = useDesk();
   const positions = desk?.positions ?? [];
   const orders = desk?.open_orders ?? [];
 
   return (
     <section className="card page-card">
-      <h3 className="page-section-title">Open positions · {positions.length}</h3>
+      <h3 className="page-section-title">{t("positions.page.open", { n: positions.length })}</h3>
       <div className="table-wrap">
         <table className="data-table">
           <thead>
             <tr>
-              <th>Symbol</th>
-              <th>Qty</th>
-              <th>Avg entry</th>
-              <th>Stop</th>
-              <th>Target</th>
-              <th>Strategy</th>
+              <th>{t("positions.col.symbol")}</th>
+              <th>{t("positions.col.qty")}</th>
+              <th>{t("positions.col.avg")}</th>
+              <th>{t("positions.col.stop")}</th>
+              <th>{t("positions.col.target")}</th>
+              <th>{t("positions.col.strategy")}</th>
             </tr>
           </thead>
           <tbody>
             {positions.length === 0 ? (
               <tr>
                 <td colSpan={6} className="empty-hint">
-                  Flat — no open positions
+                  {t("positions.empty")}
                 </td>
               </tr>
             ) : (
@@ -45,24 +47,24 @@ export function PositionsPage() {
         </table>
       </div>
 
-      <h3 className="page-section-title">Open orders · {orders.length}</h3>
+      <h3 className="page-section-title">{t("positions.page.orders", { n: orders.length })}</h3>
       <div className="table-wrap">
         <table className="data-table">
           <thead>
             <tr>
-              <th>Symbol</th>
-              <th>Side</th>
-              <th>Type</th>
-              <th>Qty</th>
-              <th>Price</th>
-              <th>Status</th>
+              <th>{t("positions.col.symbol")}</th>
+              <th>{t("orders.col.side")}</th>
+              <th>{t("orders.col.type")}</th>
+              <th>{t("positions.col.qty")}</th>
+              <th>{t("orders.col.price")}</th>
+              <th>{t("orders.col.status")}</th>
             </tr>
           </thead>
           <tbody>
             {orders.length === 0 ? (
               <tr>
                 <td colSpan={6} className="empty-hint">
-                  No resting broker orders
+                  {t("orders.empty")}
                 </td>
               </tr>
             ) : (
@@ -74,7 +76,7 @@ export function PositionsPage() {
                   <td>{o.side}</td>
                   <td>{o.order_type}</td>
                   <td className="mono">{o.qty}</td>
-                  <td className="mono">{o.limit_price || o.stop_price || "mkt"}</td>
+                  <td className="mono">{o.limit_price || o.stop_price || t("orders.mkt")}</td>
                   <td>{o.status}</td>
                 </tr>
               ))

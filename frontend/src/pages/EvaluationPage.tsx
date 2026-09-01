@@ -3,6 +3,8 @@ import { AlertTriangle, CheckCircle2, RefreshCw, Search, XCircle } from "lucide-
 import type { EvaluationResult, F3Diagnostics } from "@/lib/api";
 import { fetchEvaluation, fetchF3Diagnostics } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
+import { useT } from "@/i18n/I18nProvider";
+import type { MessageKey } from "@/i18n";
 
 function SymbolPicker({
   symbols,
@@ -13,6 +15,7 @@ function SymbolPicker({
   value: string;
   onChange: (symbol: string) => void;
 }) {
+  const t = useT();
   const rootRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState(value);
   const [open, setOpen] = useState(false);
@@ -77,16 +80,16 @@ function SymbolPicker({
             }
             if (e.key === "Escape") setOpen(false);
           }}
-          placeholder="Search symbol…"
-          aria-label="Search symbol"
+          placeholder={t("eval.picker.search")}
+          aria-label={t("eval.picker.aria")}
           autoComplete="off"
           spellCheck={false}
         />
       </div>
       {open ? (
-        <div className="eval-symbol-picker__menu" role="listbox" aria-label="Symbols A–Z">
+        <div className="eval-symbol-picker__menu" role="listbox" aria-label={t("eval.picker.az")}>
           {filtered.length === 0 ? (
-            <div className="eval-symbol-picker__empty">No match</div>
+            <div className="eval-symbol-picker__empty">{t("eval.picker.none")}</div>
           ) : (
             filtered.map((s) => (
               <button
@@ -118,18 +121,24 @@ function SymbolPicker({
  * Above that: F3 Paper diagnostics (signal / WAIT / target / forward progress).
  */
 
-const VERDICT_COPY: Record<string, { label: string; tone: "pass" | "warn" | "fail" }> = {
-  PASS: { label: "Edge survives out of sample", tone: "pass" },
-  FAIL_NEGATIVE_OOS: { label: "Loses money out of sample", tone: "fail" },
-  FAIL_WEAK_PROFIT_FACTOR: { label: "Profit factor too thin to trade", tone: "fail" },
-  FAIL_OVERFIT: { label: "Overfit — parameters do not generalise", tone: "fail" },
-  NOT_EVALUATED: { label: "Not enough history to walk forward", tone: "warn" },
+const VERDICT_KEYS: Partial<Record<string, MessageKey>> = {
+  PASS: "eval.verdict.PASS",
+  FAIL_RETURN: "eval.verdict.FAIL_RETURN",
+  FAIL_DRAWDOWN: "eval.verdict.FAIL_DRAWDOWN",
+  FAIL_SHARPE: "eval.verdict.FAIL_SHARPE",
+  FAIL_SAMPLE: "eval.verdict.FAIL_SAMPLE",
+  NOT_EVALUATED: "eval.verdict.NOT_EVALUATED",
+  INSUFFICIENT_SAMPLE: "eval.verdict.INSUFFICIENT_SAMPLE",
 };
 
-function verdictInfo(verdict: string) {
-  if (VERDICT_COPY[verdict]) return VERDICT_COPY[verdict];
+function verdictInfo(verdict: string, t: ReturnType<typeof useT>) {
+  const key = VERDICT_KEYS[verdict];
+  if (key) {
+    const tone = verdict === "PASS" ? "pass" : verdict.startsWith("FAIL") ? "fail" : "warn";
+    return { label: t(key), tone: tone as "pass" | "warn" | "fail" };
+  }
   if (verdict.startsWith("INSUFFICIENT_SAMPLE")) {
-    return { label: "Too few out-of-sample trades to judge", tone: "warn" as const };
+    return { label: t("eval.verdict.INSUFFICIENT_SAMPLE"), tone: "warn" as const };
   }
   return { label: verdict, tone: "warn" as const };
 }
@@ -170,6 +179,7 @@ function Metric({
 }
 
 export function EvaluationPage() {
+  const t = useT();
   const { desk } = useDesk();
   const universe = desk?.scanner?.universe ?? [];
   const sortedUniverse = useMemo(
@@ -221,7 +231,7 @@ export function EvaluationPage() {
     return () => window.clearInterval(id);
   }, [loadF3]);
 
-  const verdict = data ? verdictInfo(data.verdict) : null;
+  const verdict = data ? verdictInfo(data.verdict, t) : null;
   const fwd = f3?.forward_paper;
   const wait = f3?.wait_effectiveness;
   const sig = f3?.signal_quality;
@@ -232,45 +242,45 @@ export function EvaluationPage() {
       <section className="card">
         <div className="card-head">
           <div>
-            <h2>F3 entry diagnostics</h2>
-            <div className="sub">
-              Signal quality · WAIT effectiveness · target reachability · forward Paper
-            </div>
+            <h2>{t("eval.f3.title")}</h2>
+            <div className="sub">{t("eval.f3.sub")}</div>
           </div>
           <button type="button" className="eval-refresh" onClick={() => void loadF3()}>
             <RefreshCw size={15} strokeWidth={1.75} aria-hidden />
-            Refresh
+            {t("eval.f3.refresh")}
           </button>
         </div>
         {f3Error ? <p className="empty-hint">{f3Error}</p> : null}
         {f3 && sig && wait && tgt && fwd ? (
           <>
             <div className="eval-grid">
-              <Metric label="Shadow samples" value={String(sig.shadow_samples)} />
+              <Metric label={t("eval.f3.shadow")} value={String(sig.shadow_samples)} />
               <Metric
-                label="Avg entry quality"
+                label={t("eval.f3.avgQuality")}
                 value={sig.avg_entry_quality != null ? String(sig.avg_entry_quality) : "—"}
               />
               <Metric
-                label="Old BUY → WAIT"
+                label={t("eval.f3.oldWait")}
                 value={String(wait.old_buy_to_wait)}
                 hint={
                   wait.wait_rate_vs_old_buy_pct != null
-                    ? `${wait.wait_rate_vs_old_buy_pct}% of old buys`
+                    ? t("eval.f3.oldWaitHint", { pct: wait.wait_rate_vs_old_buy_pct })
                     : undefined
                 }
               />
-              <Metric label="Open WAIT watches" value={String(wait.open_watches)} />
+              <Metric label={t("eval.f3.openWait")} value={String(wait.open_watches)} />
               <Metric
-                label="Historical MFE n"
+                label={t("eval.f3.mfe")}
                 value={String(tgt.historical_mfe_samples.total ?? 0)}
                 tone={tgt.reachability_ready ? "good" : "muted"}
-                hint={tgt.reachability_ready ? "Reachability armed (≥30)" : "Need ≥30 samples"}
+                hint={
+                  tgt.reachability_ready ? t("eval.f3.reachReady") : t("eval.f3.reachNeed")
+                }
               />
               <Metric
-                label="RTH forward progress"
+                label={t("eval.f3.rth")}
                 value={`${fwd.rth_shadow_samples}/${fwd.target_rth_samples}`}
-                hint={`${fwd.progress_pct}% — do not claim FIXED yet`}
+                hint={t("eval.f3.rthHint", { pct: fwd.progress_pct })}
                 tone={fwd.rth_shadow_samples >= fwd.target_rth_samples ? "good" : "muted"}
               />
             </div>
@@ -286,17 +296,15 @@ export function EvaluationPage() {
             <p className="empty-hint">{fwd.note}</p>
           </>
         ) : !f3Error ? (
-          <p className="empty-hint">Loading F3 diagnostics…</p>
+          <p className="empty-hint">{t("eval.f3.loading")}</p>
         ) : null}
       </section>
 
       <section className="card">
         <div className="card-head">
           <div>
-            <h2>Strategy evaluation</h2>
-            <div className="sub">
-              Out-of-sample results after commission, spread and slippage
-            </div>
+            <h2>{t("eval.strategy.title")}</h2>
+            <div className="sub">{t("eval.strategy.sub")}</div>
           </div>
           <div className="eval-controls">
             <SymbolPicker symbols={sortedUniverse} value={symbol} onChange={setSymbol} />
@@ -307,7 +315,7 @@ export function EvaluationPage() {
               disabled={loading || !symbol}
             >
               <RefreshCw size={15} strokeWidth={1.75} aria-hidden />
-              {loading ? "Running…" : "Recompute"}
+              {loading ? t("eval.strategy.running") : t("eval.strategy.recompute")}
             </button>
           </div>
         </div>
@@ -315,7 +323,7 @@ export function EvaluationPage() {
         {error ? <p className="empty-hint">{error}</p> : null}
         {!data && !error ? (
           <p className="empty-hint">
-            {loading ? "Running walk-forward evaluation…" : "Pick a symbol to evaluate."}
+            {loading ? t("eval.strategy.empty.running") : t("eval.strategy.empty.pick")}
           </p>
         ) : null}
 
@@ -332,7 +340,11 @@ export function EvaluationPage() {
               <div>
                 <strong>{verdict.label}</strong>
                 <span className="sub">
-                  {data.symbol} · {data.bars} bars · {data.oos_trade_count} out-of-sample trades
+                  {t("eval.verdict.meta", {
+                    sym: data.symbol,
+                    bars: data.bars,
+                    n: data.oos_trade_count,
+                  })}
                 </span>
               </div>
             </div>
@@ -353,75 +365,71 @@ export function EvaluationPage() {
           <section className="card">
             <div className="card-head">
               <div>
-                <h2>Out of sample</h2>
-                <div className="sub">Data the parameters were never fitted on</div>
+                <h2>{t("eval.oos.title")}</h2>
+                <div className="sub">{t("eval.oos.sub")}</div>
               </div>
             </div>
             <div className="eval-grid">
               <Metric
-                label="Return"
+                label={t("eval.oos.return")}
                 value={pct(data.oos_return_pct)}
                 tone={data.oos_return_pct > 0 ? "good" : "bad"}
               />
-              <Metric label="Win rate" value={pct(data.oos_win_rate * 100, 0)} />
-              <Metric label="Profit factor" value={num(data.oos_profit_factor)} />
-              <Metric label="Max drawdown" value={pct(-data.oos_max_drawdown_pct)} tone="bad" />
-              <Metric label="Sharpe" value={num(data.oos_sharpe)} />
-              <Metric
-                label="Walk-forward efficiency"
-                value={num(data.walk_forward_efficiency)}
-                hint="Below 0.5 means the fit is noise"
-              />
+              <Metric label={t("eval.oos.winRate")} value={pct(data.oos_win_rate * 100, 0)} />
+              <Metric label={t("eval.oos.pf")} value={num(data.oos_profit_factor)} />
+              <Metric label={t("eval.oos.dd")} value={pct(-data.oos_max_drawdown_pct)} tone="bad" />
+              <Metric label={t("eval.oos.sharpe")} value={num(data.oos_sharpe)} />
+              <Metric label={t("eval.oos.wfe")} value={num(data.walk_forward_efficiency)} />
             </div>
           </section>
 
           <section className="card">
             <div className="card-head">
               <div>
-                <h2>Versus {data.benchmark_symbol}</h2>
-                <div className="sub">Buy and hold over the same bars, same costs</div>
+                <h2>{t("eval.bench.title", { bench: data.benchmark_symbol })}</h2>
+                <div className="sub">{t("eval.bench.sub")}</div>
               </div>
             </div>
             <div className="eval-grid">
               <Metric
-                label="Strategy"
+                label={t("eval.bench.strategy")}
                 value={pct(data.oos_return_pct)}
                 tone={data.beats_benchmark ? "good" : "muted"}
               />
               <Metric label={data.benchmark_symbol} value={pct(data.benchmark_return_pct)} />
               <Metric
-                label="Excess return"
+                label={t("eval.bench.excess")}
                 value={pct(data.excess_return_pct)}
                 tone={data.beats_benchmark ? "good" : "bad"}
-                hint={data.beats_benchmark ? "Beats the index" : "Index wins — no reason to trade"}
+                hint={data.beats_benchmark ? t("eval.bench.beats") : t("eval.bench.loses")}
               />
-              <Metric label="Benchmark drawdown" value={pct(-data.benchmark_max_drawdown_pct)} />
+              <Metric label={t("eval.bench.dd")} value={pct(-data.benchmark_max_drawdown_pct)} />
             </div>
           </section>
 
           <section className="card">
             <div className="card-head">
               <div>
-                <h2>Full sample</h2>
-                <div className="sub">In-sample fit — the optimistic number</div>
+                <h2>{t("eval.full.title")}</h2>
+                <div className="sub">{t("eval.full.sub")}</div>
               </div>
             </div>
             <div className="eval-grid">
-              <Metric label="Return (net)" value={pct(data.return_pct)} />
+              <Metric label={t("eval.full.returnNet")} value={pct(data.return_pct)} />
               <Metric
-                label="Return (gross)"
+                label={t("eval.full.returnGross")}
                 value={pct(data.gross_return_pct)}
-                hint="Before costs"
+                hint={t("eval.full.beforeCosts")}
                 tone="muted"
               />
-              <Metric label="Costs paid" value={money(data.total_costs)} tone="bad" />
-              <Metric label="Trades" value={String(data.trade_count)} />
-              <Metric label="Expectancy" value={`${num(data.expectancy_r)}R`} />
-              <Metric label="Sharpe" value={num(data.sharpe)} />
-              <Metric label="Sortino" value={num(data.sortino)} />
-              <Metric label="Calmar" value={num(data.calmar)} />
-              <Metric label="CAGR" value={pct(data.cagr_pct)} />
-              <Metric label="Max drawdown" value={pct(-data.max_drawdown_pct)} />
+              <Metric label={t("eval.full.costs")} value={money(data.total_costs)} tone="bad" />
+              <Metric label={t("eval.full.trades")} value={String(data.trade_count)} />
+              <Metric label={t("eval.full.expectancy")} value={`${num(data.expectancy_r)}R`} />
+              <Metric label={t("eval.full.sharpe")} value={num(data.sharpe)} />
+              <Metric label={t("eval.full.sortino")} value={num(data.sortino)} />
+              <Metric label={t("eval.full.calmar")} value={num(data.calmar)} />
+              <Metric label={t("eval.full.cagr")} value={pct(data.cagr_pct)} />
+              <Metric label={t("eval.full.dd")} value={pct(-data.max_drawdown_pct)} />
             </div>
           </section>
 
@@ -429,22 +437,20 @@ export function EvaluationPage() {
             <section className="card">
               <div className="card-head">
                 <div>
-                  <h2>By market regime</h2>
-                  <div className="sub">
-                    A strategy that only works in one regime is a bet on that regime
-                  </div>
+                  <h2>{t("eval.regime.title")}</h2>
+                  <div className="sub">{t("eval.regime.sub")}</div>
                 </div>
               </div>
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Regime</th>
+                    <th>{t("eval.regime.col.regime")}</th>
                     <th>Bars</th>
-                    <th>Trades</th>
-                    <th>Return</th>
-                    <th>Win rate</th>
-                    <th>Profit factor</th>
-                    <th>Max DD</th>
+                    <th>{t("eval.regime.col.trades")}</th>
+                    <th>{t("eval.regime.col.return")}</th>
+                    <th>{t("eval.oos.winRate")}</th>
+                    <th>{t("eval.oos.pf")}</th>
+                    <th>{t("eval.regime.col.dd")}</th>
                   </tr>
                 </thead>
                 <tbody>

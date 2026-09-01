@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
 import { formatLocalTime } from "@/lib/time";
 import { useDesk } from "@/context/DeskContext";
+import { useT } from "@/i18n/I18nProvider";
 
 export function LogsPage() {
+  const t = useT();
   const { desk } = useDesk();
   const events = desk?.activity?.events ?? [];
   const [agentFilter, setAgentFilter] = useState("all");
@@ -30,7 +32,7 @@ export function LogsPage() {
       <div className="logs-toolbar">
         <input
           className="logs-search"
-          placeholder="Filter message or symbol…"
+          placeholder={t("logs.search.placeholder")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -41,7 +43,7 @@ export function LogsPage() {
         >
           {agents.map((a) => (
             <option key={a} value={a}>
-              {a === "all" ? "All agents" : a}
+              {a === "all" ? t("logs.filter.all") : a}
             </option>
           ))}
         </select>
@@ -52,7 +54,7 @@ export function LogsPage() {
           <div className="row">
             <span />
             <span className="ag">—</span>
-            <span>No log lines yet</span>
+            <span>{t("logs.empty")}</span>
           </div>
         ) : (
           rows.map((e, i) => {

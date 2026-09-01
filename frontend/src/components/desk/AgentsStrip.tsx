@@ -1,5 +1,6 @@
 import { useLocation } from "react-router-dom";
 import { useDesk } from "@/context/DeskContext";
+import { useT } from "@/i18n/I18nProvider";
 import { isAgentLive } from "@/lib/api";
 
 type Chip = { label: string; value?: string; accent?: boolean; live?: boolean };
@@ -11,6 +12,7 @@ type PageMeta = {
 };
 
 function usePageMeta(): PageMeta {
+  const t = useT();
   const { desk, scannerLine } = useDesk();
   const path = useLocation().pathname;
   const scanner = desk?.scanner;
@@ -27,106 +29,126 @@ function usePageMeta(): PageMeta {
   switch (path) {
     case "/opportunities":
       return {
-        title: "Opportunities",
-        sub: `Confirm queue · ${buys} buy · ${sells} sell`,
+        title: t("strip.opportunities.title"),
+        sub: t("strip.opportunities.sub", { buys, sells }),
         chips: [
-          { label: "Buys", value: String(buys) },
-          { label: "Sells", value: String(sells) },
-          { label: "Open", value: String(buys + sells), accent: buys + sells > 0 },
-          { label: buys + sells ? "Awaiting you" : "Empty", accent: buys + sells === 0 },
+          { label: t("strip.opportunities.buys"), value: String(buys) },
+          { label: t("strip.opportunities.sells"), value: String(sells) },
+          { label: t("strip.opportunities.open"), value: String(buys + sells), accent: buys + sells > 0 },
+          {
+            label: buys + sells ? t("strip.opportunities.awaiting") : t("strip.opportunities.empty"),
+            accent: buys + sells === 0,
+          },
         ],
       };
     case "/positions":
       return {
-        title: "Positions",
-        sub: `Broker paper · equity ${desk?.portfolio?.equity ?? "—"} · cash ${desk?.portfolio?.cash ?? "—"}`,
+        title: t("strip.positions.title"),
+        sub: t("strip.positions.sub", {
+          equity: desk?.portfolio?.equity ?? "—",
+          cash: desk?.portfolio?.cash ?? "—",
+        }),
         chips: [
-          { label: "Open", value: String(positions) },
-          { label: "Orders", value: String(orders) },
+          { label: t("strip.positions.open"), value: String(positions) },
+          { label: t("strip.positions.orders"), value: String(orders) },
           {
-            label: "Day",
+            label: t("strip.positions.day"),
             value: desk?.portfolio?.day_pnl ?? "—",
           },
-          { label: positions ? "In market" : "Flat", accent: true },
+          {
+            label: positions ? t("strip.positions.inMarket") : t("strip.positions.flat"),
+            accent: true,
+          },
         ],
       };
     case "/agents":
       return {
-        title: "Agents",
+        title: t("strip.agents.title"),
         sub: scannerLine,
         chips: [
-          { label: "Cycle", value: String(scanner?.cycle ?? "—") },
-          { label: "Univ", value: String(universe) },
-          { label: "Live", value: String(working), live: working > 0 },
-          { label: scanner?.running ? "Scanning" : "Idle", accent: true },
+          { label: t("strip.agents.cycle"), value: String(scanner?.cycle ?? "—") },
+          { label: t("strip.agents.univ"), value: String(universe) },
+          { label: t("strip.agents.live"), value: String(working), live: working > 0 },
+          {
+            label: scanner?.running ? t("strip.agents.scanning") : t("strip.agents.idle"),
+            accent: true,
+          },
         ],
       };
     case "/journal":
       return {
-        title: "Journal",
-        sub: "Closed trades · Review Agent (no trading authority)",
+        title: t("strip.journal.title"),
+        sub: t("strip.journal.sub"),
         chips: [
-          { label: "Trades", value: String(review?.trade_count ?? 0) },
+          { label: t("strip.journal.trades"), value: String(review?.trade_count ?? 0) },
           {
-            label: "Win",
+            label: t("strip.journal.win"),
             value: review?.trade_count ? `${(review.win_rate * 100).toFixed(0)}%` : "—",
           },
           {
-            label: "Exp",
+            label: t("strip.journal.exp"),
             value: review?.expectancy != null ? `$${Number(review.expectancy).toFixed(2)}` : "—",
           },
-          { label: "Read-only", accent: true },
+          { label: t("strip.journal.readonly"), accent: true },
         ],
       };
     case "/evaluation":
       return {
-        title: "Evaluation",
-        sub: "Walk-forward results after commission, spread and slippage",
+        title: t("strip.evaluation.title"),
+        sub: t("strip.evaluation.sub"),
         chips: [
-          { label: "Univ", value: String(universe) },
-          { label: "Bench", value: "SPY" },
-          { label: "Out-of-sample", accent: true },
+          { label: t("strip.evaluation.univ"), value: String(universe) },
+          { label: t("strip.evaluation.bench"), value: "SPY" },
+          { label: t("strip.evaluation.oos"), accent: true },
         ],
       };
     case "/logs": {
       const funnel = scanner?.funnel;
       return {
-        title: "Logs",
+        title: t("strip.logs.title"),
         sub: funnel
           ? funnel.paused_on_full_queue
-            ? `Last cycle paused on a full queue · universe ${funnel.universe_total} · ` +
-              `decide or expire a proposal to resume`
-            : `Last cycle · universe ${funnel.universe_total} · ` +
-              `market-passed ${funnel.market_filter_passed} · ` +
-              `shortlisted ${funnel.quant_shortlisted} · ` +
-              `deep ${funnel.deep_analysis_started} · ` +
-              `risk-passed ${funnel.risk_passed} · ${funnel.published} proposals` +
-              (funnel.final_outranked ? ` · ${funnel.final_outranked} outranked` : "")
-          : `Pipeline activity · ${events} buffered events`,
+            ? t("strip.logs.sub.fullQueue", { univ: funnel.universe_total })
+            : t("strip.logs.sub.cycle", {
+                univ: funnel.universe_total,
+                market: funnel.market_filter_passed,
+                short: funnel.quant_shortlisted,
+                deep: funnel.deep_analysis_started,
+                risk: funnel.risk_passed,
+                published: funnel.published,
+              }) +
+              (funnel.final_outranked
+                ? t("strip.logs.sub.outranked", { n: funnel.final_outranked })
+                : "")
+          : t("strip.logs.sub.events", { n: events }),
         chips: [
-          { label: "Events", value: String(events) },
-          { label: "Univ", value: String(funnel?.universe_total ?? 0) },
-          { label: "Deep", value: String(funnel?.deep_analysis_started ?? 0) },
-          { label: "Cycle", value: String(scanner?.cycle ?? "—") },
-          { label: working ? "Live" : "Quiet", accent: true, live: working > 0 },
+          { label: t("strip.logs.events"), value: String(events) },
+          { label: t("strip.logs.univ"), value: String(funnel?.universe_total ?? 0) },
+          { label: t("strip.logs.deep"), value: String(funnel?.deep_analysis_started ?? 0) },
+          { label: t("strip.logs.cycle"), value: String(scanner?.cycle ?? "—") },
+          {
+            label: working ? t("strip.logs.live") : t("strip.logs.quiet"),
+            accent: true,
+            live: working > 0,
+          },
         ],
       };
     }
     case "/settings":
       return {
-        title: "Settings",
-        sub: "Paper desk · local browser + API",
+        title: t("strip.settings.title"),
+        sub: t("strip.settings.sub"),
         chips: [
-          { label: "Univ", value: String(universe) },
-          { label: "Mode", value: desk?.mode || "confirm" },
-          { label: "Paper", accent: true },
+          { label: t("strip.settings.univ"), value: String(universe) },
+          { label: t("strip.settings.mode"), value: desk?.mode || "confirm" },
+          { label: t("strip.settings.paper"), accent: true },
         ],
       };
     default:
       return {
-        title: "Traido",
+        title: t("strip.default.title"),
         sub: scannerLine,
-        chips: [{ label: "Paper", accent: true }],
+        chips: [{ label: t("strip.default.paper"), accent: true }],
       };
   }
 }

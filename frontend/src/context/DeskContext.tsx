@@ -20,6 +20,7 @@ import {
   mergeDesk,
   subscribeDeskEvents,
 } from "@/lib/api";
+import { useI18n } from "@/i18n/I18nProvider";
 import { humanizeError, type FlashMessage } from "@/lib/messages";
 import { useToastQueue, type FlashSlot, type Toast } from "@/lib/toasts";
 
@@ -62,9 +63,10 @@ type DeskContextValue = {
 const DeskContext = createContext<DeskContextValue | null>(null);
 
 export function DeskProvider({ children }: { children: ReactNode }) {
+  const { locale, t } = useI18n();
   const [light, setLight] = useState<DeskLight | null>(null);
   const [broker, setBroker] = useState<BrokerSnapshot | null>(null);
-  const [scannerLine, setScannerLine] = useState("Starting…");
+  const [scannerUnavailable, setScannerUnavailable] = useState(false);
   const [killSwitch, setKillSwitch] = useState<KillSwitchState>("loading");
   const lightRef = useRef<DeskLight | null>(null);
   const lightInFlight = useRef(false);
@@ -85,13 +87,23 @@ export function DeskProvider({ children }: { children: ReactNode }) {
   const applyLight = useCallback((next: DeskLight) => {
     lightRef.current = next;
     setLight(next);
-    const s = next.scanner || {};
-    setScannerLine(
-      s.running
-        ? `Scanning ${s.last_symbol || "…"} · cycle ${s.cycle}`
-        : `Watching ${(s.universe || []).length} symbols · cycle ${s.cycle || 0} · buys ${next.buy_opportunities.length} · sells ${next.sell_opportunities.length}`,
-    );
+    setScannerUnavailable(false);
   }, []);
+
+  const scannerLine = useMemo(() => {
+    if (scannerUnavailable) return t("scanner.unavailable");
+    if (!light) return t("scanner.starting");
+    const s = light.scanner || {};
+    if (s.running) {
+      return t("scanner.running", { symbol: s.last_symbol || "…", n: s.cycle ?? 0 });
+    }
+    return t("scanner.watching", {
+      n: (s.universe || []).length,
+      c: s.cycle || 0,
+      b: light.buy_opportunities.length,
+      s: light.sell_opportunities.length,
+    });
+  }, [light, scannerUnavailable, locale, t]);
 
   const refreshLight = useCallback(async () => {
     if (lightInFlight.current) {
@@ -169,7 +181,7 @@ export function DeskProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         if (alive) {
           showFlash(humanizeError(err instanceof Error ? err.message : String(err)));
-          setScannerLine("Dashboard unavailable");
+          setScannerUnavailable(true);
         }
       } finally {
         if (alive) scheduleLight();

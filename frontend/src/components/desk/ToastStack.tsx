@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { useT } from "@/i18n/I18nProvider";
 import type { FlashSlot, Toast } from "@/lib/toasts";
 
 /** Bottom-right stack of desk messages.
@@ -18,6 +19,8 @@ export function ToastStack({
   onDismiss: (id: FlashSlot) => void;
   onHold: (id: FlashSlot, held: boolean) => void;
 }) {
+  const t = useT();
+
   if (toasts.length === 0) return null;
 
   return createPortal(
@@ -46,7 +49,7 @@ export function ToastStack({
                   type="button"
                   className="flash__close"
                   onClick={() => onDismiss(id)}
-                  aria-label="Dismiss"
+                  aria-label={t("toast.dismiss")}
                 >
                   ×
                 </button>

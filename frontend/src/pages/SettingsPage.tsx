@@ -1,28 +1,45 @@
 import { useCallback, useState } from "react";
+import { KeyRound, Languages, Radar, ShieldAlert } from "lucide-react";
 import { runScanner, setKillSwitch } from "@/lib/api";
-import { useDesk, type KillSwitchState } from "@/context/DeskContext";
-
-const KILL_LABEL: Record<KillSwitchState, string> = {
-  loading: "Reading…",
-  on: "ON — disable",
-  off: "OFF — enable",
-  unreadable: "Unreadable",
-};
+import { useDesk } from "@/context/DeskContext";
+import { useI18n } from "@/i18n/I18nProvider";
+import type { Locale } from "@/i18n";
 
 export function SettingsPage() {
-  // Read from the shared state the header also reads, so the page and the
-  // header can never disagree about whether trading is blocked.
   const { desk, refreshAll, showFlash, killSwitch: kill, refreshKillSwitch } = useDesk();
+  const { t, locale, setLocale } = useI18n();
   const [apiKey, setApiKey] = useState(() =>
     typeof window !== "undefined" ? window.localStorage.getItem("TRAIDO_API_KEY") || "" : "",
   );
   const [busy, setBusy] = useState(false);
 
   const saveKey = useCallback(() => {
-    if (apiKey.trim()) window.localStorage.setItem("TRAIDO_API_KEY", apiKey.trim());
-    else window.localStorage.removeItem("TRAIDO_API_KEY");
-    showFlash({ kind: "ok", title: "API key saved", detail: "Used as X-API-Key for /api requests." });
-  }, [apiKey, showFlash]);
+    if (apiKey.trim()) {
+      window.localStorage.setItem("TRAIDO_API_KEY", apiKey.trim());
+      showFlash({
+        kind: "ok",
+        title: t("settings.api.saved.title"),
+        detail: t("settings.api.saved.detail"),
+      });
+    } else {
+      window.localStorage.removeItem("TRAIDO_API_KEY");
+      showFlash({
+        kind: "info",
+        title: t("settings.api.cleared.title"),
+        detail: t("settings.api.cleared.detail"),
+      });
+    }
+  }, [apiKey, showFlash, t]);
+
+  const clearKey = useCallback(() => {
+    setApiKey("");
+    window.localStorage.removeItem("TRAIDO_API_KEY");
+    showFlash({
+      kind: "info",
+      title: t("settings.api.cleared.title"),
+      detail: t("settings.api.cleared.detail"),
+    });
+  }, [showFlash, t]);
 
   const toggleKill = useCallback(async () => {
     setBusy(true);
@@ -30,86 +47,190 @@ export function SettingsPage() {
       const next = await setKillSwitch(kill !== "on");
       showFlash({
         kind: next.enabled ? "error" : "ok",
-        title: next.enabled ? "Kill switch ON" : "Kill switch OFF",
-        detail: next.enabled ? "New orders blocked." : "Confirmations allowed again.",
+        title: next.enabled ? t("settings.kill.flash.on.title") : t("settings.kill.flash.off.title"),
+        detail: next.enabled
+          ? t("settings.kill.flash.on.detail")
+          : t("settings.kill.flash.off.detail"),
       });
     } catch (err) {
       showFlash({
         kind: "error",
-        title: "Kill switch failed",
+        title: t("settings.kill.flash.failed"),
         detail: err instanceof Error ? err.message : String(err),
       });
     } finally {
-      // Re-read rather than trust the response, so a failed toggle leaves the
-      // switch showing what the server actually has.
       await refreshKillSwitch();
       setBusy(false);
     }
-  }, [kill, showFlash, refreshKillSwitch]);
+  }, [kill, showFlash, refreshKillSwitch, t]);
 
   const scanNow = useCallback(async () => {
     setBusy(true);
     try {
       await runScanner();
       await refreshAll();
-      showFlash({ kind: "info", title: "Scan started", detail: "Universe pass requested." });
+      showFlash({
+        kind: "info",
+        title: t("settings.scanner.flash.title"),
+        detail: t("settings.scanner.flash.detail"),
+      });
     } finally {
       setBusy(false);
     }
-  }, [refreshAll, showFlash]);
+  }, [refreshAll, showFlash, t]);
 
   const universe = desk?.scanner?.universe ?? [];
+  const killBadgeLabel =
+    kill === "on"
+      ? t("settings.kill.badge.on")
+      : kill === "off"
+        ? t("settings.kill.badge.off")
+        : kill === "loading"
+          ? t("settings.kill.badge.loading")
+          : t("settings.kill.badge.unreadable");
 
   return (
-    <section className="card page-card">
-      <h3 className="page-section-title">Safety</h3>
-      <div className="settings-row">
-        <div>
-          <strong>Kill switch</strong>
-          <div className="sub">Blocks all new broker orders when on</div>
+    <section className="settings-page">
+      <header className="settings-hero">
+        <h2 className="settings-hero__title">{t("settings.title")}</h2>
+        <p className="settings-hero__intro">{t("settings.intro")}</p>
+      </header>
+
+      <article className={`settings-card${kill === "on" ? " settings-card--danger" : ""}`}>
+        <div className="settings-card__icon" aria-hidden>
+          <ShieldAlert size={22} strokeWidth={1.75} absoluteStrokeWidth />
         </div>
-        <button
-          type="button"
-          className={kill === "on" ? "btn-ink" : "btn-ghost"}
-          disabled={busy || kill === "loading" || kill === "unreadable"}
-          onClick={toggleKill}
-        >
-          {KILL_LABEL[kill]}
-        </button>
-      </div>
-
-      <h3 className="page-section-title">API key</h3>
-      <div className="settings-row">
-        <input
-          className="logs-search"
-          placeholder="TRAIDO_API_KEY (optional)"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-        />
-        <button type="button" className="btn-ghost" onClick={saveKey}>
-          Save
-        </button>
-      </div>
-
-      <h3 className="page-section-title">Scanner</h3>
-      <div className="settings-row">
-        <div>
-          <strong>Universe</strong>
-          <div className="sub">
-            {universe.length
-              ? `${universe.length} symbols · ${universe[0]}…${universe[universe.length - 1]} · curated names always kept; rest ranked for scan quality`
-              : "—"}
+        <div className="settings-card__body">
+          <div className="settings-card__head">
+            <h3>{t("settings.kill.title")}</h3>
+            <span
+              className={`settings-badge${kill === "on" ? " settings-badge--on" : ""}${kill === "unreadable" ? " settings-badge--warn" : ""}`}
+            >
+              {killBadgeLabel}
+            </span>
+          </div>
+          <p className="settings-card__lead">{t("settings.kill.lead")}</p>
+          <ul className="settings-points">
+            <li>{t("settings.kill.what")}</li>
+            <li>{t("settings.kill.keeps")}</li>
+            <li>{t("settings.kill.when")}</li>
+          </ul>
+          <div className="settings-card__actions">
+            <button
+              type="button"
+              className={kill === "on" ? "btn-ghost" : "btn-ink"}
+              disabled={busy || kill === "loading" || kill === "unreadable"}
+              onClick={toggleKill}
+            >
+              {kill === "on" ? t("settings.kill.disable") : t("settings.kill.enable")}
+            </button>
           </div>
         </div>
-        <button type="button" className="btn-ink" disabled={busy} onClick={scanNow}>
-          Run scan now
-        </button>
-      </div>
+      </article>
 
-      <h3 className="page-section-title">About</h3>
-      <p className="sub">
-        Traido confirmation desk · Vite + React frontend · FastAPI backend · paper Alpaca only in V1.
-      </p>
+      <article className="settings-card">
+        <div className="settings-card__icon" aria-hidden>
+          <KeyRound size={22} strokeWidth={1.75} absoluteStrokeWidth />
+        </div>
+        <div className="settings-card__body">
+          <div className="settings-card__head">
+            <h3>{t("settings.api.title")}</h3>
+          </div>
+          <p className="settings-card__lead">{t("settings.api.lead")}</p>
+          <ul className="settings-points">
+            <li>{t("settings.api.what")}</li>
+            <li>{t("settings.api.hint")}</li>
+          </ul>
+          <div className="settings-card__actions settings-card__actions--stack">
+            <input
+              className="logs-search"
+              type="password"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={t("settings.api.placeholder")}
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+            />
+            <div className="settings-card__btnrow">
+              <button type="button" className="btn-ink" onClick={saveKey}>
+                {t("settings.api.save")}
+              </button>
+              <button type="button" className="btn-ghost" onClick={clearKey} disabled={!apiKey}>
+                {t("settings.api.clear")}
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article className="settings-card">
+        <div className="settings-card__icon" aria-hidden>
+          <Radar size={22} strokeWidth={1.75} absoluteStrokeWidth />
+        </div>
+        <div className="settings-card__body">
+          <div className="settings-card__head">
+            <h3>{t("settings.scanner.title")}</h3>
+            {universe.length ? (
+              <span className="settings-badge">{universe.length}</span>
+            ) : null}
+          </div>
+          <p className="settings-card__lead">{t("settings.scanner.lead")}</p>
+          <ul className="settings-points">
+            <li>
+              {universe.length
+                ? t("settings.scanner.what", {
+                    n: universe.length,
+                    first: universe[0],
+                    last: universe[universe.length - 1],
+                  })
+                : t("settings.scanner.empty")}
+            </li>
+            <li>{t("settings.scanner.hint")}</li>
+          </ul>
+          <div className="settings-card__actions">
+            <button type="button" className="btn-ink" disabled={busy} onClick={scanNow}>
+              {t("settings.scanner.run")}
+            </button>
+          </div>
+        </div>
+      </article>
+
+      <article className="settings-card">
+        <div className="settings-card__icon" aria-hidden>
+          <Languages size={22} strokeWidth={1.75} absoluteStrokeWidth />
+        </div>
+        <div className="settings-card__body">
+          <div className="settings-card__head">
+            <h3>{t("settings.lang.title")}</h3>
+          </div>
+          <p className="settings-card__lead">{t("settings.lang.lead")}</p>
+          <ul className="settings-points">
+            <li>{t("settings.lang.what")}</li>
+          </ul>
+          <div className="settings-card__actions">
+            <div className="lang-toggle" role="group" aria-label={t("lang.switch")}>
+              {(["en", "ru"] as Locale[]).map((code) => (
+                <button
+                  key={code}
+                  type="button"
+                  className={`lang-toggle__btn${locale === code ? " is-active" : ""}`}
+                  onClick={() => setLocale(code)}
+                  aria-pressed={locale === code}
+                >
+                  {t(code === "en" ? "lang.en" : "lang.ru")}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article className="settings-card settings-card--muted">
+        <div className="settings-card__body">
+          <h3 className="settings-about-title">{t("settings.about.title")}</h3>
+          <p className="settings-about-body">{t("settings.about.body")}</p>
+        </div>
+      </article>
     </section>
   );
 }

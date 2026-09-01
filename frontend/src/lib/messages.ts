@@ -1,5 +1,7 @@
 /** Human-readable desk feedback for success / failure. */
 
+import { t } from "@/i18n";
+
 export type FlashKind = "ok" | "error" | "pending" | "info";
 
 export type FlashMessage = {
@@ -36,121 +38,118 @@ export function parseApiError(payload: unknown, fallback: string): string {
 
 /** Map backend codes to plain language. */
 export function humanizeError(raw: string): FlashMessage {
-  const text = raw || "Unknown error";
+  const text = raw || t("toast.error.unknown");
   const upper = text.toUpperCase();
 
   if (upper.includes("ALPACA_RATE_LIMIT") || upper.includes("429")) {
     return {
       kind: "error",
-      title: "Alpaca rate limit",
-      detail: "Слишком много запросов к paper API. Подожди пару секунд — desk уже реже поллит.",
+      title: t("toast.error.alpacaRateLimit.title"),
+      detail: t("toast.error.alpacaRateLimit.detail"),
     };
   }
   if (upper.includes("INTERNAL SERVER ERROR") || text.includes("500")) {
     return {
       kind: "error",
-      title: "Связь с API оборвалась",
-      detail:
-        "Часто вне сессии US лимит ждёт fill дольше, чем держит прокси. Карточка должна вернуться — нажми BUY ещё раз или обнови desk.",
+      title: t("toast.error.server500.title"),
+      detail: t("toast.error.server500.detail"),
     };
   }
   if (upper.includes("ENTRY_ORDER_REJECTED")) {
     return {
       kind: "error",
-      title: "BUY отклонён брокером",
-      detail: "Ордер не принят (часто тик цены). Карточка снова в очереди — можно повторить.",
+      title: t("toast.error.entryRejected.title"),
+      detail: t("toast.error.entryRejected.detail"),
     };
   }
   if (upper.includes("FILL_TIMEOUT") || upper.includes("ENTRY_FILL_FAILED")) {
     return {
       kind: "error",
-      title: "BUY не исполнен",
-      detail:
-        "Лимит не заполнился (вне RTH US почти всегда). Ордер отменён, карточка снова в очереди.",
+      title: t("toast.error.fillTimeout.title"),
+      detail: t("toast.error.fillTimeout.detail"),
     };
   }
   if (upper.includes("STOP_FAILED") || upper.includes("FLATTENED")) {
     return {
       kind: "error",
-      title: "Stop не встал — позиция закрыта",
-      detail: "Защитный stop не принят брокером. Сработал emergency flatten. Позиция не оставлена голой.",
+      title: t("toast.error.stopFailed.title"),
+      detail: t("toast.error.stopFailed.detail"),
     };
   }
   if (upper.includes("EXIT_ORDER_REJECTED") || upper.includes("EXIT_FILL_FAILED")) {
     return {
       kind: "error",
-      title: "SELL не исполнен",
-      detail: "Выход не прошёл. Предложение возвращено в очередь — попробуй ещё раз.",
+      title: t("toast.error.exitFailed.title"),
+      detail: t("toast.error.exitFailed.detail"),
     };
   }
   if (upper.includes("KILL_SWITCH")) {
     return {
       kind: "error",
-      title: "Kill switch включён",
-      detail: "Торговля заблокирована. Выключи kill switch, чтобы снова подтверждать сделки.",
+      title: t("toast.error.killSwitch.title"),
+      detail: t("toast.error.killSwitch.detail"),
     };
   }
   if (upper.includes("RISK_REJECT")) {
     return {
       kind: "error",
-      title: "Risk Engine отклонил",
+      title: t("toast.error.riskReject.title"),
       detail: text.replace(/^[^:]*:/, "").trim() || text,
     };
   }
   if (upper.includes("UNAUTHORIZED") || text.includes("401")) {
     return {
       kind: "error",
-      title: "Нет доступа к API",
-      detail: "Проверь TRAIDO_API_KEY в localStorage или открой desk с localhost.",
+      title: t("toast.error.unauthorized.title"),
+      detail: t("toast.error.unauthorized.detail"),
     };
   }
   if (upper.includes("OPPORTUNITY_EXPIRED") || upper.includes("EXPIRED")) {
     return {
       kind: "error",
-      title: "Предложение истекло",
-      detail: "TTL карточки вышел. Дождись нового скана.",
+      title: t("toast.error.expired.title"),
+      detail: t("toast.error.expired.detail"),
     };
   }
   if (upper.includes("LIQUIDITY_GATE_REJECTED") || upper.includes("SPREAD_TOO_WIDE")) {
     if (upper.includes("ENTRY_TOO_FAR_ABOVE_CARD")) {
       return {
         kind: "error",
-        title: "Цена ушла от карточки",
-        detail:
-          "Рынок ушёл выше Entry больше чем на 0.25R. Карточка остаётся — BUY снова станет доступен, когда книга вернётся.",
+        title: t("toast.error.entryTooFar.title"),
+        detail: t("toast.error.entryTooFar.detail"),
       };
     }
     if (upper.includes("SPREAD_TOO_WIDE")) {
       return {
         kind: "error",
-        title: "Слишком широкий спред",
-        detail: "В такую книгу не входим. Карточка остаётся — дождись сужения спреда.",
+        title: t("toast.error.spreadWide.title"),
+        detail: t("toast.error.spreadWide.detail"),
       };
     }
     if (upper.includes("PRICE_MOVED_PAST_SETUP")) {
       return {
         kind: "error",
-        title: "Сетап уже пройден",
-        detail: "Цена прошла Stop или Target. Это уже не та сделка — SKIP или новый скан.",
+        title: t("toast.error.pastSetup.title"),
+        detail: t("toast.error.pastSetup.detail"),
       };
     }
     return {
       kind: "error",
-      title: "Liquidity gate отказал",
+      title: t("toast.error.liquidityGate.title"),
       detail: text.replace(/^[^:]*:/, "").trim() || text,
     };
   }
   if (upper.includes("INVALID_STATUS")) {
     return {
       kind: "error",
-      title: "Уже обработано",
-      detail: "Это предложение уже в другом статусе (повторный клик или параллельный запрос).",
+      title: t("toast.error.invalidStatus.title"),
+      detail: t("toast.error.invalidStatus.detail"),
     };
   }
 
   return {
     kind: "error",
-    title: "Запрос не прошёл",
+    title: t("toast.error.generic.title"),
     detail: text.slice(0, 280),
   };
 }
@@ -159,29 +158,29 @@ export function flashBuyOk(symbol: string, status: string): FlashMessage {
   if (status === "executed") {
     return {
       kind: "ok",
-      title: `${symbol} · BUY исполнен`,
-      detail: "Fill получен, защитный stop выставлен, позиция в ledger. Смотри блок Positions.",
+      title: t("toast.buy.ok.executed.title", { symbol }),
+      detail: t("toast.buy.ok.executed.detail"),
     };
   }
   if (status === "discarded") {
     return {
       kind: "error",
-      title: `${symbol} · BUY отклонён системой`,
-      detail: "Сделка не осталась открытой (fill/stop problem). Проверь Activity / audit.",
+      title: t("toast.buy.error.discarded.title", { symbol }),
+      detail: t("toast.buy.error.discarded.detail"),
     };
   }
   return {
     kind: "ok",
-    title: `${symbol} · BUY принято`,
-    detail: `Статус: ${status}`,
+    title: t("toast.buy.ok.accepted.title", { symbol }),
+    detail: t("toast.buy.ok.accepted.detail", { status }),
   };
 }
 
 export function flashSkipOk(symbol: string): FlashMessage {
   return {
     kind: "info",
-    title: `${symbol} · SKIP`,
-    detail: "Предложение отклонено, ордер не отправлялся.",
+    title: t("toast.skip.ok.title", { symbol }),
+    detail: t("toast.skip.ok.detail"),
   };
 }
 
@@ -189,22 +188,22 @@ export function flashSellOk(symbol: string, status: string): FlashMessage {
   if (status === "sold") {
     return {
       kind: "ok",
-      title: `${symbol} · SELL исполнен`,
-      detail: "Позиция закрыта по fill, сделка записана в journal. Win rate обновится после refresh.",
+      title: t("toast.sell.ok.sold.title", { symbol }),
+      detail: t("toast.sell.ok.sold.detail"),
     };
   }
   return {
     kind: "ok",
-    title: `${symbol} · SELL`,
-    detail: `Статус: ${status}`,
+    title: t("toast.sell.ok.generic.title", { symbol }),
+    detail: t("toast.sell.ok.generic.detail", { status }),
   };
 }
 
 export function flashHoldOk(symbol: string): FlashMessage {
   return {
     kind: "info",
-    title: `${symbol} · HOLD`,
-    detail: "Выход отложен, позиция остаётся открытой.",
+    title: t("toast.hold.ok.title", { symbol }),
+    detail: t("toast.hold.ok.detail"),
   };
 }
 
@@ -212,7 +211,7 @@ export function flashPending(label: string): FlashMessage {
   return {
     kind: "pending",
     title: label,
-    detail: "Ждём ответ брокера (fill может занять до ~45 с)…",
+    detail: t("toast.pending.broker"),
   };
 }
 
@@ -223,6 +222,6 @@ export function flashPendingLocal(label: string): FlashMessage {
   return {
     kind: "pending",
     title: label,
-    detail: "Записываем решение — ордер не отправляется.",
+    detail: t("toast.pending.local"),
   };
 }

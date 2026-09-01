@@ -16,35 +16,36 @@ import { ReconciliationBanner } from "@/components/desk/ReconciliationBanner";
 import { ToastStack } from "@/components/desk/ToastStack";
 import { Topbar } from "@/layout/Topbar";
 import { useDesk } from "@/context/DeskContext";
+import { useT } from "@/i18n/I18nProvider";
+import type { MessageKey } from "@/i18n";
 
 type NavItem = {
   id: string;
   to: string;
-  label: string;
+  labelKey: MessageKey;
   end?: boolean;
   icon: LucideIcon;
 };
 
 const items: NavItem[] = [
-  { id: "desk", to: "/", label: "Dashboard", end: true, icon: LayoutDashboard },
-  { id: "opportunities", to: "/opportunities", label: "Opportunities", icon: Crosshair },
-  { id: "positions", to: "/positions", label: "Positions", icon: CandlestickChart },
-  { id: "agents", to: "/agents", label: "Agents", icon: Bot },
-  { id: "journal", to: "/journal", label: "Journal", icon: BookOpen },
-  { id: "evaluation", to: "/evaluation", label: "Evaluation", icon: FlaskConical },
-  { id: "logs", to: "/logs", label: "Logs", icon: ScrollText },
-  { id: "settings", to: "/settings", label: "Settings", icon: Settings },
+  { id: "desk", to: "/", labelKey: "nav.dashboard", end: true, icon: LayoutDashboard },
+  { id: "opportunities", to: "/opportunities", labelKey: "nav.opportunities", icon: Crosshair },
+  { id: "positions", to: "/positions", labelKey: "nav.positions", icon: CandlestickChart },
+  { id: "agents", to: "/agents", labelKey: "nav.agents", icon: Bot },
+  { id: "journal", to: "/journal", labelKey: "nav.journal", icon: BookOpen },
+  { id: "evaluation", to: "/evaluation", labelKey: "nav.evaluation", icon: FlaskConical },
+  { id: "logs", to: "/logs", labelKey: "nav.logs", icon: ScrollText },
+  { id: "settings", to: "/settings", labelKey: "nav.settings", icon: Settings },
 ];
 
 export function AppShell() {
   const { desk, scannerLine, toasts, showFlash, dismissFlash, holdFlash, refreshAll } = useDesk();
   const loc = useLocation();
   const isDesk = loc.pathname === "/";
+  const t = useT();
 
   return (
     <div className="page">
-      {/* Outside the grid, so it spans the sidebar and the rail rather than only
-          the content column. */}
       <Topbar />
 
       <div className={`shell${isDesk ? "" : " shell--wide"}`}>
@@ -59,7 +60,7 @@ export function AppShell() {
                 className={({ isActive }) => `nav-item${isActive ? " active" : ""}`}
               >
                 <Icon size={18} strokeWidth={1.75} absoluteStrokeWidth aria-hidden />
-                {item.label}
+                {t(item.labelKey)}
               </NavLink>
             );
           })}
@@ -67,9 +68,6 @@ export function AppShell() {
 
         <main className="main">
           {!isDesk ? <PageStrip /> : null}
-          {/* Shown on every page, desk included, and deliberately not a flash: a
-              book that cannot be checked against the broker is a standing
-              condition, not an event, and it must not time out on its own. */}
           <ReconciliationBanner desk={desk} />
           <Outlet />
         </main>
@@ -84,7 +82,6 @@ export function AppShell() {
         ) : null}
       </div>
 
-      {/* The one place the dashboard-only rule for messages is stated. */}
       {isDesk ? (
         <ToastStack toasts={toasts} onDismiss={dismissFlash} onHold={holdFlash} />
       ) : null}

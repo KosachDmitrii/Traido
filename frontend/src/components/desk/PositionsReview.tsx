@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { DeskPosition, DeskResponse } from "@/lib/api";
 import { closePosition } from "@/lib/api";
 import { BROKER_MS, useDesk } from "@/context/DeskContext";
+import { useT } from "@/i18n/I18nProvider";
 import { flashPending, flashSellOk, humanizeError, type FlashMessage } from "@/lib/messages";
 import type { FlashSlot } from "@/lib/toasts";
 
@@ -34,6 +35,7 @@ function pnlView(p: DeskPosition) {
 }
 
 export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
+  const t = useT();
   const { showFlash, refreshAll } = useDesk();
   // Two clicks to flatten. The button sits in a list that is otherwise entirely
   // read-only, so a single click here would be the only place on the desk where
@@ -50,7 +52,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
     setBusy(symbol);
     let slot: FlashSlot | undefined;
     try {
-      slot = showFlash(flashPending(`${symbol} · закрываем позицию…`));
+      slot = showFlash(flashPending(t("toast.pending.close", { symbol })));
       const result = await closePosition(symbol);
       showFlash(flashSellOk(symbol, String(result?.status ?? "sold")), slot);
       await refreshAll();
@@ -79,16 +81,16 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
       <div className="card">
         <div className="card-head">
           <div>
-            <h2>Positions</h2>
-            <div className="sub">Ledger + Alpaca broker ({freshness})</div>
+            <h2>{t("desk.positions.title")}</h2>
+            <div className="sub">{t("desk.positions.sub", { freshness })}</div>
           </div>
         </div>
         <div className="pos-list">
           {positions.length === 0 ? (
             <div className="pos-row pos-row--empty">
               <div className="pos-row__meta">
-                <strong>Flat</strong>
-                <span>No open positions</span>
+                <strong>{t("desk.positions.empty.title")}</strong>
+                <span>{t("desk.positions.empty.detail")}</span>
               </div>
             </div>
           ) : (
@@ -101,11 +103,27 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                   <div className="pos-row__meta">
                     <strong>{p.symbol}</strong>
                     <span className="pos-row__stats">
-                      <span>Qty {p.qty}</span>
-                      <span>Entry {fmtPx(p.avg_entry)}</span>
-                      {p.mark ? <span>Mark {fmtPx(p.mark)}</span> : null}
-                      {p.stop ? <span>Stop {fmtPx(p.stop)}</span> : null}
-                      {p.target ? <span>Tgt {fmtPx(p.target)}</span> : null}
+                      <span>
+                        {t("desk.positions.stat.qty")} {p.qty}
+                      </span>
+                      <span>
+                        {t("desk.positions.stat.entry")} {fmtPx(p.avg_entry)}
+                      </span>
+                      {p.mark ? (
+                        <span>
+                          {t("desk.positions.stat.mark")} {fmtPx(p.mark)}
+                        </span>
+                      ) : null}
+                      {p.stop ? (
+                        <span>
+                          {t("desk.positions.stat.stop")} {fmtPx(p.stop)}
+                        </span>
+                      ) : null}
+                      {p.target ? (
+                        <span>
+                          {t("desk.positions.stat.tgt")} {fmtPx(p.target)}
+                        </span>
+                      ) : null}
                     </span>
                   </div>
                   <div className="pos-row__side">
@@ -125,7 +143,10 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                         </span>
                       </div>
                     ) : (
-                      <div className="pos-pnl pos-pnl--unknown" title="No price reported by the broker">
+                      <div
+                        className="pos-pnl pos-pnl--unknown"
+                        title={t("desk.positions.noMark")}
+                      >
                         <span className="pos-pnl__figures">
                           <strong>—</strong>
                         </span>
@@ -138,7 +159,11 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                       onClick={() => onClose(p.symbol)}
                       onBlur={() => setArming((s) => (s === p.symbol ? null : s))}
                     >
-                      {busy === p.symbol ? "…" : armed ? "Confirm?" : "Close"}
+                      {busy === p.symbol
+                        ? "…"
+                        : armed
+                          ? t("desk.positions.close.confirm")
+                          : t("desk.positions.close")}
                     </button>
                   </div>
                 </div>
@@ -148,11 +173,11 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
         </div>
 
         <div className="sub" style={{ marginTop: 16 }}>
-          Open orders · Alpaca
+          {t("desk.orders.sub")}
         </div>
         {openOrders.length === 0 ? (
           <p className="empty-hint" style={{ marginTop: 8 }}>
-            No resting broker orders
+            {t("desk.orders.empty")}
           </p>
         ) : (
           <div className="agent-list">
@@ -166,10 +191,16 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                       {o.symbol} · {o.side.toUpperCase()} {o.order_type}
                     </strong>
                     <span>
-                      Qty {o.qty}
-                      {o.filled_qty && o.filled_qty !== "0" ? ` · filled ${o.filled_qty}` : ""}
+                      {t("desk.orders.qty")} {o.qty}
+                      {o.filled_qty && o.filled_qty !== "0"
+                        ? ` · ${t("desk.orders.filled")} ${o.filled_qty}`
+                        : ""}
                       {" · "}
-                      {o.limit_price ? `@ ${o.limit_price}` : o.stop_price ? `stop ${o.stop_price}` : "mkt"}
+                      {o.limit_price
+                        ? `@ ${o.limit_price}`
+                        : o.stop_price
+                          ? `${t("desk.orders.stop")} ${o.stop_price}`
+                          : t("desk.orders.mkt")}
                       {" · "}
                       {o.status}
                     </span>
@@ -183,8 +214,8 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
       <div className="card review-card">
         <div className="card-head">
           <div>
-            <h2>Review</h2>
-            <div className="sub">Journal analytics · no trading authority</div>
+            <h2>{t("desk.review.title")}</h2>
+            <div className="sub">{t("desk.review.sub")}</div>
           </div>
         </div>
         <div className="review-body">
@@ -193,12 +224,12 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
               {notes.length === 0 ? (
                 <div className="review-line">
                   <span className="review-line__label">—</span>
-                  <span>No review notes yet</span>
+                  <span>{t("desk.review.notesEmpty")}</span>
                 </div>
               ) : (
                 notes.map((n, i) => (
                   <div className="review-line" key={i}>
-                    <span className="review-line__label">note</span>
+                    <span className="review-line__label">{t("desk.review.noteLabel")}</span>
                     <span>{n}</span>
                   </div>
                 ))
@@ -206,23 +237,23 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
             </div>
           </div>
           <div className="review-pane">
-            <div className="sub">Recent closed</div>
+            <div className="sub">{t("desk.review.recentTitle")}</div>
             <div className="review-feed">
               {recent.length === 0 ? (
                 <div className="review-line">
                   <span className="review-line__label">—</span>
-                  <span>Close a trade to journal</span>
+                  <span>{t("desk.review.recentEmpty")}</span>
                 </div>
               ) : (
-                recent.slice(0, 8).map((t, i) => {
-                  const pnl = Number(t.pnl);
+                recent.slice(0, 8).map((trade, i) => {
+                  const pnl = Number(trade.pnl);
                   const sign = pnl >= 0 ? "+" : "";
                   return (
                     <div className="review-line" key={i}>
-                      <span className="review-line__label">{t.symbol}</span>
+                      <span className="review-line__label">{trade.symbol}</span>
                       <span>
                         {sign}
-                        {pnl.toFixed(0)} · {(t.pnl_pct || 0).toFixed(1)}%
+                        {pnl.toFixed(0)} · {(trade.pnl_pct || 0).toFixed(1)}%
                       </span>
                     </div>
                   );

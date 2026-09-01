@@ -1242,6 +1242,209 @@ a {
   flex: 1;
 }
 
+/* ── Settings page (explained cards) ───────────────────────────────────── */
+
+.settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  animation: fade-in 0.35s ease;
+  max-width: 820px;
+}
+
+.settings-hero {
+  padding: 4px 2px 8px;
+}
+
+.settings-hero__title {
+  margin: 0 0 6px;
+  font-size: 22px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--td-ink);
+}
+
+.settings-hero__intro {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--td-text-muted);
+  max-width: 54ch;
+}
+
+.settings-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 16px 18px;
+  padding: 18px 20px;
+  border-radius: var(--td-radius-lg, 20px);
+  background: var(--td-surface);
+  border: 1px solid color-mix(in srgb, var(--td-ink) 8%, transparent);
+  box-shadow: var(--td-shadow-sm);
+}
+
+.settings-card--danger {
+  border-color: color-mix(in srgb, var(--td-bear) 35%, transparent);
+  background: color-mix(in srgb, var(--td-surface) 92%, var(--td-bear) 8%);
+}
+
+.settings-card--muted {
+  grid-template-columns: 1fr;
+  background: var(--td-surface-2, #f7f4ef);
+  box-shadow: none;
+}
+
+.settings-card__icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--td-accent, #ffcf88) 55%, white);
+  color: var(--td-ink);
+}
+
+.settings-card--danger .settings-card__icon {
+  background: color-mix(in srgb, var(--td-bear) 22%, white);
+  color: var(--td-bear);
+}
+
+.settings-card__body {
+  min-width: 0;
+}
+
+.settings-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.settings-card__head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--td-ink);
+}
+
+.settings-card__lead {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--td-ink);
+  opacity: 0.88;
+}
+
+.settings-points {
+  margin: 0 0 14px;
+  padding-left: 18px;
+  color: var(--td-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.settings-points li + li {
+  margin-top: 4px;
+}
+
+.settings-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.settings-card__actions--stack {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.settings-card__btnrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: color-mix(in srgb, var(--td-ink) 8%, transparent);
+  color: var(--td-ink);
+}
+
+.settings-badge--on {
+  background: color-mix(in srgb, var(--td-bear) 18%, white);
+  color: var(--td-bear);
+}
+
+.settings-badge--warn {
+  background: color-mix(in srgb, var(--td-accent, #ffcf88) 55%, white);
+}
+
+.settings-about-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--td-text-muted);
+}
+
+.settings-about-body {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--td-text-muted);
+}
+
+.lang-toggle {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--td-ink) 6%, transparent);
+  gap: 2px;
+}
+
+.lang-toggle__btn {
+  border: 0;
+  background: transparent;
+  color: var(--td-text-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.lang-toggle__btn.is-active {
+  background: var(--td-surface);
+  color: var(--td-ink);
+  box-shadow: var(--td-shadow-sm);
+}
+
+.tb-lang {
+  margin-right: 4px;
+}
+
+@media (max-width: 640px) {
+  .settings-card {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-card__icon {
+    width: 40px;
+    height: 40px;
+  }
+}
+
 /* ── Agents page (compact horizontal rail) ─────────────────────────────── */
 
 .ag-page {

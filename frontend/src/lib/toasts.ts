@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FlashMessage } from "@/lib/messages";
+import { t } from "@/i18n";
 
 /** A row in the stack. Opaque; only useful to hand back to `show`. */
 export type FlashSlot = number;
@@ -47,9 +48,6 @@ const STALL_MS = 90_000;
  * that never settles and a spinner that never resolves. Silently clearing that
  * would say the request is over; it is not, and for a BUY the outcome is
  * genuinely unknown. So the row says so, and waits to be acknowledged. */
-const STALLED_DETAIL =
-  "Ответ не пришёл за 90 с. Что с запросом стало — неизвестно. " +
-  "Проверь Positions и Activity, прежде чем повторять.";
 
 export type ToastQueue = {
   /** Oldest first. The layer renders bottom-up, so this is bottom to top. */
@@ -104,18 +102,18 @@ export function useToastQueue(): ToastQueue {
       // The slot stays open: an answer that arrives late still belongs in this
       // row, and replacing the stall notice with it is the right outcome.
       setToasts((prev) =>
-        prev.map((t) =>
-          t.id === id && t.message.kind === "pending"
+        prev.map((toast) =>
+          toast.id === id && toast.message.kind === "pending"
             ? {
-                ...t,
+                ...toast,
                 message: {
                   kind: "error",
-                  title: t.message.title,
-                  detail: STALLED_DETAIL,
+                  title: toast.message.title,
+                  detail: t("toast.stalled.detail"),
                   sticky: true,
                 },
               }
-            : t,
+            : toast,
         ),
       );
     },

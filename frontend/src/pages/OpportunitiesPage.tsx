@@ -11,23 +11,29 @@ import {
   humanizeError,
 } from "@/lib/messages";
 import { useDesk } from "@/context/DeskContext";
+import { useT } from "@/i18n/I18nProvider";
 
 function buyable(opp: BuyOpportunity, entriesAllowed: boolean, busy: boolean): boolean {
   if (busy || !entriesAllowed) return false;
   return opp.viability?.buyable === true && opp.viability.state === "live";
 }
 
-function viabilityLabel(opp: BuyOpportunity, entriesAllowed: boolean): string | null {
-  if (!entriesAllowed) return "Outside RTH · entries closed";
+function viabilityLabel(
+  opp: BuyOpportunity,
+  entriesAllowed: boolean,
+  t: ReturnType<typeof useT>,
+): string | null {
+  if (!entriesAllowed) return t("opp.viability.outsideRth");
   const state = opp.viability?.state ?? "unverified";
   if (state === "live" && opp.viability?.buyable) return null;
-  if (state === "wide") return "Book too wide · waiting";
-  if (state === "drifted") return "Price left the card · waiting";
-  if (state === "past_setup") return "Setup already passed";
-  return "Quote unverified · BUY locked";
+  if (state === "wide") return t("opp.viability.wide");
+  if (state === "drifted") return t("opp.viability.drifted");
+  if (state === "past_setup") return t("opp.viability.pastSetup");
+  return t("opp.viability.unverified");
 }
 
 export function OpportunitiesPage() {
+  const t = useT();
   const { desk, showFlash, refreshAll } = useDesk();
   const buys = desk?.buy_opportunities ?? [];
   const sells = desk?.sell_opportunities ?? [];
@@ -39,8 +45,20 @@ export function OpportunitiesPage() {
     // The result replaces the pending message in place instead of stacking a
     // second card next to it — two states of one request, not two events.
     const reachesBroker = act === "approve" || act === "sell";
-    const label = `${symbol} · ${act.toUpperCase()}…`;
-    const slot = showFlash(reachesBroker ? flashPending(label) : flashPendingLocal(label));
+    let slot;
+    if (reachesBroker) {
+      slot = showFlash(
+        flashPending(
+          act === "approve"
+            ? t("toast.pending.sendBuy", { symbol })
+            : t("toast.pending.sendSell", { symbol }),
+        ),
+      );
+    } else {
+      slot = showFlash(
+        flashPendingLocal(t("toast.pending.action", { symbol, act: act.toUpperCase() })),
+      );
+    }
     try {
       if (kind === "buy") {
         const data = await decideBuy(id, act === "approve" ? "approve" : "skip");
@@ -66,24 +84,30 @@ export function OpportunitiesPage() {
 
   return (
     <section className="card page-card">
-      <h3 className="page-section-title">Buy proposals · {buys.length}</h3>
+      <h3 className="page-section-title">{t("opportunities.buysTitle", { n: buys.length })}</h3>
       <div className="opp-grid">
         {buys.length === 0 ? (
-          <div className="empty-hint">No open BUY cards. Scanner will refill the queue.</div>
+          <div className="empty-hint">{t("opportunities.empty.buys")}</div>
         ) : (
           buys.map((opp) => {
             const c = opp.candidate;
             const canBuy = buyable(opp, entriesAllowed, busyId !== null);
-            const note = viabilityLabel(opp, entriesAllowed);
+            const note = viabilityLabel(opp, entriesAllowed, t);
             return (
               <div className="opp-card" key={opp.id}>
                 <div className="opp-card__head">
                   <strong>{c.symbol}</strong>
-                  <span>Conf {(c.confidence * 100).toFixed(0)}% · R:R {c.risk_reward}</span>
+                  <span>
+                    {t("opportunities.buy.meta", {
+                      conf: (c.confidence * 100).toFixed(0),
+                      rr: c.risk_reward,
+                    })}
+                  </span>
                 </div>
                 <div className="opp-card__meta mono">
-                  Entry {c.entry} · Stop {c.stop} · Tgt {c.target}
-                  {opp.risk?.sized_qty ? ` · Qty ${opp.risk.sized_qty}` : ""}
+                  {t("opp.levels.entry")} {c.entry} · {t("opp.levels.stop")} {c.stop} ·{" "}
+                  {t("opp.levels.tgt")} {c.target}
+                  {opp.risk?.sized_qty ? ` · ${t("opp.levels.qty")} ${opp.risk.sized_qty}` : ""}
                 </div>
                 {note ? <div className="opp-viability opp-viability--blocked">{note}</div> : null}
                 <div className="opp-card__actions">
@@ -93,7 +117,7 @@ export function OpportunitiesPage() {
                     disabled={!canBuy}
                     onClick={() => onDecide("buy", opp.id, "approve", c.symbol)}
                   >
-                    BUY
+                    {t("action.buy")}
                   </button>
                   <button
                     type="button"
@@ -101,7 +125,7 @@ export function OpportunitiesPage() {
                     disabled={busyId !== null}
                     onClick={() => onDecide("buy", opp.id, "skip", c.symbol)}
                   >
-                    SKIP
+                    {t("action.skip")}
                   </button>
                 </div>
               </div>
@@ -110,10 +134,10 @@ export function OpportunitiesPage() {
         )}
       </div>
 
-      <h3 className="page-section-title">Sell proposals · {sells.length}</h3>
+      <h3 className="page-section-title">{t("opportunities.sellsTitle", { n: sells.length })}</h3>
       <div className="opp-grid">
         {sells.length === 0 ? (
-          <div className="empty-hint">No exit proposals. Open a position first.</div>
+          <div className="empty-hint">{t("opportunities.empty.sells")}</div>
         ) : (
           sells.map((ex) => {
             const p = ex.proposal;
@@ -122,10 +146,10 @@ export function OpportunitiesPage() {
               <div className="opp-card" key={ex.id}>
                 <div className="opp-card__head">
                   <strong>{p.symbol}</strong>
-                  <span>PnL {p.pnl_pct.toFixed(1)}%</span>
+                  <span>{t("opportunities.sell.pnl", { n: p.pnl_pct.toFixed(1) })}</span>
                 </div>
                 <div className="opp-card__meta mono">
-                  Entry {p.entry} · Now {p.current}
+                  {t("opportunities.sell.entryNow")} {p.entry} · {p.current}
                 </div>
                 <div className="opp-card__actions">
                   <button
@@ -134,7 +158,7 @@ export function OpportunitiesPage() {
                     disabled={busy}
                     onClick={() => onDecide("sell", ex.id, "sell", p.symbol)}
                   >
-                    SELL
+                    {t("action.sell")}
                   </button>
                   <button
                     type="button"
@@ -142,7 +166,7 @@ export function OpportunitiesPage() {
                     disabled={busy}
                     onClick={() => onDecide("sell", ex.id, "hold", p.symbol)}
                   >
-                    HOLD
+                    {t("action.hold")}
                   </button>
                 </div>
               </div>

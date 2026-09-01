@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { fetchReview, type ReviewPayload } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
+import { useT } from "@/i18n/I18nProvider";
 
 export function JournalPage() {
+  const t = useT();
   const { desk } = useDesk();
   const [review, setReview] = useState<ReviewPayload | null>(desk?.review ?? null);
 
@@ -25,7 +27,7 @@ export function JournalPage() {
     <section className="card page-card">
       {(r?.notes || []).length > 0 ? (
         <>
-          <h3 className="page-section-title">Notes</h3>
+          <h3 className="page-section-title">{t("journal.notes")}</h3>
           <ul className="notes-list">
             {(r?.notes || []).map((n, i) => (
               <li key={i}>{n}</li>
@@ -34,42 +36,42 @@ export function JournalPage() {
         </>
       ) : null}
 
-      <h3 className="page-section-title">Recent closed</h3>
+      <h3 className="page-section-title">{t("journal.recent")}</h3>
       <div className="table-wrap">
         <table className="data-table">
           <thead>
             <tr>
-              <th>Symbol</th>
-              <th>Entry</th>
-              <th>Exit</th>
-              <th>PnL</th>
-              <th>%</th>
-              <th>Strategy</th>
+              <th>{t("journal.col.symbol")}</th>
+              <th>{t("journal.col.entry")}</th>
+              <th>{t("journal.col.exit")}</th>
+              <th>{t("journal.col.pnl")}</th>
+              <th>{t("journal.col.pct")}</th>
+              <th>{t("journal.col.strategy")}</th>
             </tr>
           </thead>
           <tbody>
             {recent.length === 0 ? (
               <tr>
                 <td colSpan={6} className="empty-hint">
-                  Close a trade to journal
+                  {t("journal.empty")}
                 </td>
               </tr>
             ) : (
-              recent.map((t, i) => {
-                const pnl = Number(t.pnl);
+              recent.map((trade, i) => {
+                const pnl = Number(trade.pnl);
                 return (
-                  <tr key={t.id || i}>
+                  <tr key={trade.id || i}>
                     <td>
-                      <strong>{t.symbol}</strong>
+                      <strong>{trade.symbol}</strong>
                     </td>
-                    <td className="mono">{t.entry ?? "—"}</td>
-                    <td className="mono">{t.exit ?? "—"}</td>
+                    <td className="mono">{trade.entry ?? "—"}</td>
+                    <td className="mono">{trade.exit ?? "—"}</td>
                     <td className={`mono ${pnl >= 0 ? "td-pnl-pos" : "td-pnl-neg"}`}>
                       {pnl >= 0 ? "+" : ""}
                       {pnl.toFixed(2)}
                     </td>
-                    <td className="mono">{(t.pnl_pct ?? 0).toFixed(1)}%</td>
-                    <td>{(t.strategy_version || "").split("@")[0] || "—"}</td>
+                    <td className="mono">{(trade.pnl_pct ?? 0).toFixed(1)}%</td>
+                    <td>{(trade.strategy_version || "").split("@")[0] || "—"}</td>
                   </tr>
                 );
               })
