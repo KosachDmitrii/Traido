@@ -3,7 +3,7 @@
 FastAPI confirmation desk API and trading pipeline. This is the capital path —
 React UI never talks to Alpaca or SQL directly.
 
-## Layout (repo root packages)
+## Layout
 
 | Package | Role |
 |---------|------|
@@ -15,17 +15,22 @@ React UI never talks to Alpaca or SQL directly.
 | `market_data/` | OHLCV adapters |
 | `core/` | Schemas, ports, desk bus, config |
 | `database/` | SQL models / session |
+| `universe/` | Universe provider and eligibility |
+| `configs/` | Risk limits, watchlist, universe presets |
+| `tests/` | Unit and integration tests |
 
 ## Run
 
 ```bash
-cd ..   # repo root
-.venv312/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+cd backend
+../.venv312/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 - Health: http://127.0.0.1:8000/health  
 - Desk API: http://127.0.0.1:8000/api/v1/desk  
 - UI: Vite app in `../frontend` on `:3000`
+
+Environment file lives at the repo root: `../.env` (copy from `../.env.example`).
 
 ## Safety (V1)
 

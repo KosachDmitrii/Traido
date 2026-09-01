@@ -6,7 +6,7 @@ Confirmation desk UI. Talks to the Python backend on `:8000` via Vite proxy.
 
 ```bash
 # Terminal 1 — backend
-cd .. && .venv312/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+cd ../backend && ../.venv312/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 
 # Terminal 2 — frontend (./npm.sh avoids Cursor’s npm_config_devdir warning)
 ./npm.sh install

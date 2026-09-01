@@ -17,6 +17,9 @@ jobs:
   backend:
     name: Backend (lint, types, tests)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +55,9 @@ jobs:
   capital-safety:
     name: Capital safety invariants
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
     steps:
       - uses: actions/checkout@v4
 
@@ -105,7 +111,7 @@ jobs:
       - name: Build API image
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./backend
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max

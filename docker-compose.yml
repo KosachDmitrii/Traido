@@ -31,7 +31,7 @@ services:
   # Schema is owned by Alembic. The API refuses to create tables on Postgres,
   # so migrations must succeed before it will start.
   migrate:
-    build: .
+    build: ./backend
     env_file: .env
     environment:
       TRAIDO_JOURNAL_DATABASE_URL: postgresql+psycopg://traido:traido@db:5432/traido
@@ -42,7 +42,7 @@ services:
     restart: "no"
 
   api:
-    build: .
+    build: ./backend
     env_file: .env
     environment:
       TRAIDO_ENV: production

@@ -23,6 +23,10 @@ COPY notifications ./notifications
 COPY quant ./quant
 COPY risk ./risk
 COPY trading ./trading
+COPY universe ./universe
+COPY alembic ./alembic
+COPY alembic.ini ./alembic.ini
+COPY configs ./configs
 
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip \
@@ -48,14 +52,16 @@ WORKDIR /app
 COPY --chown=traido:traido . .
 
 # The desk writes the kill-switch flag and the local journal here.
-RUN mkdir -p /app/data && chown -R traido:traido /app/data
+RUN mkdir -p /app/data && chown -R traido:traido /app/data \
+    && chmod +x /app/scripts/railway-start.sh
 
 USER traido
 EXPOSE 8000
 
 # Readiness, not liveness: the container is only "healthy" once its
 # dependencies answer. Start period covers migrations on first boot.
+# Railway uses deploy.healthcheckPath from railway.toml instead.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
-    CMD curl -fsS http://localhost:8000/health/ready || exit 1
+    CMD curl -fsS "http://localhost:${PORT:-8000}/health/ready" || exit 1
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers"]
+CMD ["./scripts/railway-start.sh"]

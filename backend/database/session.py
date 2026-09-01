@@ -28,15 +28,16 @@ def resolve_sync_database_url(url: str | None = None) -> str:
     Journal DB resolution (Stage 2):
     1. Explicit `url` arg
     2. TRAIDO_JOURNAL_DATABASE_URL
-    3. Local SQLite file (default — no Docker/Postgres required)
-
-    Postgres for journal is opt-in via TRAIDO_JOURNAL_DATABASE_URL only.
+    3. DATABASE_URL (Railway / Compose inject this for Postgres)
+    4. Local SQLite file (default — no Docker/Postgres required)
     """
-    raw = url or os.getenv("TRAIDO_JOURNAL_DATABASE_URL")
+    raw = url or os.getenv("TRAIDO_JOURNAL_DATABASE_URL") or os.getenv("DATABASE_URL")
     if not raw:
         return _default_sqlite_url()
     if raw.startswith("postgresql+asyncpg://"):
         return raw.replace("postgresql+asyncpg://", "postgresql+psycopg://", 1)
+    if raw.startswith("postgresql://"):
+        return raw.replace("postgresql://", "postgresql+psycopg://", 1)
     if raw.startswith("postgres://"):
         return raw.replace("postgres://", "postgresql+psycopg://", 1)
     return raw

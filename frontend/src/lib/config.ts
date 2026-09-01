@@ -28,12 +28,6 @@ export function getStoredApiKey(): string | null {
   return window.localStorage.getItem(API_KEY_STORAGE_KEY);
 }
 
-export function setStoredApiKey(key: string | null): void {
-  if (typeof window === "undefined") return;
-  if (key) window.localStorage.setItem(API_KEY_STORAGE_KEY, key);
-  else window.localStorage.removeItem(API_KEY_STORAGE_KEY);
-}
-
 /**
  * EventSource cannot send headers, so the API key rides as a query parameter
  * for the SSE stream only. Everything else uses the X-API-Key header.

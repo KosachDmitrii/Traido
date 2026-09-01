@@ -13,8 +13,9 @@ Default mode: **Confirmation** — the system proposes; you approve BUY / discre
 Python backend API on `:8000`; frontend on `:3000`.
 
 ```bash
-# Backend (repo root)
-.venv312/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
+# Backend
+cd backend
+../.venv312/bin/uvicorn api.main:app --host 127.0.0.1 --port 8000 --reload
 
 # Frontend
 cd frontend && ./npm.sh install && ./npm.sh run dev
@@ -22,6 +23,8 @@ cd frontend && ./npm.sh install && ./npm.sh run dev
 ```
 
 See [`backend/README.md`](backend/README.md) and [`frontend/README.md`](frontend/README.md).
+
+**Railway (production):** [`docs/deploy/railway.md`](docs/deploy/railway.md) — separate `backend` + `frontend` services, Postgres, Redis.
 
 `:8000/` redirects to the desk. Use the API on `:8000/api/v1/*`.
 
@@ -64,7 +67,8 @@ UI (Stage 6): Vite + React using design tokens above.
 ```bash
 cp .env.example .env
 docker compose up -d db redis
-/opt/homebrew/bin/python3.12 -m venv .venv && source .venv/bin/activate
+cd backend
+/opt/homebrew/bin/python3.12 -m venv ../.venv && source ../.venv/bin/activate
 pip install -e ".[dev]"
 pytest
 uvicorn api.main:app --reload

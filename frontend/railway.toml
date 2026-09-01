@@ -1,0 +1,15 @@
+# Railway — Vite desk (root directory: /frontend)
+# Docs: docs/deploy/railway.md
+#
+# Set at build time on the frontend service:
+#   VITE_API_BASE_URL=https://${{backend.RAILWAY_PUBLIC_DOMAIN}}
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+watchPatterns = ["**"]
+
+[deploy]
+healthcheckPath = "/"
+healthcheckTimeout = 60
+restartPolicyType = "ON_FAILURE"

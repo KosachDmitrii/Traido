@@ -50,6 +50,7 @@ packages = [
   "quant",
   "risk",
   "trading",
+  "universe",
 ]
 
 [tool.pytest.ini_options]

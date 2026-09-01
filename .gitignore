@@ -23,14 +23,13 @@ credentials*.json
 .vscode/
 
 data/
-!data/.gitkeep
+backend/data/
+!backend/data/.gitkeep
 
-# Node / Next.js
-web/dashboard/node_modules/
-web/dashboard/.next/
-web/dashboard/out/
+# Node / frontend
 frontend/node_modules/
 frontend/dist/
+frontend/tsconfig.tsbuildinfo
 
 # Docker
 docker-compose.override.yml

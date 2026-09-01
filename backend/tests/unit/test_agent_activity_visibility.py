@@ -30,7 +30,7 @@ def test_the_active_window_outlasts_the_desk_poll_interval() -> None:
     the poll down past the window would silently undo this whole mechanism.
     """
     source = (
-        Path(__file__).resolve().parents[2] / "frontend/src/context/DeskContext.tsx"
+        Path(__file__).resolve().parents[3] / "frontend/src/context/DeskContext.tsx"
     ).read_text()
     intervals = [int(ms) for ms in re.findall(r"^const LIGHT\w*_MS = (\d+);", source, re.MULTILINE)]
     assert intervals, "desk poll interval not found — did DeskContext.tsx move?"

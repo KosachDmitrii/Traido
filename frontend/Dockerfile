@@ -9,6 +9,7 @@ RUN npm ci || npm install
 COPY . .
 
 # Baked in at build time — Vite inlines VITE_* at compile, not at runtime.
+# Railway: set VITE_API_BASE_URL=https://${{backend.RAILWAY_PUBLIC_DOMAIN}}
 ARG VITE_API_BASE_URL=""
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm run build

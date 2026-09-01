@@ -126,10 +126,3 @@ def compute_features(symbol: str, timeframe: Timeframe, bars: list[Bar]) -> Feat
         resistance=resistance,
         notes=notes,
     )
-
-
-def compute_multi_timeframe(
-    symbol: str,
-    bars_by_tf: dict[Timeframe, list[Bar]],
-) -> dict[Timeframe, FeatureSnapshot]:
-    return {tf: compute_features(symbol, tf, bars) for tf, bars in bars_by_tf.items() if bars}

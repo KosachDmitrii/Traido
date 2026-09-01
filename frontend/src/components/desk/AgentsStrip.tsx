@@ -160,6 +160,3 @@ export function PageStrip() {
     </header>
   );
 }
-
-/** @deprecated use PageStrip */
-export const AgentsStrip = PageStrip;

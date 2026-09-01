@@ -11,7 +11,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 from core.config import get_settings
 from core.enums import Timeframe

@@ -36,7 +36,7 @@
 
 ## Stage 6 — Dashboard
 - [x] Vite + React desk (`frontend/`) on locked design tokens
-- [x] Separated from Python backend (`backend/README.md` · packages at repo root)
+- [x] Separated from Python backend (`backend/README.md` · packages under `backend/`)
 - [x] Live desk: stats, positions, review, agents, BUY/SELL rail
 - [x] Proxy `/api/*` → FastAPI
 
