@@ -216,6 +216,7 @@ def test_wait_observe_does_not_execute() -> None:
         entry_zone_low=bundle.entry_zone_low,
         entry_zone_high=bundle.entry_zone_high,
     )
+    ENTRY_WATCHES.clear()
     watch = ENTRY_WATCHES.create_from_bundle(cand, bundle)
     assert watch.status is EntryWatchStatus.WAITING
     triggered = observe_price(watch, float(bundle.entry_zone_low) + 0.01)
@@ -247,6 +248,7 @@ def test_wait_revalidation_without_quote_is_no_trade() -> None:
         entry_zone_high=bundle.entry_zone_high,
         signal_price=Decimal(100),
     )
+    ENTRY_WATCHES.clear()
     watch = ENTRY_WATCHES.create_from_bundle(cand, bundle)
     watch = observe_price(watch, float(bundle.entry_zone_low))
     assert watch.status is EntryWatchStatus.TRIGGERED
@@ -273,6 +275,7 @@ def test_wait_revalidation_rejects_non_triggered() -> None:
         entry_zone_high=bundle.entry_zone_high,
         signal_price=Decimal(100),
     )
+    ENTRY_WATCHES.clear()
     watch = ENTRY_WATCHES.create_from_bundle(cand, bundle)
     with pytest.raises(WaitRevalidationError):
         revalidate_triggered_watch(watch, exec_snap=_snap(), quote=None)

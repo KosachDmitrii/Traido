@@ -92,6 +92,7 @@ def test_list_actionable_includes_triggered() -> None:
         entry_zone_high=bundle.entry_zone_high,
         signal_price=Decimal(100),
     )
+    ENTRY_WATCHES.clear()
     watch = ENTRY_WATCHES.create_from_bundle(cand, bundle)
     from trading.entry_watch_eval import observe_price
 
