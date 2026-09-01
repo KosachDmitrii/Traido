@@ -1770,6 +1770,26 @@ h1, h2, h3, p {
   margin-top: 4px;
 }
 
+.settings-entry-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 560px;
+}
+
+.settings-entry-steps__ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--td-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.settings-entry-steps__control {
+  width: 100%;
+  flex-wrap: wrap;
+}
+
 .settings-card__actions {
   display: flex;
   flex-wrap: wrap;

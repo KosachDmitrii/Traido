@@ -12,7 +12,9 @@ Post-fill stop failure still discards after flatten (no re-buy of naked long).
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -1839,6 +1841,82 @@ class ExecutionService:
             return False
         return True
 
+    async def _cancel_and_await_gone(
+        self,
+        broker_order_id: str,
+        *,
+        note: str,
+        timeout_sec: float = 12.0,
+    ) -> bool:
+        """Cancel a resting order and wait until it no longer holds shares.
+
+        Alpaca accepts the DELETE and still reports the stop as open for a beat
+        (`held_for_orders`). A market exit sent in that window fails with
+        insufficient qty even though we "cancelled".
+        """
+        await self._cancel_quietly(broker_order_id, note=note)
+        terminal = {
+            OrderStatus.CANCELED,
+            OrderStatus.FILLED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED,
+        }
+        deadline = time.monotonic() + timeout_sec
+        while time.monotonic() < deadline:
+            try:
+                order = await self.broker.get_order(broker_order_id)
+            except Exception:  # noqa: BLE001 — fall through to open-order sweep
+                order = None
+            if order is not None and order.status in terminal:
+                return True
+            try:
+                open_ids = {
+                    o.broker_order_id
+                    for o in await self.broker.list_open_orders()
+                    if o.broker_order_id
+                }
+            except Exception:  # noqa: BLE001
+                open_ids = {broker_order_id}
+            if broker_order_id not in open_ids:
+                return True
+            await asyncio.sleep(0.25)
+        logger.warning(
+            "execution: order %s still open after cancel (%s)", broker_order_id, note
+        )
+        return False
+
+    async def _free_shares_for_exit(
+        self, *, symbol: str, stop_order_id: str | None
+    ) -> None:
+        """Drop protective sells that pin the position before a market exit."""
+        to_cancel: list[str] = []
+        if stop_order_id:
+            to_cancel.append(str(stop_order_id))
+        try:
+            for order in await self.broker.list_open_orders():
+                if (
+                    order.symbol.upper() == symbol.upper()
+                    and order.side is OrderSide.SELL
+                    and order.order_type in {OrderType.STOP, OrderType.STOP_LIMIT}
+                    and order.broker_order_id
+                    and order.broker_order_id not in to_cancel
+                ):
+                    to_cancel.append(order.broker_order_id)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "execution: could not list open orders while freeing %s for exit",
+                symbol,
+                exc_info=True,
+            )
+        for oid in to_cancel:
+            ok = await self._cancel_and_await_gone(
+                oid, note="exit supersedes protective stop"
+            )
+            if not ok:
+                raise BrokerRejection(
+                    f"protective stop {oid} still holding {symbol} shares"
+                )
+
     async def _emergency_flatten(
         self,
         *,
@@ -2466,10 +2544,11 @@ class ExecutionService:
             return found
 
         # The protective stop and the exit both want to sell the same shares.
-        # Cancelling first is what stops the position going short if the stop
-        # triggers while the market order is working.
-        if stop_order_id:
-            await self._cancel_quietly(str(stop_order_id), note="exit supersedes protective stop")
+        # Cancel must finish (not merely be requested) or Alpaca rejects the
+        # market sell with insufficient qty / held_for_orders.
+        await self._free_shares_for_exit(
+            symbol=intent.symbol, stop_order_id=stop_order_id
+        )
 
         client_id = f"traido-x-{intent.id.hex[:16]}"
         claimed = self.intents.transition_from(

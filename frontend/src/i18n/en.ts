@@ -316,7 +316,7 @@ export const en = {
 
   "settings.title": "Settings",
   "settings.intro":
-    "Controls for the confirmation desk. Safety first, then how the browser talks to the API, then the scanner.",
+    "Controls for the confirmation desk. Safety first, entry strictness, then how the browser talks to the API.",
 
   "settings.kill.title": "Kill switch",
   "settings.kill.badge.off": "Off",
@@ -336,6 +336,26 @@ export const en = {
   "settings.kill.flash.off.title": "Kill switch OFF",
   "settings.kill.flash.off.detail": "Confirmations allowed again.",
   "settings.kill.flash.failed": "Kill switch failed",
+
+  "settings.entry.title": "Entry conditions",
+  "settings.entry.lead": "How hard it is to get a BUY instead of WAIT.",
+  "settings.entry.what":
+    "Strong = wait for a deep pullback. Weak = allow BUY closer to the market.",
+  "settings.entry.keeps":
+    "Risk, liquidity, RTH, earnings and news stay the same — only BUY vs WAIT changes.",
+  "settings.entry.hint":
+    "Each pick starts a scan. If one is already running, it is stopped and a new pass uses the latest level.",
+  "settings.entry.strong": "Strong",
+  "settings.entry.firmer": "Firmer",
+  "settings.entry.medium": "Medium",
+  "settings.entry.softer": "Softer",
+  "settings.entry.weak": "Weak",
+  "settings.entry.strongHint": "Harder to buy",
+  "settings.entry.weakHint": "Easier to buy",
+  "settings.entry.flash.title": "Entry conditions updated",
+  "settings.entry.flash.detail": "{n} · scan started with this level.",
+  "settings.entry.flash.detailAbort": "{n} · previous scan stopped, new one started.",
+  "settings.entry.flash.failed": "Could not save entry conditions",
 
   "settings.api.title": "Desk API key",
   "settings.api.lead": "Password for this browser → Traido API (not Alpaca).",
@@ -460,6 +480,9 @@ export const en = {
     "Protective stop was not accepted. Emergency flatten ran. Position was not left naked.",
   "toast.error.exitFailed.title": "SELL not filled",
   "toast.error.exitFailed.detail": "Exit failed. Proposal returned to the queue — try again.",
+  "toast.error.exitStopHeld.title": "Stop still holding shares",
+  "toast.error.exitStopHeld.detail":
+    "The protective stop had not released the shares yet. Wait a moment and press Close again.",
   "toast.error.killSwitch.title": "Kill switch is on",
   "toast.error.killSwitch.detail": "Trading blocked. Turn the kill switch off to confirm again.",
   "toast.error.riskReject.title": "Risk Engine rejected",

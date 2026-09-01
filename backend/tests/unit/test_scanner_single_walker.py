@@ -124,3 +124,43 @@ async def test_the_guard_is_released_when_a_pass_fails(
     _install_pipeline(monkeypatch, seen)
     await scanner.run_scan_cycle()
     assert sorted(seen) == ["AAA", "BBB", "CCC"], "the scanner never ran again after a failed cycle"
+
+
+@pytest.mark.asyncio
+async def test_request_rescan_aborts_the_in_flight_cycle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Changing entry policy mid-pass must not wait for the old thresholds to finish."""
+    started = asyncio.Event()
+    release = asyncio.Event()
+    seen: list[str] = []
+
+    async def slow_pipeline(symbol: str, **_: object):
+        seen.append(symbol)
+        started.set()
+        await release.wait()
+
+        class _Result:
+            status = "no_candidate"
+            candidate = None
+            risk = None
+
+        return _Result()
+
+    monkeypatch.setattr(scan_cycle, "run_symbol_pipeline", slow_pipeline)
+
+    walker = asyncio.create_task(scanner.run_scan_cycle())
+    await asyncio.wait_for(started.wait(), timeout=2.0)
+    assert scanner.abort_scan_cycle() is True
+    status = await asyncio.wait_for(walker, timeout=2.0)
+
+    assert status.error == "superseded"
+    assert scanner.STATUS.running is False
+    assert seen, "the cycle must have started before it was aborted"
+    # In-flight symbol tasks may have begun; none should still be blocked on release.
+    release.set()
+
+    seen.clear()
+    _install_pipeline(monkeypatch, seen)
+    await scanner.run_scan_cycle()
+    assert sorted(seen) == ["AAA", "BBB", "CCC"]

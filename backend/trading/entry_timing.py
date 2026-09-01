@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, time
 from decimal import Decimal
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from core.enums import SessionCohort, Timeframe
@@ -159,7 +160,7 @@ ASYMMETRIC_DOWNSIDE = "ASYMMETRIC_DOWNSIDE"
 SIGNAL_TO_ENTRY_DRIFT_HIGH = "SIGNAL_TO_ENTRY_DRIFT_HIGH"
 NORMAL_RETRACE_EXCEEDS_STOP = "NORMAL_RETRACE_EXCEEDS_STOP"
 
-# Frozen F3 initial policy — do not fit to the F2 137-sample corpus.
+# Frozen F3 initial policy — aggressiveness 0. Raised via entry_policy.
 VWAP_EXT_PCT = 1.0
 EMA_EXT_PCT = 2.5
 ATR_EXT_MAX = 1.5
@@ -170,16 +171,29 @@ DRIFT_HIGH_PCT = 0.40
 MIN_BUY_QUALITY = 55
 
 
-def detect_chasing(facts: EntryTimingFacts) -> list[str]:
+def detect_chasing(
+    facts: EntryTimingFacts,
+    *,
+    thresholds: Any | None = None,
+) -> list[str]:
     """Explicit veto codes. High momentum does not override these."""
+    from trading.entry_policy import get_entry_thresholds
+
+    th = thresholds if thresholds is not None else get_entry_thresholds()
+    vwap_ext = float(getattr(th, "vwap_ext_pct", VWAP_EXT_PCT))
+    ema_ext = float(getattr(th, "ema_ext_pct", EMA_EXT_PCT))
+    atr_ext = float(getattr(th, "atr_ext_max", ATR_EXT_MAX))
+    impulse_max = float(getattr(th, "impulse_atr_max", IMPULSE_ATR_MAX))
+    drift_high = float(getattr(th, "drift_high_pct", DRIFT_HIGH_PCT))
+
     reasons: list[str] = []
-    if facts.distance_from_vwap_pct is not None and facts.distance_from_vwap_pct > VWAP_EXT_PCT:
+    if facts.distance_from_vwap_pct is not None and facts.distance_from_vwap_pct > vwap_ext:
         reasons.append(PRICE_TOO_EXTENDED_FROM_VWAP)
-    if facts.distance_from_fast_ema_pct is not None and facts.distance_from_fast_ema_pct > EMA_EXT_PCT:
+    if facts.distance_from_fast_ema_pct is not None and facts.distance_from_fast_ema_pct > ema_ext:
         reasons.append(PRICE_TOO_EXTENDED_FROM_EMA)
-    if facts.atr_extension is not None and facts.atr_extension >= ATR_EXT_MAX:
+    if facts.atr_extension is not None and facts.atr_extension >= atr_ext:
         reasons.append(ATR_EXTENSION_HIGH)
-    if facts.recent_impulse_atr is not None and facts.recent_impulse_atr >= IMPULSE_ATR_MAX:
+    if facts.recent_impulse_atr is not None and facts.recent_impulse_atr >= impulse_max:
         reasons.append(IMPULSE_ALREADY_MATURE)
     if (
         facts.distance_to_resistance_pct is not None
@@ -194,7 +208,7 @@ def detect_chasing(facts: EntryTimingFacts) -> list[str]:
         >= REWARD_CONSUMED_FRAC * facts.remaining_expected_reward_pct
     ):
         reasons.append(REWARD_ALREADY_CONSUMED)
-    if facts.signal_to_current_drift_pct is not None and facts.signal_to_current_drift_pct > DRIFT_HIGH_PCT:
+    if facts.signal_to_current_drift_pct is not None and facts.signal_to_current_drift_pct > drift_high:
         reasons.append(SIGNAL_TO_ENTRY_DRIFT_HIGH)
     if (
         facts.normal_expected_retrace_pct is not None
@@ -226,20 +240,32 @@ def zone_from_facts(
     *,
     atr_mult_low: float = 0.3,
     atr_mult_high: float = 0.05,
+    thresholds: Any | None = None,
 ) -> tuple[Decimal, Decimal]:
-    """Preferred pullback zone near VWAP/SMA when extended."""
+    """Preferred pullback zone near VWAP/SMA when extended.
+
+    Aggressiveness lifts `zone_gap_frac`: zone high moves toward the live price
+    so a WAIT does not demand a full trip back to SMA20.
+    """
+    from trading.entry_policy import get_entry_thresholds
+
+    th = thresholds if thresholds is not None else get_entry_thresholds()
+    gap_frac = float(getattr(th, "zone_gap_frac", 0.0))
+
     price = facts.current_price
     atr = facts.atr or (price * 0.01)
     anchor = price
     if facts.distance_from_vwap_pct is not None and facts.distance_from_vwap_pct > 0:
-        # Prefer a dip back toward VWAP.
         vwap_px = price / (1 + facts.distance_from_vwap_pct / 100.0)
         anchor = vwap_px
     elif facts.distance_from_fast_ema_pct is not None and facts.distance_from_fast_ema_pct > 0:
         ema_px = price / (1 + facts.distance_from_fast_ema_pct / 100.0)
         anchor = ema_px
     low = Decimal(str(round(anchor - atr_mult_low * atr, 4)))
-    high = Decimal(str(round(min(price, anchor + atr_mult_high * atr), 4)))
+    toward_price = max(0.0, price - anchor) * gap_frac
+    high = Decimal(
+        str(round(min(price, anchor + atr_mult_high * atr + toward_price), 4))
+    )
     if low >= high:
         high = Decimal(str(round(float(low) + max(atr * 0.1, price * 0.001), 4)))
     return low, high

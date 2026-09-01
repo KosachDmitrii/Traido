@@ -31,9 +31,11 @@ __all__ = [
     "STATUS",
     "ScanFunnel",
     "ScannerStatus",
+    "abort_scan_cycle",
     "all_symbols",
     "load_watchlist",
     "rank_key",
+    "request_rescan",
     "resolve_universe",
     "run_scan_cycle",
     "scanner_loop",
@@ -285,14 +287,50 @@ and the write below, and a module-level `asyncio.Lock` would carry the
 loop-affinity problem described on `_wake_token`.
 """
 
+_cycle_task: asyncio.Task[ScannerStatus] | None = None
+"""The in-flight `_scan_once` task, if any — cancellable by `abort_scan_cycle`."""
+
+
+def abort_scan_cycle() -> bool:
+    """Cancel the walk in progress. Returns True if there was one to cancel.
+
+    Used when the operator changes entry policy mid-pass: finishing the old
+    thresholds is waste; the next cycle must see the new floors.
+    """
+    task = _cycle_task
+    if task is None or task.done():
+        return False
+    task.cancel()
+    BOARD.log(
+        "scanner",
+        "Aborting in-flight cycle for a fresh pass",
+        level="warn",
+    )
+    return True
+
+
+def request_rescan(*, reason: str = "operator") -> dict[str, bool | int]:
+    """Abort any walk, wake the loop, start it if needed — latest settings win."""
+    aborted = abort_scan_cycle()
+    start_scanner()
+    wake_scanner()
+    BOARD.log("scanner", f"Rescan requested ({reason})" + (" · aborted prior cycle" if aborted else ""))
+    return {
+        "aborted": aborted,
+        "requested": True,
+        "cycle": STATUS.cycle,
+        "running": STATUS.running,
+    }
+
 
 async def run_scan_cycle() -> ScannerStatus:
     """Walk the universe once, or decline if a walk is already under way.
 
     Declining rather than queueing is deliberate: the caller wanted a fresh view
-    of the universe and one is already being produced.
+    of the universe and one is already being produced. Operators who need to
+    *replace* that view call `request_rescan`, which cancels this task first.
     """
-    global _cycle_active
+    global _cycle_active, _cycle_task
     if _cycle_active:
         BOARD.log(
             "scanner",
@@ -301,9 +339,22 @@ async def run_scan_cycle() -> ScannerStatus:
         )
         return STATUS
     _cycle_active = True
+    task = asyncio.create_task(_scan_once(), name="traido-scan-cycle")
+    _cycle_task = task
     try:
-        return await _scan_once()
+        return await task
+    except asyncio.CancelledError:
+        STATUS.running = False
+        # Distinguish loop shutdown from an intentional supersede.
+        parent = asyncio.current_task()
+        if parent is not None and parent.cancelling():
+            raise
+        STATUS.error = "superseded"
+        BOARD.log("scanner", f"Cycle {STATUS.cycle} superseded", level="warn")
+        return STATUS
     finally:
+        if _cycle_task is task:
+            _cycle_task = None
         _cycle_active = False
 
 

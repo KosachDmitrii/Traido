@@ -77,6 +77,13 @@ export function humanizeError(raw: string): FlashMessage {
     };
   }
   if (upper.includes("EXIT_ORDER_REJECTED") || upper.includes("EXIT_FILL_FAILED")) {
+    if (upper.includes("HELD_FOR_ORDERS") || upper.includes("INSUFFICIENT QTY") || upper.includes("STILL HOLDING")) {
+      return {
+        kind: "error",
+        title: t("toast.error.exitStopHeld.title"),
+        detail: t("toast.error.exitStopHeld.detail"),
+      };
+    }
     return {
       kind: "error",
       title: t("toast.error.exitFailed.title"),

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -51,6 +52,23 @@ def unpaced_market_data(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     alpaca.set_account_limiter(RateLimiter(1e6, burst=1e6))
     yield
     alpaca.reset_account_limiter()
+
+
+@pytest.fixture(autouse=True)
+def strict_entry_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Pin entry aggressiveness to 0 so F3 unit tests see the shipped floors.
+
+    The operator slider persists under data/; without this, a desk session that
+    raised aggressiveness would make the suite assert against a different policy.
+    """
+    from trading import entry_policy
+
+    path = tmp_path / "entry_policy.json"
+    monkeypatch.setattr(entry_policy, "POLICY_PATH", path)
+    entry_policy.reset_entry_policy_cache()
+    entry_policy.set_entry_aggressiveness(0, actor="test")
+    yield
+    entry_policy.reset_entry_policy_cache()
 
 
 @pytest.fixture(autouse=True)

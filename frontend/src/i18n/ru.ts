@@ -318,7 +318,7 @@ export const ru: Record<MessageKey, string> = {
 
   "settings.title": "Настройки",
   "settings.intro":
-    "Управление confirmation desk. Сначала безопасность, затем доступ браузера к API, затем сканер.",
+    "Управление confirmation desk. Сначала безопасность, строгость входа, затем доступ к API.",
 
   "settings.kill.title": "Kill switch",
   "settings.kill.badge.off": "Выкл",
@@ -338,6 +338,26 @@ export const ru: Record<MessageKey, string> = {
   "settings.kill.flash.off.title": "Kill switch ВЫКЛ",
   "settings.kill.flash.off.detail": "Подтверждения снова разрешены.",
   "settings.kill.flash.failed": "Не удалось переключить kill switch",
+
+  "settings.entry.title": "Условия входа",
+  "settings.entry.lead": "Насколько сложно получить BUY вместо WAIT.",
+  "settings.entry.what":
+    "Сильно — ждать глубокий откат. Слабо — можно BUY ближе к текущей цене.",
+  "settings.entry.keeps":
+    "Risk, ликвидность, RTH, earnings и news не трогаем — меняется только BUY против WAIT.",
+  "settings.entry.hint":
+    "Каждый выбор сам запускает скан. Если прошлый ещё шёл — он останавливается, идёт новый с последним уровнем.",
+  "settings.entry.strong": "Сильно",
+  "settings.entry.firmer": "Построже",
+  "settings.entry.medium": "Средне",
+  "settings.entry.softer": "Помягче",
+  "settings.entry.weak": "Слабо",
+  "settings.entry.strongHint": "Сложнее купить",
+  "settings.entry.weakHint": "Легче купить",
+  "settings.entry.flash.title": "Условия входа обновлены",
+  "settings.entry.flash.detail": "{n} · скан запущен с этим уровнем.",
+  "settings.entry.flash.detailAbort": "{n} · прошлый скан остановлен, запущен новый.",
+  "settings.entry.flash.failed": "Не удалось сохранить условия входа",
 
   "settings.api.title": "API-ключ desk",
   "settings.api.lead": "Пароль этого браузера → Traido API (не Alpaca).",
@@ -462,6 +482,9 @@ export const ru: Record<MessageKey, string> = {
     "Защитный stop не принят брокером. Сработал emergency flatten. Позиция не оставлена голой.",
   "toast.error.exitFailed.title": "SELL не исполнен",
   "toast.error.exitFailed.detail": "Выход не прошёл. Предложение возвращено в очередь — попробуйте ещё раз.",
+  "toast.error.exitStopHeld.title": "Стоп ещё держит акции",
+  "toast.error.exitStopHeld.detail":
+    "Защитный стоп ещё не отпустил бумаги. Подождите секунду и нажмите Закрыть снова.",
   "toast.error.killSwitch.title": "Kill switch включён",
   "toast.error.killSwitch.detail": "Торговля заблокирована. Выключите kill switch, чтобы снова подтверждать сделки.",
   "toast.error.riskReject.title": "Risk Engine отклонил",

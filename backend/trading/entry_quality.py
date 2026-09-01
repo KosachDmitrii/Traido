@@ -10,9 +10,9 @@ from core.schemas import (
     MarketAssessment,
     TargetPlan,
 )
+from trading.entry_policy import SOFT_CHASE_CODES, get_entry_thresholds
 from trading.entry_timing import (
     ATR_EXTENSION_HIGH,
-    MIN_BUY_QUALITY,
     detect_chasing,
     zone_from_facts,
 )
@@ -169,31 +169,39 @@ def decide_entry(
     stop_price: float | None = None,
 ) -> EntryDecisionBundle:
     """BULLISH != BUY_NOW. Chase codes and low quality force WAIT/NO_TRADE."""
+    th = get_entry_thresholds()
+    min_quality = th.min_buy_quality
     breakdown = score_entry_quality(facts, market=market, technical_score=technical_score)
     quality = breakdown.total
-    chase = detect_chasing(facts)
+    chase = detect_chasing(facts, thresholds=th)
     reasons = list(chase)
 
-    zone_low, zone_high = zone_from_facts(facts)
+    zone_low, zone_high = zone_from_facts(facts, thresholds=th)
     normal_retrace_exceeds = "NORMAL_RETRACE_EXCEEDS_STOP" in chase
 
     if thesis is not InstrumentThesis.BULLISH:
         decision = EntryDecision.NO_TRADE
         reasons.append("THESIS_NOT_BULLISH")
-    elif ATR_EXTENSION_HIGH in chase and quality < 70:
-        decision = EntryDecision.WAIT_FOR_ENTRY
-    elif chase and quality < MIN_BUY_QUALITY + 15:
-        # Any chase code with mediocre quality → wait, not buy.
-        decision = EntryDecision.WAIT_FOR_ENTRY
-    elif quality < MIN_BUY_QUALITY:
-        decision = EntryDecision.WAIT_FOR_ENTRY
-        reasons.append("ENTRY_QUALITY_BELOW_THRESHOLD")
-    elif chase:
-        # Strong quality but still chasing → wait (momentum must not override).
-        decision = EntryDecision.WAIT_FOR_ENTRY
     else:
-        decision = EntryDecision.BUY_NOW
-        reasons.append("ENTRY_QUALITY_ACCEPTABLE")
+        soft_only = bool(chase) and set(chase) <= SOFT_CHASE_CODES
+        aggressive_ok = th.allow_soft_chase_buy and soft_only and quality >= min_quality
+
+        if ATR_EXTENSION_HIGH in chase and quality < 70 and not aggressive_ok:
+            decision = EntryDecision.WAIT_FOR_ENTRY
+        elif chase and quality < min_quality + 15 and not aggressive_ok:
+            decision = EntryDecision.WAIT_FOR_ENTRY
+        elif quality < min_quality:
+            decision = EntryDecision.WAIT_FOR_ENTRY
+            reasons.append("ENTRY_QUALITY_BELOW_THRESHOLD")
+        elif chase and not aggressive_ok:
+            decision = EntryDecision.WAIT_FOR_ENTRY
+        else:
+            decision = EntryDecision.BUY_NOW
+            reasons.append(
+                "ENTRY_QUALITY_ACCEPTABLE_AGGRESSIVE"
+                if aggressive_ok and chase
+                else "ENTRY_QUALITY_ACCEPTABLE"
+            )
 
     # Hard NO_TRADE when reward already gone and resistance is in the face.
     hard = {"REWARD_ALREADY_CONSUMED", "ASYMMETRIC_DOWNSIDE"}

@@ -20,6 +20,7 @@ from agents.review.agent import build_review
 from agents.scanner.agent import (
     STATUS,
     load_watchlist,
+    request_rescan,
     resolve_universe,
     start_scanner,
     wake_scanner,
@@ -76,6 +77,15 @@ def _market_data_quota_payload() -> dict:
         return account_quota().as_dict()
     except Exception:  # noqa: BLE001 — desk poll must never fail on status
         return {}
+
+
+def _entry_policy_payload() -> dict:
+    try:
+        from trading.entry_policy import policy_payload
+
+        return policy_payload()
+    except Exception:  # noqa: BLE001
+        return {"aggressiveness": 0, "label": "strict"}
 
 
 _STREAM_MAX_SEC = 120.0
@@ -144,6 +154,7 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     ]
     return {
         "mode": settings.trading_mode.value,
+        "entry_policy": _entry_policy_payload(),
         "scanner": {
             "enabled": STATUS.enabled,
             "running": STATUS.running,
@@ -486,18 +497,16 @@ async def desk_stream(request: Request):
 
 @router.post("/scanner/run")
 async def scanner_run_now() -> dict:
-    """Ask for a pass now; the scanner loop performs it.
+    """Ask for a pass now; abort an in-flight one so the latest knobs win.
 
     This used to run a cycle inline, which meant every caller became a second
-    walker over the same universe, writing into the same `STATUS.funnel` and
-    doubling the market-data request rate. Waking the one loop that already
-    exists gives the caller what it wanted — a pass, soon — without ever
-    creating a second one.
+    walker over the same universe. Waking (and superseding) the one loop that
+    already exists gives a fresh pass without ever creating a second walker.
     """
-    start_scanner()
-    wake_scanner()
+    result = request_rescan(reason="scanner_run")
     return {
         "requested": True,
+        "aborted": result["aborted"],
         "cycle": STATUS.cycle,
         "running": STATUS.running,
         "symbols_scanned": STATUS.symbols_scanned,

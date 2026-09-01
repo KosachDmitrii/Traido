@@ -6,7 +6,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from agents.scanner.agent import wake_scanner
+from agents.scanner.agent import request_rescan, wake_scanner
 from api.deps import build_execution_service
 from broker.factory import create_broker
 from core.audit import create_audit
@@ -30,6 +30,10 @@ class DecisionBody(BaseModel):
 class KillSwitchBody(BaseModel):
     enabled: bool
     reason: str | None = None
+
+
+class EntryPolicyBody(BaseModel):
+    aggressiveness: int = Field(ge=0, le=100, description="0=strict pullback, 100=buy nearer market")
 
 
 @router.get("/opportunities", response_model=list[TradeOpportunity])
@@ -107,3 +111,34 @@ async def post_kill_switch(body: KillSwitchBody) -> dict:
         await notifier.send_kill_switch(enabled=enabled, actor="user")
 
     return {"enabled": enabled}
+
+
+@router.get("/entry-policy")
+async def get_entry_policy() -> dict:
+    from trading.entry_policy import policy_payload
+
+    return policy_payload()
+
+
+@router.put("/entry-policy")
+async def put_entry_policy(body: EntryPolicyBody) -> dict:
+    """Operator knob: how far above SMA/VWAP a setup may still BUY.
+
+    Saves first, then aborts any in-flight cycle and starts a fresh one so the
+    pass always uses the level just chosen. Risk/liquidity/RTH/earnings/news
+    gates are unchanged.
+    """
+    from trading.entry_policy import policy_payload, set_entry_aggressiveness
+
+    set_entry_aggressiveness(body.aggressiveness, actor="user")
+    audit = create_audit()
+    await audit.append(
+        "EntryPolicyUpdated",
+        "user",
+        {"aggressiveness": body.aggressiveness},
+    )
+    rescan = request_rescan(reason="entry_policy")
+    DESK_BUS.bump_desk()
+    payload = policy_payload()
+    payload["rescan"] = rescan
+    return payload

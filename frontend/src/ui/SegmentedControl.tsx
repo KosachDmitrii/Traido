@@ -11,9 +11,17 @@ type Props = {
   options: SegmentOption[];
   ariaLabel: string;
   className?: string;
+  wide?: boolean;
 };
 
-export function SegmentedControl({ value, onChange, options, ariaLabel, className = "" }: Props) {
+export function SegmentedControl({
+  value,
+  onChange,
+  options,
+  ariaLabel,
+  className = "",
+  wide = false,
+}: Props) {
   return (
     <ToggleGroup
       value={[value]}
@@ -22,7 +30,7 @@ export function SegmentedControl({ value, onChange, options, ariaLabel, classNam
         if (picked) onChange(picked);
       }}
       aria-label={ariaLabel}
-      className={[styles.Panel, className].filter(Boolean).join(" ")}
+      className={[styles.Panel, wide ? styles.PanelWide : "", className].filter(Boolean).join(" ")}
     >
       {options.map((opt) => (
         <Toggle key={opt.value} value={opt.value} className={styles.Button}>

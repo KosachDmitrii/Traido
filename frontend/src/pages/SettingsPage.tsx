@@ -1,10 +1,32 @@
-import { useCallback, useState } from "react";
-import { KeyRound, Languages, ScanSearch, ShieldAlert } from "lucide-react";
-import { runScanner, setKillSwitch } from "@/lib/api";
+import { useCallback, useEffect, useState } from "react";
+import { Gauge, KeyRound, Languages, ScanSearch, ShieldAlert } from "lucide-react";
+import { runScanner, setEntryPolicy, setKillSwitch } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
 import { useI18n } from "@/i18n/I18nProvider";
-import type { Locale } from "@/i18n";
+import type { Locale, MessageKey } from "@/i18n";
 import { Button, Input, SegmentedControl, SwitchControl } from "@/ui";
+
+/** Five desk steps — Сильно → Слабо. Values match backend ENTRY_LEVELS. */
+const ENTRY_STEPS = [
+  { value: 0, key: "settings.entry.strong" as const },
+  { value: 25, key: "settings.entry.firmer" as const },
+  { value: 55, key: "settings.entry.medium" as const },
+  { value: 80, key: "settings.entry.softer" as const },
+  { value: 100, key: "settings.entry.weak" as const },
+] as const;
+
+function snapEntryStep(n: number): number {
+  let best: number = ENTRY_STEPS[0].value;
+  for (const step of ENTRY_STEPS) {
+    if (Math.abs(step.value - n) < Math.abs(best - n)) best = step.value;
+  }
+  return best;
+}
+
+function entryLabelKey(aggressiveness: number): MessageKey {
+  const step = ENTRY_STEPS.find((s) => s.value === snapEntryStep(aggressiveness));
+  return step?.key ?? "settings.entry.strong";
+}
 
 export function SettingsPage() {
   const { desk, refreshAll, showFlash, killSwitch: kill, refreshKillSwitch } = useDesk();
@@ -13,6 +35,14 @@ export function SettingsPage() {
     typeof window !== "undefined" ? window.localStorage.getItem("TRAIDO_API_KEY") || "" : "",
   );
   const [busy, setBusy] = useState(false);
+  const [aggressiveness, setAggressiveness] = useState(
+    () => snapEntryStep(desk?.entry_policy?.aggressiveness ?? 0),
+  );
+
+  useEffect(() => {
+    const n = desk?.entry_policy?.aggressiveness;
+    if (typeof n === "number") setAggressiveness(snapEntryStep(n));
+  }, [desk?.entry_policy?.aggressiveness]);
 
   const saveKey = useCallback(() => {
     if (apiKey.trim()) {
@@ -64,6 +94,32 @@ export function SettingsPage() {
       setBusy(false);
     }
   }, [kill, showFlash, refreshKillSwitch, t]);
+
+  const commitEntryPolicy = useCallback(
+    async (value: number) => {
+      const stepped = snapEntryStep(value);
+      try {
+        const next = await setEntryPolicy(stepped);
+        setAggressiveness(snapEntryStep(next.aggressiveness));
+        const aborted = Boolean(next.rescan?.aborted);
+        showFlash({
+          kind: "ok",
+          title: t("settings.entry.flash.title"),
+          detail: aborted
+            ? t("settings.entry.flash.detailAbort", { n: t(entryLabelKey(next.aggressiveness)) })
+            : t("settings.entry.flash.detail", { n: t(entryLabelKey(next.aggressiveness)) }),
+        });
+        await refreshAll();
+      } catch (err) {
+        showFlash({
+          kind: "error",
+          title: t("settings.entry.flash.failed"),
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [refreshAll, showFlash, t],
+  );
 
   const scanNow = useCallback(async () => {
     setBusy(true);
@@ -130,6 +186,44 @@ export function SettingsPage() {
               aria-label={
                 kill === "on" ? t("settings.kill.disable") : t("settings.kill.enable")
               }
+            />
+          </div>
+        </div>
+      </article>
+
+      <article className="settings-card">
+        <div className="settings-card__icon" aria-hidden>
+          <Gauge size={20} strokeWidth={1.5} absoluteStrokeWidth />
+        </div>
+        <div className="settings-card__body">
+          <div className="settings-card__head">
+            <h3>{t("settings.entry.title")}</h3>
+            <span className="settings-badge">{t(entryLabelKey(aggressiveness))}</span>
+          </div>
+          <p className="settings-card__lead">{t("settings.entry.lead")}</p>
+          <ul className="settings-points">
+            <li>{t("settings.entry.what")}</li>
+            <li>{t("settings.entry.keeps")}</li>
+            <li>{t("settings.entry.hint")}</li>
+          </ul>
+          <div className="settings-entry-steps">
+            <div className="settings-entry-steps__ends" aria-hidden>
+              <span>{t("settings.entry.strongHint")}</span>
+              <span>{t("settings.entry.weakHint")}</span>
+            </div>
+            <SegmentedControl
+              wide
+              ariaLabel={t("settings.entry.title")}
+              value={String(aggressiveness)}
+              onChange={(v) => {
+                const n = snapEntryStep(Number(v));
+                setAggressiveness(n);
+                void commitEntryPolicy(n);
+              }}
+              options={ENTRY_STEPS.map((step) => ({
+                value: String(step.value),
+                label: t(step.key),
+              }))}
             />
           </div>
         </div>

@@ -307,6 +307,7 @@ class AlpacaPaperBroker:
             "new": OrderStatus.ACCEPTED,
             "accepted": OrderStatus.ACCEPTED,
             "pending_new": OrderStatus.SUBMITTED,
+            "pending_cancel": OrderStatus.ACCEPTED,
             "filled": OrderStatus.FILLED,
             "partially_filled": OrderStatus.PARTIAL,
             "canceled": OrderStatus.CANCELED,

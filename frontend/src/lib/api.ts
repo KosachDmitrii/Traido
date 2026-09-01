@@ -263,9 +263,18 @@ export type SessionState = {
   closes_at: string;
 };
 
+export type EntryPolicy = {
+  aggressiveness: number;
+  label?: string;
+  thresholds?: Record<string, number | boolean>;
+  note?: string;
+  rescan?: { aborted?: boolean; requested?: boolean; cycle?: number; running?: boolean };
+};
+
 export type DeskLight = {
   mode: string;
   session?: SessionState;
+  entry_policy?: EntryPolicy;
   scanner: {
     enabled?: boolean;
     running?: boolean;
@@ -498,6 +507,17 @@ export async function setKillSwitch(enabled: boolean): Promise<{ enabled: boolea
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(parseApiError(data, "kill_switch_failed"));
   return data as { enabled: boolean };
+}
+
+export async function setEntryPolicy(aggressiveness: number): Promise<EntryPolicy> {
+  const res = await fetch(apiUrl("/api/v1/entry-policy"), {
+    method: "PUT",
+    headers: apiHeaders(true),
+    body: JSON.stringify({ aggressiveness }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(data, "entry_policy_failed"));
+  return data as EntryPolicy;
 }
 
 export type RegimeResult = {
