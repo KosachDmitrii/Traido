@@ -270,6 +270,10 @@ async def test_empty_buy_queue_hunts_sooner_than_the_cadence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No open BUY → keep scanning. WAIT watches do not earn a full nap."""
+    monkeypatch.setattr(
+        "market_data.providers.alpaca.market_data_cooldown_seconds",
+        lambda: 0.0,
+    )
     cfg = _watchlist(["A", "B"])
     cfg["scan_interval_seconds"] = 300
     _install(monkeypatch, cfg, open_proposals=0)
@@ -279,8 +283,14 @@ async def test_empty_buy_queue_hunts_sooner_than_the_cadence(
     assert waits == [scanner.HUNTING_RETRY_SECONDS]
 
 
-def test_provider_failure_cools_down_instead_of_hunting() -> None:
-    """A 429 cycle must not be followed by another hunt into the hot window."""
+def test_provider_failure_cools_down_instead_of_hunting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 429 cycle waits for the vendor window, not a fixed hunt nap."""
+    monkeypatch.setattr(
+        "market_data.providers.alpaca.market_data_cooldown_seconds",
+        lambda: 45.0,
+    )
     delay = scanner.choose_scan_delay(
         paused_on_full_queue=False,
         open_buys=0,
@@ -288,8 +298,7 @@ def test_provider_failure_cools_down_instead_of_hunting() -> None:
         seconds_until_due=300.0,
         provider_failed=True,
     )
-    assert delay == scanner.PROVIDER_COOLDOWN_SECONDS
-    assert delay > scanner.HUNTING_RETRY_SECONDS
+    assert delay == 45.0
 
 
 def test_cycle_provider_failed_reads_funnel_and_error() -> None:

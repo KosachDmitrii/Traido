@@ -67,6 +67,17 @@ adapter's own four-second cache absorbing bursts underneath it.
 _broker_cache: dict | None = None
 _broker_cache_mono = 0.0
 
+
+def _market_data_quota_payload() -> dict:
+    """Live Alpaca data-key quota — what the scanner is actually pacing against."""
+    try:
+        from market_data.providers.alpaca import account_quota
+
+        return account_quota().as_dict()
+    except Exception:  # noqa: BLE001 — desk poll must never fail on status
+        return {}
+
+
 _STREAM_MAX_SEC = 120.0
 """How long one SSE connection lives before the browser is asked to reconnect.
 
@@ -153,6 +164,7 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
             "shortlist": STATUS.shortlist,
             "ai_budget": STATUS.ai_budget,
             "provider_stats": STATUS.provider_stats,
+            "market_data_quota": _market_data_quota_payload(),
         },
         "buy_opportunities": buys,
         "entry_watches": [w.model_dump(mode="json") for w in ENTRY_WATCHES.list_open()],

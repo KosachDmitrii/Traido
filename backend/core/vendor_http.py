@@ -19,6 +19,12 @@ from typing import Any
 
 import httpx
 
+from core.vendor_quota import (
+    fallback_429_wait,
+    parse_rate_limit_headers,
+    wait_seconds_from_headers,
+)
+
 # 5xx is the vendor failing to answer a question it accepts; 429 is it asking us
 # to slow down. Both pass with time. Every other 4xx is a statement about the
 # request itself — a bad key, an unknown symbol, a malformed window — and a
@@ -43,6 +49,21 @@ def describe_http_error(exc: BaseException) -> str:
     return type(exc).__name__
 
 
+def retry_delay_seconds(exc: BaseException, *, attempt: int, base_delay: float) -> float:
+    """How long to wait before the next attempt.
+
+    429 prefers the vendor's Reset / Retry-After. Everything else stays a short
+    exponential — a blip 503 is not a rate-limit window.
+    """
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+        parsed = parse_rate_limit_headers(exc.response.headers)
+        header_wait = wait_seconds_from_headers(parsed)
+        if header_wait is not None:
+            return max(0.0, header_wait)
+        return fallback_429_wait(attempt)
+    return base_delay * (2**attempt)
+
+
 async def get_with_retry(
     client: httpx.AsyncClient,
     url: str,
@@ -53,23 +74,24 @@ async def get_with_retry(
     base_delay: float = BASE_DELAY,
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     before_attempt: Callable[[], Awaitable[None]] | None = None,
+    after_response: Callable[[httpx.Response], Awaitable[None] | None] | None = None,
+    on_retryable: Callable[[BaseException, int], Awaitable[None]] | None = None,
 ) -> httpx.Response:
     """
     GET `url`, retrying transport failures and retryable statuses.
 
     Raises the last failure once the attempts are spent, so the caller still
-    decides what an exhausted retry means for its gate. Delay doubles from
-    `base_delay`; with the defaults the worst case adds about 1.2s, which the
-    scanner absorbs inside a 300s cycle even with every symbol failing.
+    decides what an exhausted retry means for its gate.
 
-    No jitter: the scanner walks its universe one symbol at a time, so there is
-    no fleet of callers to spread out, and a fixed backoff keeps the worst-case
-    cycle cost something you can multiply out.
+    `before_attempt` runs ahead of every attempt, including retries — where a
+    caller puts its account quota. Pacing the first attempt only would let a
+    throttled endpoint be retried at full speed.
 
-    `before_attempt` runs ahead of every attempt, including retries, and is
-    where a caller puts its rate limiter. Pacing the first attempt only would
-    let a throttled endpoint be retried at full speed — spending the quota the
-    429 was asking us to conserve, on the request that earned it.
+    `after_response` runs on every HTTP response before status is raised, so
+    rate-limit headers on both 200 and 429 reach the quota tracker.
+
+    `on_retryable(exc, attempt)` runs after a retryable failure is caught and
+    before the backoff sleep.
     """
     last: httpx.HTTPError | None = None
     for attempt in range(attempts):
@@ -77,6 +99,10 @@ async def get_with_retry(
             if before_attempt is not None:
                 await before_attempt()
             response = await client.get(url, params=params, headers=headers)
+            if after_response is not None:
+                maybe = after_response(response)
+                if maybe is not None:
+                    await maybe
             response.raise_for_status()
             return response
         except httpx.HTTPStatusError as exc:
@@ -86,14 +112,11 @@ async def get_with_retry(
         except httpx.TransportError as exc:
             last = exc
 
+        if on_retryable is not None:
+            await on_retryable(last, attempt)
+
         if attempt < attempts - 1:
-            delay = base_delay * (2**attempt)
-            # 429 is "slow down for a while", not "try again in a few hundred ms".
-            # The short exponential above is fine for a blip 503; on a rate limit
-            # it only spends the remaining quota on retries and prolongs the ban.
-            if isinstance(last, httpx.HTTPStatusError) and last.response.status_code == 429:
-                delay = max(delay, 5.0 * (2**attempt))
-            await sleep(delay)
+            await sleep(retry_delay_seconds(last, attempt=attempt, base_delay=base_delay))
 
     assert last is not None  # only reachable after a caught failure
     raise last

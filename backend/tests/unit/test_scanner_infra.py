@@ -221,6 +221,16 @@ async def test_the_rate_limiter_paces_a_burst() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_429_penalty_blocks_acquires() -> None:
+    """After Alpaca says slow down, the bucket must not refill into the ban."""
+    limiter = RateLimiter(100.0, burst=5)
+    await limiter.penalize(0.15)
+    started = time.monotonic()
+    await limiter.acquire()
+    assert time.monotonic() - started >= 0.12
+
+
+@pytest.mark.asyncio
 async def test_a_pool_larger_than_the_rate_still_obeys_the_rate() -> None:
     """Eight fast responses simply come back sooner and start eight more."""
     manager = ConcurrencyManager(
@@ -299,10 +309,17 @@ def test_the_shipped_budgets_are_all_bounded() -> None:
         assert budget.timeout_sec > 0
 
 
-def test_the_llm_budget_is_the_tightest_shipped() -> None:
-    """It is the only one where a mistake costs money as well as time."""
+def test_the_llm_budget_is_among_the_tightest_shipped() -> None:
+    """LLM mistakes cost money; deep stays at one to protect the data quota."""
     llm = DEFAULT_BUDGETS["llm"].max_concurrency
-    assert llm <= min(b.max_concurrency for b in DEFAULT_BUDGETS.values() if b.name != "broker")
+    deep = DEFAULT_BUDGETS["deep"].max_concurrency
+    assert deep == 1
+    assert llm <= 2
+    assert llm <= min(
+        b.max_concurrency
+        for b in DEFAULT_BUDGETS.values()
+        if b.name not in {"broker", "deep"}
+    )
 
 
 # ── AI budget ───────────────────────────────────────────────────────────────

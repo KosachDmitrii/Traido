@@ -76,12 +76,13 @@ Alpaca's rate-limit window: 30s after a full EXTENDED scan is what earned the
 429 storm (snapshot batch failed → empty cycle → hunt → 429 again).
 """
 
-PROVIDER_COOLDOWN_SECONDS = 180
-"""How long to wait after a cycle that could not read the book.
+PROVIDER_COOLDOWN_SECONDS = 30
+"""Floor wait after a cycle that could not read the book.
 
-A failed snapshot/bars batch is usually a 429. Hunting into that window does not
-find proposals — it spends the remaining quota on retries and keeps the desk
-blind for longer.
+The real wait comes from `market_data_cooldown_seconds()` — Alpaca's
+X-RateLimit-Reset / Retry-After. This floor only applies when headers were
+missing and the quota has already cleared, so we do not instantly re-enter a
+hot window.
 """
 
 
@@ -90,6 +91,17 @@ def open_buy_count() -> int:
     from trading.opportunities import OPPORTUNITIES
 
     return len(OPPORTUNITIES.list_open())
+
+
+def provider_cooldown_seconds(*, interval: float) -> float:
+    """Wait for the vendor window, not a guessed constant."""
+    try:
+        from market_data.providers.alpaca import market_data_cooldown_seconds
+
+        vendor = market_data_cooldown_seconds()
+    except Exception:  # noqa: BLE001 — never fail the loop on a status read
+        vendor = 0.0
+    return min(interval, max(PROVIDER_COOLDOWN_SECONDS, vendor))
 
 
 def choose_scan_delay(
@@ -102,15 +114,24 @@ def choose_scan_delay(
 ) -> float:
     """Pick the wait after a cycle.
 
-    Full queue → short retry (no vendor work done). Provider failure → cool down.
-    Empty confirm queue → hunt. Open BUY → configured cadence.
+    Full queue → short retry (no vendor work done). Provider failure → cool until
+    the market-data quota clears. Empty confirm queue → hunt, but never sooner
+    than an active vendor cooldown. Open BUY → configured cadence.
     """
     if paused_on_full_queue:
         return min(PAUSED_RETRY_SECONDS, interval)
     if provider_failed:
-        return min(PROVIDER_COOLDOWN_SECONDS, interval)
+        return provider_cooldown_seconds(interval=interval)
     if open_buys <= 0:
-        return min(HUNTING_RETRY_SECONDS, interval)
+        # Do not hunt into a still-hot rate-limit window after a lucky cycle.
+        cool = 0.0
+        try:
+            from market_data.providers.alpaca import market_data_cooldown_seconds
+
+            cool = market_data_cooldown_seconds()
+        except Exception:  # noqa: BLE001
+            cool = 0.0
+        return min(interval, max(HUNTING_RETRY_SECONDS, cool))
     return max(0.0, seconds_until_due)
 
 

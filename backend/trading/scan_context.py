@@ -215,17 +215,18 @@ def open_scan_context(
 def _budgets_for(settings: Settings) -> dict[str, ResourceBudget]:
     """Per-resource budgets, with the operator-facing knob applied.
 
-    `scanner_concurrency` moves the resources whose cost is per symbol. It
-    deliberately does not move `broker`, which stays at one: the IBKR adapter is
-    a single stateful socket, and a knob labelled "scanner concurrency" must not
-    be able to open a second one.
+    `scanner_concurrency` moves news/market_data. It deliberately does not raise
+    `deep` above one: each deep symbol paginates many hourly bar pages, and
+    concurrent deep symbols are what turned a 200/min Alpaca quota into a 429
+    storm. `broker` stays at one for the same reason as before — one socket.
     """
     budgets = {name: replace(budget) for name, budget in DEFAULT_BUDGETS.items()}
     # `getattr` because tests and benchmarks pass lightweight settings stubs, and
     # this is a throughput knob rather than a safety gate — a stub that omits it
     # should get the documented default, not an AttributeError one layer inside
     # a scan. Every gate that protects capital reads `settings` strictly.
-    workers = max(1, int(getattr(settings, "scanner_concurrency", 4)))
-    for resource in ("deep", "news", "market_data"):
+    workers = max(1, int(getattr(settings, "scanner_concurrency", 2)))
+    for resource in ("news", "market_data"):
         budgets[resource] = replace(budgets[resource], max_concurrency=workers)
+    budgets["deep"] = replace(budgets["deep"], max_concurrency=1, rate_per_sec=1.0)
     return budgets

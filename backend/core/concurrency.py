@@ -40,21 +40,33 @@ class RateLimiter:
         self._tokens = self._capacity
         self._updated = time.monotonic()
         self._lock = asyncio.Lock()
+        self._penalty_until = 0.0
 
     async def acquire(self, tokens: float = 1.0) -> None:
         while True:
             async with self._lock:
                 now = time.monotonic()
-                self._tokens = min(
-                    self._capacity, self._tokens + (now - self._updated) * self._rate
-                )
-                self._updated = now
-                if self._tokens >= tokens:
-                    self._tokens -= tokens
-                    return
-                deficit = tokens - self._tokens
-                wait = deficit / self._rate
+                if now < self._penalty_until:
+                    wait = self._penalty_until - now
+                else:
+                    self._tokens = min(
+                        self._capacity, self._tokens + (now - self._updated) * self._rate
+                    )
+                    self._updated = now
+                    if self._tokens >= tokens:
+                        self._tokens -= tokens
+                        return
+                    deficit = tokens - self._tokens
+                    wait = deficit / self._rate
             await asyncio.sleep(wait)
+
+    async def penalize(self, seconds: float) -> None:
+        """Hold the bucket after a 429 — do not refill into a hot window."""
+        async with self._lock:
+            now = time.monotonic()
+            self._tokens = 0.0
+            self._updated = now
+            self._penalty_until = max(self._penalty_until, now + max(0.0, seconds))
 
 
 @dataclass
@@ -78,13 +90,12 @@ DEFAULT_BUDGETS: dict[str, ResourceBudget] = {
     # Reference data is one big request, rarely.
     "reference": ResourceBudget("reference", max_concurrency=2, rate_per_sec=2.0),
     # Batched snapshots and daily bars: few requests, each large.
-    "market_data": ResourceBudget("market_data", max_concurrency=4, rate_per_sec=3.0),
-    # Per-symbol deep analysis. Small in number by design — this is Stage 3.
-    # Counts *symbols*, not requests: one symbol here paginates hourly bars a
-    # dozen times, so four at a time is a burst of fifty against the data API.
-    # The vendor's own quota is enforced in the adapter, where the requests are.
-    "deep": ResourceBudget("deep", max_concurrency=4, rate_per_sec=2.0),
-    "news": ResourceBudget("news", max_concurrency=4, rate_per_sec=2.0),
+    "market_data": ResourceBudget("market_data", max_concurrency=2, rate_per_sec=2.0),
+    # Per-symbol deep analysis. Counts *symbols*, not requests: one symbol
+    # paginates hourly bars a dozen times. Concurrent deep symbols multiply
+    # that into a 429 storm against the shared account quota — keep at one.
+    "deep": ResourceBudget("deep", max_concurrency=1, rate_per_sec=1.0),
+    "news": ResourceBudget("news", max_concurrency=2, rate_per_sec=2.0),
     "fundamentals": ResourceBudget("fundamentals", max_concurrency=2, rate_per_sec=1.0),
     "broker": ResourceBudget("broker", max_concurrency=1, rate_per_sec=4.0),
     # Deliberately the tightest: an LLM call costs money as well as time.

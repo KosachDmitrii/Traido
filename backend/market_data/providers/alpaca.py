@@ -14,6 +14,7 @@ from core.config import get_settings
 from core.enums import Timeframe
 from core.schemas import Bar, Quote, Snapshot
 from core.vendor_http import get_with_retry
+from core.vendor_quota import AccountQuota
 from quant.aggregate import aggregate_bars
 
 SNAPSHOT_BATCH = 200
@@ -60,50 +61,67 @@ def _chunks(items: Sequence[str], size: int) -> Iterator[list[str]]:
         yield list(items[start : start + size])
 
 
-_limiter: RateLimiter | None = None
-_limiter_rpm: int | None = None
+_quota: AccountQuota | None = None
+_quota_rpm: float | None = None
 
 
-def _account_limiter() -> RateLimiter:
-    """One token bucket for every request this key makes.
+def account_quota() -> AccountQuota:
+    """Process-wide market-data quota for the Alpaca data key.
 
-    The scanner's `market_data` budget paces *symbols*; this paces *requests*,
-    and the gap between those two is where the 429s came from. Stage 3 runs four
-    symbols at a time and each one paginates hourly bars up to a dozen times, so
-    a budget of four concurrent symbols is a burst of roughly fifty requests
-    against a quota of two hundred a minute.
-
-    Module-level rather than per-adapter because the quota belongs to the API
-    key. Two adapters — the scan cycle's and reconciliation's — are two callers
-    of one account, and a limiter each would permit exactly twice the quota.
+    The scanner's per-resource budgets pace *symbols*; this paces *requests*,
+    and observes the vendor's own X-RateLimit-* headers. Module-level because
+    the quota belongs to the API key — scan, entry-watch and desk viability are
+    three callers of one account.
     """
-    global _limiter, _limiter_rpm
-    rpm = max(1, get_settings().market_data_requests_per_minute)
-    if _limiter is None or _limiter_rpm != rpm:
-        # A burst of one minute's worth would defeat the purpose; a small burst
-        # keeps a batched read — a handful of large requests — from trickling.
-        _limiter = RateLimiter(rpm / 60.0, burst=max(2.0, rpm / 20.0))
-        _limiter_rpm = rpm
-    return _limiter
+    global _quota, _quota_rpm
+    rpm = float(max(1, get_settings().market_data_requests_per_minute))
+    if _quota is None:
+        _quota = AccountQuota(rpm)
+        _quota_rpm = rpm
+    elif _quota_rpm != rpm:
+        _quota.retarget(rpm)
+        _quota_rpm = rpm
+    return _quota
 
 
 def reset_account_limiter() -> None:
-    """Drop the shared bucket. For tests and for a configuration change."""
-    global _limiter, _limiter_rpm
-    _limiter = None
-    _limiter_rpm = None
+    """Drop the shared quota. For tests and for a configuration change."""
+    global _quota, _quota_rpm
+    _quota = None
+    _quota_rpm = None
 
 
 def set_account_limiter(limiter: RateLimiter) -> None:
-    """Install a bucket and keep it installed, for tests.
+    """Tests: install a fast floor bucket while keeping AccountQuota wrapping it.
 
-    Assigning `_limiter` alone does not hold: `_account_limiter` rebuilds
-    whenever the installed bucket does not match the configured rate, so a bare
-    assignment is discarded on the very next request.
+    Prefer `set_account_quota` for new tests. This keeps older suites that inject
+    a RateLimiter working by retargeting a fresh quota and swapping its bucket.
     """
-    global _limiter, _limiter_rpm
-    _limiter = limiter
-    _limiter_rpm = max(1, get_settings().market_data_requests_per_minute)
+    global _quota, _quota_rpm
+    rpm = float(max(1, get_settings().market_data_requests_per_minute))
+    q = AccountQuota(rpm)
+    q._bucket = limiter  # noqa: SLF001 — test seam
+    _quota = q
+    _quota_rpm = rpm
+
+
+def set_account_quota(quota: AccountQuota) -> None:
+    """Install a quota instance for tests."""
+    global _quota, _quota_rpm
+    _quota = quota
+    _quota_rpm = quota.rpm
+
+
+def market_data_cooldown_seconds() -> float:
+    """How long the scanner should wait after a throttled cycle."""
+    if _quota is None:
+        return 0.0
+    return _quota.seconds_until_clear()
+
+
+def _account_limiter() -> RateLimiter:
+    """Deprecated seam — returns the floor bucket inside the shared quota."""
+    return account_quota()._bucket  # noqa: SLF001
 
 
 async def _paced_get(
@@ -113,21 +131,36 @@ async def _paced_get(
     params: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> httpx.Response:
-    """Every read this adapter makes: paced first, then retried.
+    """Every read this adapter makes: quota first, headers observed, 429 honored.
 
-    Both halves matter and they fix different things. Pacing stops the burst
-    that earns a 429; the retry means that a 429 arriving anyway — because
-    another process shares the key, or the vendor is stricter than advertised —
-    is a short wait rather than a failed symbol. Before this, the per-symbol bar
-    path had neither, which is why a scan cycle could lose twenty names to rate
-    limiting while the batched stages sailed through.
+    Pacing stops the burst that earns a 429. Observing X-RateLimit-* slows
+    before Remaining hits zero. On 429 the shared quota cools until Reset /
+    Retry-After so concurrent callers do not keep spending into the ban.
     """
+    quota = account_quota()
+
+    async def _after(response: httpx.Response) -> None:
+        quota.observe(response.headers, status_code=response.status_code)
+        if response.status_code == 429:
+            from core.metrics import METRICS
+
+            METRICS.counter(
+                "traido_market_data_429_total",
+                help_text="Alpaca market-data responses that returned HTTP 429.",
+            )
+
+    async def _on_retryable(exc: BaseException, attempt: int) -> None:
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+            await quota.note_throttled(exc.response.headers, attempt=attempt)
+
     return await get_with_retry(
         client,
         url,
         params=params,
         headers=headers,
-        before_attempt=_account_limiter().acquire,
+        before_attempt=quota.acquire,
+        after_response=_after,
+        on_retryable=_on_retryable,
     )
 
 

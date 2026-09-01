@@ -247,9 +247,18 @@ class Supervisor:
         lookback_days: int,
     ) -> dict[Timeframe, FeatureSnapshot]:
         end = self._clock()
-        start = end - timedelta(days=lookback_days)
         out: dict[Timeframe, FeatureSnapshot] = {}
         for tf in timeframes:
+            # D1 needs a long window for EMA200; H1/M15 do not — a year of
+            # hourly pages is what turned Stage 3 into a 429 factory.
+            window = lookback_days
+            if tf is Timeframe.H1:
+                window = min(lookback_days, 90)
+            elif tf is Timeframe.M15:
+                window = min(lookback_days, 30)
+            elif tf is Timeframe.M5:
+                window = min(lookback_days, 14)
+            start = end - timedelta(days=window)
             bars = await self.market_data.get_bars(symbol, tf, start, end)
             if len(bars) < 30:
                 continue

@@ -105,8 +105,12 @@ async def test_the_backoff_grows_between_attempts() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_429_backs_off_harder_than_a_blip() -> None:
-    """Rate limits need seconds, not the short 503 backoff."""
+async def test_a_429_backs_off_harder_than_a_blip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Rate limits need seconds; prefer headers, else exponential floor."""
+    monkeypatch.setattr(
+        "core.vendor_http.fallback_429_wait",
+        lambda attempt: 5.0 * (2**attempt),
+    )
     slept: list[float] = []
 
     async def record(seconds: float) -> None:

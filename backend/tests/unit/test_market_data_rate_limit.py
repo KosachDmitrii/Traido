@@ -64,7 +64,11 @@ async def test_a_throttled_bar_request_is_retried_not_lost(
     def handler(request: httpx.Request) -> httpx.Response:
         attempts["n"] += 1
         if attempts["n"] == 1:
-            return httpx.Response(429, json={"message": "too many requests"})
+            return httpx.Response(
+                429,
+                json={"message": "too many requests"},
+                headers={"Retry-After": "0"},
+            )
         return httpx.Response(200, json={"bars": [_bar(START)]})
 
     _install(monkeypatch, handler)

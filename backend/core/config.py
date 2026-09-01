@@ -68,9 +68,9 @@ class Settings(BaseSettings):
     deep_analysis_top_k: int = Field(default=20, alias="TRAIDO_DEEP_ANALYSIS_TOP_K")
     max_llm_candidates: int = Field(default=20, alias="TRAIDO_MAX_LLM_CANDIDATES")
     max_llm_calls_per_scan: int = Field(default=60, alias="TRAIDO_MAX_LLM_CALLS_PER_SCAN")
-    scanner_concurrency: int = Field(default=4, alias="TRAIDO_SCANNER_CONCURRENCY")
+    scanner_concurrency: int = Field(default=2, alias="TRAIDO_SCANNER_CONCURRENCY")
     provider_batch_size: int = Field(default=200, alias="TRAIDO_PROVIDER_BATCH_SIZE")
-    market_data_requests_per_minute: int = Field(default=180, alias="TRAIDO_MARKET_DATA_RPM")
+    market_data_requests_per_minute: int = Field(default=120, alias="TRAIDO_MARKET_DATA_RPM")
     """The vendor account's own quota, in requests per minute.
 
     Belongs to the account, not to a caller: Stage 1 reads in batches, Stage 3
@@ -79,7 +79,9 @@ class Settings(BaseSettings):
     whatever happens to be in flight, which is how a cycle earns a 429 storm
     while every individual component looks well-behaved.
 
-    Alpaca's free data tier is 200/min. The default sits just under it.
+    Alpaca's free data tier is 200/min. The default sits further under it so
+    desk polling, the entry-watch loop and Stage 3 retries still have room —
+    180 left almost no headroom and still 429'd under concurrent deep pages.
     """
     scan_interval_seconds: float = Field(default=300.0, alias="TRAIDO_SCAN_INTERVAL_SECONDS")
 

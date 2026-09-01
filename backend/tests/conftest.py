@@ -45,10 +45,12 @@ def unpaced_market_data(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     from core.concurrency import RateLimiter
     from market_data.providers import alpaca
 
-    rpm = alpaca.get_settings().market_data_requests_per_minute
-    monkeypatch.setattr(alpaca, "_limiter", RateLimiter(1e6, burst=1e6))
-    monkeypatch.setattr(alpaca, "_limiter_rpm", max(1, rpm))
+    # Fresh AccountQuota with a near-unlimited floor bucket — still runs
+    # acquire/observe so header wiring stays under test.
+    alpaca.reset_account_limiter()
+    alpaca.set_account_limiter(RateLimiter(1e6, burst=1e6))
     yield
+    alpaca.reset_account_limiter()
 
 
 @pytest.fixture(autouse=True)
