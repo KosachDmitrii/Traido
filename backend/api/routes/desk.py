@@ -34,6 +34,7 @@ from core.desk_bus import DESK_BUS
 from core.enums import UserDecision
 from core.schemas import Position
 from market_data.providers.company_name import attach_company_names
+from trading.desk_positions import protective_stop_for_display
 from trading.desk_viability import attach_buy_viability
 from trading.entry_watches import ENTRY_WATCHES
 from trading.exits import EXITS, ExitOpportunity
@@ -393,15 +394,35 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
         portfolio_dict = (_broker_cache or {}).get("portfolio")
 
     positions_out = []
+    open_orders_records: list = []
+    try:
+        open_orders_records = await broker.list_open_orders()
+    except Exception:  # noqa: BLE001
+        open_orders_records = []
+
     try:
         for p in await broker.list_positions():
             meta = by_sym.get(p.symbol.upper())
+            payload = (meta.payload or {}) if meta else {}
+            stop_oid = payload.get("stop_order_id")
+            ledger_stop = (
+                Decimal(str(meta.stop_price))
+                if meta is not None and meta.stop_price is not None
+                else None
+            )
+            stop_px = protective_stop_for_display(
+                symbol=p.symbol,
+                qty=Decimal(str(p.qty)),
+                open_orders=open_orders_records,
+                ledger_stop=ledger_stop,
+                stop_order_id=str(stop_oid) if stop_oid else None,
+            )
             positions_out.append(
                 {
                     "symbol": p.symbol,
                     "qty": str(p.qty),
                     "avg_entry": str(p.avg_entry),
-                    "stop": _tick(meta.stop_price) if meta else None,
+                    "stop": _tick(stop_px),
                     "target": _tick(meta.target_price) if meta else None,
                     "strategy_version": meta.strategy_version if meta else None,
                     **_mark_to_market(p),
@@ -422,7 +443,7 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
 
     open_orders_out = []
     try:
-        for o in await broker.list_open_orders():
+        for o in open_orders_records:
             open_orders_out.append(
                 {
                     "broker_order_id": o.broker_order_id,

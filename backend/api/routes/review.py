@@ -8,7 +8,9 @@ from agents.review.agent import build_review
 from broker.factory import create_broker
 from core.config import get_settings
 from market_data.providers.company_name import attach_company_names
+from trading.desk_positions import protective_stop_for_display
 from trading.ledger import LEDGER
+from trading.pricing import round_equity_price
 
 router = APIRouter(prefix="/api/v1", tags=["review"])
 
@@ -27,19 +29,33 @@ async def positions() -> dict:
     settings = get_settings()
     broker = create_broker(settings)
     broker_pos = await broker.list_positions()
+    try:
+        open_orders = await broker.list_open_orders()
+    except Exception:  # noqa: BLE001
+        open_orders = []
     ledger = LEDGER.get_open()
     by_sym = {r.symbol: r for r in ledger}
     merged = []
     for p in broker_pos:
         meta = by_sym.get(p.symbol.upper())
+        payload = (meta.payload or {}) if meta else {}
+        stop_oid = payload.get("stop_order_id")
+        ledger_stop = (
+            meta.stop_price if meta is not None and meta.stop_price is not None else None
+        )
+        stop_px = protective_stop_for_display(
+            symbol=p.symbol,
+            qty=p.qty,
+            open_orders=open_orders,
+            ledger_stop=ledger_stop,
+            stop_order_id=str(stop_oid) if stop_oid else None,
+        )
         merged.append(
             {
                 "symbol": p.symbol,
                 "qty": str(p.qty),
                 "avg_entry": str(p.avg_entry),
-                "stop_price": str(meta.stop_price)
-                if meta and meta.stop_price
-                else (str(p.stop_price) if p.stop_price else None),
+                "stop_price": str(round_equity_price(stop_px)) if stop_px is not None else None,
                 "target_price": str(meta.target_price)
                 if meta and meta.target_price
                 else (str(p.target_price) if p.target_price else None),
