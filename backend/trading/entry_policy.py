@@ -5,14 +5,16 @@ Raising it does not touch the risk engine, liquidity, RTH, earnings or news
 gates: it only changes whether strategy publishes BUY_NOW vs WAIT_FOR_ENTRY,
 and how wide the pullback zone is for watches.
 
-Persisted like the kill switch — a file under data/ — so a restart keeps the
-operator's choice.
+Persisted like the kill switch: Redis when configured (survives Railway
+redeploys), plus a file under data/ so a Redis outage still keeps the last
+choice on a single node.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -21,6 +23,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 POLICY_PATH = Path(__file__).resolve().parents[1] / "data" / "entry_policy.json"
+REDIS_KEY = "traido:entry_policy"
 _LOCK = threading.Lock()
 _cached: int | None = None
 
@@ -102,16 +105,82 @@ def thresholds_for(aggressiveness: int) -> EntryThresholds:
     )
 
 
-def _read_file() -> int:
+def _redis_client() -> Any:
+    url = os.getenv("REDIS_URL")
+    if not url:
+        return None
+    try:
+        import redis
+
+        client = redis.Redis.from_url(url, socket_timeout=1.0, socket_connect_timeout=1.0)
+        client.ping()
+        return client
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("entry policy: redis unavailable (%s)", type(exc).__name__)
+        return None
+
+
+def _read_file() -> int | None:
+    """Return aggressiveness from disk, or None when the file is missing."""
     if not POLICY_PATH.exists():
-        return 0
+        return None
     try:
         raw = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        logger.warning("entry policy: unreadable file, using aggressiveness=0")
-        return 0
+        logger.warning("entry policy: unreadable file")
+        return None
     if isinstance(raw, dict):
         return clamp_aggressiveness(raw.get("aggressiveness", 0))
+    return None
+
+
+def _read_redis() -> int | None:
+    client = _redis_client()
+    if client is None:
+        return None
+    try:
+        raw = client.hget(REDIS_KEY, "aggressiveness")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("entry policy: redis read failed (%s)", type(exc).__name__)
+        return None
+    if raw is None:
+        return None
+    if isinstance(raw, bytes):
+        raw = raw.decode()
+    return clamp_aggressiveness(raw)
+
+
+def _write_file(aggressiveness: int, *, actor: str, thresholds: EntryThresholds) -> None:
+    POLICY_PATH.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "aggressiveness": aggressiveness,
+        "actor": actor,
+        "thresholds": thresholds.as_dict(),
+    }
+    POLICY_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _write_redis(aggressiveness: int, *, actor: str) -> None:
+    client = _redis_client()
+    if client is None:
+        return
+    try:
+        client.hset(
+            REDIS_KEY,
+            mapping={"aggressiveness": str(aggressiveness), "actor": actor},
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.error("entry policy: redis write failed (%s)", type(exc).__name__)
+
+
+def _load_aggressiveness() -> int:
+    """Redis first (survives redeploy), then file, else strict default."""
+    redis_val = _read_redis()
+    if redis_val is not None:
+        return redis_val
+    file_val = _read_file()
+    if file_val is not None:
+        return file_val
     return 0
 
 
@@ -119,7 +188,7 @@ def get_entry_aggressiveness() -> int:
     global _cached
     with _LOCK:
         if _cached is None:
-            _cached = _read_file()
+            _cached = _load_aggressiveness()
         return _cached
 
 
@@ -128,17 +197,12 @@ def get_entry_thresholds() -> EntryThresholds:
 
 
 def set_entry_aggressiveness(value: int | float, *, actor: str = "user") -> EntryThresholds:
-    """Persist and return the resolved thresholds."""
+    """Persist (Redis + file) and return the resolved thresholds."""
     global _cached
     a = clamp_aggressiveness(value)
     thresholds = thresholds_for(a)
-    POLICY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "aggressiveness": a,
-        "actor": actor,
-        "thresholds": thresholds.as_dict(),
-    }
-    POLICY_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    _write_file(a, actor=actor, thresholds=thresholds)
+    _write_redis(a, actor=actor)
     with _LOCK:
         _cached = a
     logger.info("entry policy: aggressiveness=%s actor=%s", a, actor)
@@ -146,7 +210,7 @@ def set_entry_aggressiveness(value: int | float, *, actor: str = "user") -> Entr
 
 
 def reset_entry_policy_cache() -> None:
-    """Tests: drop the in-memory cache so the next read hits the file (or 0)."""
+    """Tests: drop the in-memory cache so the next read hits Redis/file (or 0)."""
     global _cached
     with _LOCK:
         _cached = None
@@ -164,5 +228,3 @@ def policy_payload() -> dict[str, Any]:
             "Risk, liquidity, RTH, earnings and news gates are unchanged."
         ),
     }
-
-

@@ -91,3 +91,53 @@ def test_detect_chasing_respects_thresholds() -> None:
     assert "PRICE_TOO_EXTENDED_FROM_EMA" in detect_chasing(facts)
     set_entry_aggressiveness(100, actor="test")
     assert "PRICE_TOO_EXTENDED_FROM_EMA" not in detect_chasing(facts)
+
+
+def test_redis_survives_cache_and_missing_file(tmp_path, monkeypatch) -> None:
+    """Railway redeploys wipe the container file; Redis must keep the choice."""
+    from trading import entry_policy
+
+    path = tmp_path / "entry_policy.json"
+    store: dict[str, dict[str, str]] = {}
+
+    class _FakeRedis:
+        def hget(self, key, field):
+            raw = store.get(key, {}).get(field)
+            return raw.encode() if raw is not None else None
+
+        def hset(self, key, mapping):
+            store[key] = {str(k): str(v) for k, v in mapping.items()}
+            return True
+
+        def ping(self):
+            return True
+
+    monkeypatch.setattr(entry_policy, "POLICY_PATH", path)
+    monkeypatch.setenv("REDIS_URL", "redis://test")
+    monkeypatch.setattr(entry_policy, "_redis_client", lambda: _FakeRedis())
+    entry_policy.reset_entry_policy_cache()
+
+    set_entry_aggressiveness(80, actor="test")
+    assert path.exists()
+    path.unlink()  # simulate ephemeral container disk after redeploy
+    entry_policy.reset_entry_policy_cache()
+    assert entry_policy.get_entry_aggressiveness() == 80
+
+
+def test_desk_etag_includes_entry_policy() -> None:
+    from api.routes import desk as desk_mod
+
+    base = {
+        "rev": 1,
+        "scanner": {"cycle": 1, "running": False, "last_symbol": None},
+        "buy_opportunities": [],
+        "sell_opportunities": [],
+        "positions": [],
+        "review": {"trade_count": 0},
+        "activity": {"agents": []},
+        "session": {"phase": "regular"},
+        "entry_policy": {"aggressiveness": 0},
+    }
+    a = desk_mod._etag_for(base)
+    b = desk_mod._etag_for({**base, "entry_policy": {"aggressiveness": 80}})
+    assert a != b

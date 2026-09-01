@@ -282,6 +282,10 @@ def _etag_for(payload: dict) -> str:
         ],
         "pos": [(p.get("symbol"), p.get("qty")) for p in payload.get("positions") or []],
         "trades": (payload.get("review") or {}).get("trade_count"),
+        # Operator entry strictness must bust the ETag: leaving it out meant a
+        # Settings save + refresh kept a 304 of the previous desk payload and
+        # the segmented control snapped back to Сильно.
+        "entry_policy": (payload.get("entry_policy") or {}).get("aggressiveness"),
         # Includes the clock, so this busts once a minute on an otherwise idle
         # desk. That is the price of a header clock that does not freeze behind
         # a 304, and one extra payload per minute is not a cost worth avoiding.
