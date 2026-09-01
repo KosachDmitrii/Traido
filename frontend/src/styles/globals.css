@@ -835,7 +835,7 @@ h1, h2, h3, p {
 }
 
 .pos-pnl--down {
-  color: var(--td-text);
+  color: var(--td-bear);
 }
 
 .pos-pnl--unknown {
@@ -1587,7 +1587,7 @@ h1, h2, h3, p {
 }
 
 .td-pnl-neg {
-  color: var(--td-text);
+  color: var(--td-bear);
 }
 
 .notes-list {

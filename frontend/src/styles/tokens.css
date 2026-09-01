@@ -28,11 +28,11 @@
   --td-taupe-muted: #f3f4f6;
   --td-ink: #111827;
 
-  /* Semantic — emerald inflows; sober outflows; soft rose for failures */
+  /* Semantic — emerald inflows; rose outflows; kill/errors share the same rose */
   --td-bull: #10b981;
   --td-bull-muted: rgba(16, 185, 129, 0.12);
-  --td-bear: #111827;
-  --td-bear-muted: #f3f4f6;
+  --td-bear: #e11d48;
+  --td-bear-muted: rgba(225, 29, 72, 0.1);
   --td-warn: #d97706;
   --td-warn-muted: rgba(217, 119, 6, 0.12);
   --td-paper: #3b82f6;
@@ -187,7 +187,7 @@
 }
 
 .td-pnl-neg {
-  color: var(--td-text);
+  color: var(--td-bear);
 }
 
 .td-paper-banner {
