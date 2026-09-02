@@ -741,29 +741,31 @@ class AdmissionRecord(StrictModel):
     admission_input: dict[str, Any] | None = None
     admission_snapshot: AdmissionSnapshot | None = None
     request_fingerprint: str | None = None
+    request_id: UUID | None = None
 
 
 class ExternalPositionIncident(StrictModel):
     """Unattributed broker exposure — never a Traido-admitted trade."""
 
     id: UUID
-    account_id: str | None = None
     broker: str
     symbol: str
     qty: Decimal
     avg_entry: Decimal | None = None
-    first_seen_at: datetime
-    last_seen_at: datetime
+    account_id: str | None = None
     broker_order_id: str | None = None
     broker_perm_id: str | None = None
     client_order_id: str | None = None
     correlation_status: str = "unattributed"
-    """unattributed | correlated | disputed"""
+    """unattributed | correlated | disputed | operator_override"""
     resolution: str = "open"
     """open | flattened | adopted_after_correlation | cleared"""
     operator_action: str | None = None
     blocks_symbol: bool = True
     notes: list[str] = Field(default_factory=list)
+    correlation_evidence: dict[str, Any] = Field(default_factory=dict)
+    first_seen_at: datetime
+    last_seen_at: datetime
     created_at: datetime
     updated_at: datetime
 
@@ -805,10 +807,14 @@ class AdmissionInput(StrictModel):
     market: MarketAssessment | None = None
     sector_label: str | None = None
     sector_tradable: bool | None = None
+    sector_benchmark: str | None = None
+    sector_provider: str | None = None
+    sector_source_ts: datetime | None = None
     news_status: NewsCheck | None = None
     earnings_status: EarningsCheck | None = None
     portfolio_snapshot: dict[str, Any] = Field(default_factory=dict)
     risk_snapshot: dict[str, Any] = Field(default_factory=dict)
+    liquidity_snapshot: dict[str, Any] = Field(default_factory=dict)
     strategy_version: str
     decision_version: int = 0
     admission_version: str
@@ -817,9 +823,47 @@ class AdmissionInput(StrictModel):
     opportunity_id: UUID | None = None
     watch_id: UUID | None = None
     trigger_version: int | None = None
+    request_id: UUID | None = None
     geometry_hash: str
     evaluated_at: datetime
     require_bars: bool = True
+    sized_qty: Decimal | None = None
+    limit_price: Decimal | None = None
+    stop_price: Decimal | None = None
+
+
+class ApprovalCommand(StrictModel):
+    """One user APPROVE click (or its transport retry with the same request_id)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    request_id: UUID
+    opportunity_id: UUID
+    expected_decision_version: int = Field(ge=0)
+    user_decision: UserDecision = UserDecision.APPROVE
+    requested_qty: Decimal | None = None
+    requested_at: datetime
+    actor: str = "user"
+
+
+class ApprovalEvidence(StrictModel):
+    """Full immutable facts that authorized (or blocked) one ApprovalAdmission.
+
+    Fingerprint is computed from this object after risk/liquidity are known.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command: ApprovalCommand
+    admission_input: AdmissionInput
+    geometry_hash: str
+    decision_version: int
+    sized_qty: Decimal
+    limit_price: Decimal
+    stop_price: Decimal
+    risk_verdict: str
+    liquidity_ok: bool = True
+    request_fingerprint: str
 
 
 class WatchRevalidationResult(StrictModel):

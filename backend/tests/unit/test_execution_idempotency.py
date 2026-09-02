@@ -157,14 +157,27 @@ async def test_a_retry_after_a_lost_reply_does_not_place_a_second_order() -> Non
     intents = MemoryOrderIntentStore()
     audit = InMemoryAudit()
     opp = await _approved_opportunity(broker, store)
+    rid = uuid4()
+    version = opp.decision_version
 
     with pytest.raises(RuntimeError, match="ENTRY_STATE_UNKNOWN"):
-        await _service(broker, store, intents, audit).decide(opp.id, UserDecision.APPROVE)
+        await _service(broker, store, intents, audit).decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=rid,
+            expected_decision_version=version,
+        )
     assert broker.submit_count == 1
 
-    # Reconciliation returns the stuck card to the queue and the user retries.
+    # Reconciliation returns the stuck card to the queue and the user retries
+    # with the same request_id (transport retry), not a fresh click.
     store.release_stale_approving(older_than_sec=0)
-    result = await _service(broker, store, intents, audit).decide(opp.id, UserDecision.APPROVE)
+    result = await _service(broker, store, intents, audit).decide(
+        opp.id,
+        UserDecision.APPROVE,
+        request_id=rid,
+        expected_decision_version=version,
+    )
 
     assert broker.submit_count == 1, "the retry must adopt the existing order, not send a new one"
     assert result.status is OpportunityStatus.EXECUTED
@@ -179,15 +192,27 @@ async def test_recovery_reaches_the_same_place_after_a_process_restart() -> None
     intents = MemoryOrderIntentStore()  # stands in for the database
     store = MemoryOpportunityStore()
     opp = await _approved_opportunity(broker, store)
+    rid = uuid4()
+    version = opp.decision_version
 
     with pytest.raises(RuntimeError, match="ENTRY_STATE_UNKNOWN"):
-        await _service(broker, store, intents).decide(opp.id, UserDecision.APPROVE)
+        await _service(broker, store, intents).decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=rid,
+            expected_decision_version=version,
+        )
 
     # ── process dies here; only the intent store and the broker survive ──
     store.release_stale_approving(older_than_sec=0)
 
     restarted = _service(broker, store, intents)
-    result = await restarted.decide(opp.id, UserDecision.APPROVE)
+    result = await restarted.decide(
+        opp.id,
+        UserDecision.APPROVE,
+        request_id=rid,
+        expected_decision_version=version,
+    )
 
     assert broker.submit_count == 1
     assert result.status is OpportunityStatus.EXECUTED

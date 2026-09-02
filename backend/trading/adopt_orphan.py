@@ -89,8 +89,18 @@ async def adopt_orphan_position(
     intents: OrderIntentStore,
     settings: Settings | None = None,
     dry_run: bool = False,
+    require_correlation: bool = True,
+    operator_override: bool = False,
+    expected_broker_order_id: str | None = None,
+    expected_client_order_id: str | None = None,
+    expected_broker_perm_id: str | None = None,
 ) -> dict[str, Any]:
-    """Backfill `open_positions` from broker truth plus the last executed card."""
+    """Backfill ledger only with proven broker correlation (or explicit override).
+
+    Spec: never adopt from "latest Opportunity/intent by symbol" alone.
+    """
+    from core.metrics import METRICS
+
     settings = settings or get_settings()
     ticker = symbol.upper()
 
@@ -124,9 +134,63 @@ async def adopt_orphan_position(
     known_stop_oid = _protective_stop_order_id(intents, ticker)
 
     SessionLocal = _session_factory(ledger._engine)
+    candidate: dict[str, Any] | None = None
+    opportunity_id: UUID | None = None
+    trading_mode_from_card: str | None = None
+    broker_entry_order_id: str | None = None
+    correlation_evidence: dict[str, Any] = {}
+    opened_at = broker_pos.opened_at
     with SessionLocal() as session:
-        opp_row = _latest_executed_opportunity(session, ticker)
         entry_intent = _latest_entry_fill(session, ticker)
+        # Correlation: match explicit IDs — never "last opportunity by symbol".
+        correlated = False
+        if entry_intent is not None:
+            if expected_broker_order_id and entry_intent.broker_order_id == expected_broker_order_id:
+                correlated = True
+                correlation_evidence["broker_order_id"] = expected_broker_order_id
+            payload = entry_intent.payload or {}
+            client_oid = payload.get("client_order_id") or getattr(
+                entry_intent, "client_order_id", None
+            )
+            perm_id = payload.get("broker_perm_id") or getattr(
+                entry_intent, "broker_perm_id", None
+            )
+            if expected_client_order_id and client_oid == expected_client_order_id:
+                correlated = True
+                correlation_evidence["client_order_id"] = expected_client_order_id
+            if expected_broker_perm_id and perm_id == expected_broker_perm_id:
+                correlated = True
+                correlation_evidence["broker_perm_id"] = expected_broker_perm_id
+
+        if require_correlation and not operator_override and not correlated:
+            METRICS.counter(
+                "external_position_correlation_failed",
+                help_text="Adoption refused without broker/client/perm correlation",
+            )
+            return {
+                "status": "error",
+                "symbol": ticker,
+                "reason": "correlation_required",
+            }
+
+        if correlated and entry_intent is not None:
+            broker_entry_order_id = entry_intent.broker_order_id
+            if entry_intent.updated_at is not None:
+                opened_at = entry_intent.updated_at
+            if entry_intent.opportunity_id is not None:
+                opp_row = session.get(OpportunityRow, entry_intent.opportunity_id)
+                if opp_row is not None:
+                    opportunity_id = opp_row.id
+                    card = opp_row.payload or {}
+                    cand = card.get("candidate")
+                    if isinstance(cand, dict):
+                        candidate = dict(cand)
+                    trading_mode_from_card = str(
+                        card.get("trading_mode") or settings.trading_mode.value
+                    )
+
+    if opened_at is not None and opened_at.tzinfo is None:
+        opened_at = opened_at.replace(tzinfo=UTC)
 
     stop_price, stop_order_id = resolve_protective_stop(
         symbol=ticker,
@@ -135,19 +199,13 @@ async def adopt_orphan_position(
         stop_order_id=known_stop_oid,
     )
 
-    candidate = (opp_row.payload or {}).get("candidate") if opp_row is not None else None
     target_price: Decimal | None
-    if isinstance(candidate, dict):
+    if candidate is not None:
         stop_price = stop_price or Decimal(str(candidate["stop"]))
         target_price = Decimal(str(candidate["target"]))
         strategy_version = str(candidate.get("strategy_version") or "adopted_orphan")
         entry_reasons = list(candidate.get("reasons") or [])
-        opportunity_id: UUID | None = opp_row.id if opp_row is not None else None
-        trading_mode = (
-            str((opp_row.payload or {}).get("trading_mode") or settings.trading_mode.value)
-            if opp_row is not None
-            else settings.trading_mode.value
-        )
+        trading_mode = trading_mode_from_card or settings.trading_mode.value
         payload = {
             "confidence": candidate.get("confidence"),
             "card_risk_reward": candidate.get("risk_reward"),
@@ -160,6 +218,8 @@ async def adopt_orphan_position(
             ),
             "adopted": True,
             "adopted_at": datetime.now(UTC).isoformat(),
+            "correlation_evidence": correlation_evidence,
+            "operator_override": operator_override,
         }
     else:
         stop_price = stop_price or broker_pos.stop_price
@@ -171,12 +231,9 @@ async def adopt_orphan_position(
         payload = {
             "adopted": True,
             "adopted_at": datetime.now(UTC).isoformat(),
+            "correlation_evidence": correlation_evidence,
+            "operator_override": operator_override,
         }
-
-    broker_entry_order_id = entry_intent.broker_order_id if entry_intent else None
-    opened_at = entry_intent.updated_at if entry_intent else broker_pos.opened_at
-    if opened_at is not None and opened_at.tzinfo is None:
-        opened_at = opened_at.replace(tzinfo=UTC)
 
     plan: dict[str, Any] = {
         "status": "planned" if dry_run else "adopted",

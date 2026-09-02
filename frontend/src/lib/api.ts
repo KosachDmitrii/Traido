@@ -171,6 +171,8 @@ export type BuyOpportunity = {
   executed_qty?: string | null;
   /** Live book vs the card. Absent only on older payloads; treat missing as unverified. */
   viability?: BuyViability;
+  /** Card version the operator must echo on APPROVE. */
+  decision_version?: number;
   /** True when created before admission control (DB flag). */
   legacy?: boolean;
   creation_admission_record_id?: string | null;
@@ -470,10 +472,20 @@ export async function decideBuy(
   id: string,
   decision: "approve" | "skip",
   qty?: number,
+  opts?: { requestId?: string; expectedDecisionVersion?: number },
 ) {
-  const body: { decision: "approve" | "skip"; qty?: number } = { decision };
+  const body: {
+    decision: "approve" | "skip";
+    qty?: number;
+    request_id?: string;
+    expected_decision_version?: number;
+  } = { decision };
   if (decision === "approve" && qty != null && Number.isFinite(qty)) {
     body.qty = qty;
+  }
+  if (decision === "approve") {
+    body.request_id = opts?.requestId ?? crypto.randomUUID();
+    body.expected_decision_version = opts?.expectedDecisionVersion ?? 0;
   }
   const res = await fetch(apiUrl(`/api/v1/opportunities/${id}/decide`), {
     method: "POST",

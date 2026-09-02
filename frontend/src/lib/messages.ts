@@ -48,6 +48,34 @@ export function humanizeError(raw: string): FlashMessage {
       detail: t("toast.error.alpacaRateLimit.detail"),
     };
   }
+  if (upper.includes("STALE_DECISION")) {
+    return {
+      kind: "error",
+      title: t("toast.error.staleDecision.title"),
+      detail: t("toast.error.staleDecision.detail"),
+    };
+  }
+  if (upper.includes("IDEMPOTENCY_CONFLICT")) {
+    return {
+      kind: "error",
+      title: t("toast.error.idempotencyConflict.title"),
+      detail: t("toast.error.idempotencyConflict.detail"),
+    };
+  }
+  if (upper.includes("ENTRY_IN_FLIGHT")) {
+    return {
+      kind: "error",
+      title: t("toast.error.entryInFlight.title"),
+      detail: t("toast.error.entryInFlight.detail"),
+    };
+  }
+  if (upper.includes("DATA_BLOCKED")) {
+    return {
+      kind: "error",
+      title: t("toast.error.dataBlocked.title"),
+      detail: t("toast.error.dataBlocked.detail"),
+    };
+  }
   if (upper.includes("INTERNAL SERVER ERROR") || text.includes("500")) {
     return {
       kind: "error",

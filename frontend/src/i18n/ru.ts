@@ -504,6 +504,18 @@ export const ru: Record<MessageKey, string> = {
   "toast.error.alpacaRateLimit.title": "Лимит Alpaca",
   "toast.error.alpacaRateLimit.detail":
     "Слишком много запросов к paper API. Подождите пару секунд — desk уже реже поллит.",
+  "toast.error.staleDecision.title": "Карточка изменилась — подтвердите снова",
+  "toast.error.staleDecision.detail":
+    "Пока вы решали, предложение обновилось. Просмотрите новую карточку и нажмите BUY ещё раз.",
+  "toast.error.idempotencyConflict.title": "Конфликт подтверждения",
+  "toast.error.idempotencyConflict.detail":
+    "Тот же request id пришёл с другими рыночными фактами. Обновите карточку и подтвердите заново.",
+  "toast.error.entryInFlight.title": "Вход уже в работе",
+  "toast.error.entryInFlight.detail":
+    "По этой карточке ещё есть неразрешённая попытка у брокера. Дождитесь reconciliation.",
+  "toast.error.dataBlocked.title": "Нет обязательных данных",
+  "toast.error.dataBlocked.detail":
+    "Рынок, сектор, новости или earnings отсутствуют или устарели. Ордер не отправлялся.",
   "toast.error.server500.title": "Связь с API оборвалась",
   "toast.error.server500.detail":
     "Вне сессии US лимит часто ждёт fill дольше, чем держит прокси. Карточка должна вернуться — нажмите BUY ещё раз или обновите desk.",

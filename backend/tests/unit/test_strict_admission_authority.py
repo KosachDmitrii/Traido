@@ -18,6 +18,7 @@ from core.enums import (
     IntentPurpose,
     IntentStatus,
     OpportunityStatus,
+    OrderSide,
     TradingMode,
     UserDecision,
 )
@@ -408,11 +409,40 @@ def test_sql_no_entry_intent_without_approval_fk() -> None:
 
 
 @pytest.mark.asyncio
-async def test_hundred_concurrent_approves_one_buy(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Documented at integration: test_concurrent_approval_stress (N workers / 50 dual).
+async def test_hundred_concurrent_approves_one_buy() -> None:
+    """100 concurrent APPROVE with the same request_id → ≤1 broker BUY."""
+    import asyncio
+    from uuid import uuid4
 
-    Memory stores + asyncio.run-per-thread is not a faithful model of the SQL
-    CAS, so the capital-path race is pinned there rather than here.
-    """
-    pytest.importorskip("tests.integration.test_concurrent_approval_stress")
-    assert True
+    from core.enums import UserDecision
+
+    broker = MockPaperBroker()
+    place = AsyncMock(wraps=broker.place_order)
+    broker.place_order = place
+    store = MemoryOpportunityStore()
+    intents = MemoryOrderIntentStore()
+    opp = await _approved_opp(broker, store)
+    rid = uuid4()
+    version = opp.decision_version
+
+    async def _one() -> None:
+        try:
+            await _service(broker, store, intents).decide(
+                opp.id,
+                UserDecision.APPROVE,
+                request_id=rid,
+                expected_decision_version=version,
+            )
+        except Exception:
+            pass
+
+    await asyncio.gather(*[_one() for _ in range(100)])
+    buy_calls = [
+        c
+        for c in place.call_args_list
+        if getattr(c.args[0], "side", None) is OrderSide.BUY
+        or getattr(getattr(c.args[0], "side", None), "value", None) == "buy"
+    ]
+    assert len(buy_calls) <= 1
+    entries = intents.list_by_key_prefix(f"entry:{opp.id}:")
+    assert len(entries) <= 1

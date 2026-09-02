@@ -241,9 +241,20 @@ class Desk:
 
     # ── Driving it ───────────────────────────────────────────────────────────
 
-    def approve(self, opportunity_id: Any) -> httpx.Response:
+    def approve(self, opportunity_id: Any, *, request_id: Any | None = None) -> httpx.Response:
+        from uuid import uuid4
+
+        from trading.opportunities import OPPORTUNITIES
+
+        opp = OPPORTUNITIES.get(opportunity_id)
+        version = int(getattr(opp, "decision_version", 0) or 0) if opp else 0
         return self.client.post(
-            f"/api/v1/opportunities/{opportunity_id}/decide", json={"decision": "approve"}
+            f"/api/v1/opportunities/{opportunity_id}/decide",
+            json={
+                "decision": "approve",
+                "request_id": str(request_id or uuid4()),
+                "expected_decision_version": version,
+            },
         )
 
     def sell(self, exit_id: Any) -> httpx.Response:

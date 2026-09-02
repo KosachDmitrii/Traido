@@ -27,6 +27,11 @@ class DecisionBody(BaseModel):
     decision: UserDecision = Field(description="approve or skip")
     # Optional on approve: whole shares ≤ the live risk max. Omitted → risk size.
     qty: Decimal | None = Field(default=None, ge=0, description="Shares to buy (≤ risk max)")
+    # Required on approve: one click → one request_id; transport retries reuse it.
+    request_id: UUID | None = Field(default=None, description="Client idempotency id for APPROVE")
+    expected_decision_version: int | None = Field(
+        default=None, ge=0, description="Card decision_version the operator saw"
+    )
 
 
 class KillSwitchBody(BaseModel):
@@ -82,20 +87,48 @@ async def decide_opportunity(opportunity_id: UUID, body: DecisionBody) -> TradeO
         raise HTTPException(status_code=400, detail="decision must be approve or skip")
     if body.decision == UserDecision.SKIP and body.qty is not None:
         raise HTTPException(status_code=400, detail="qty is only valid on approve")
+    if body.decision == UserDecision.APPROVE and (
+        body.request_id is None or body.expected_decision_version is None
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="STALE_DECISION:request_id_and_expected_decision_version_required",
+        )
     service = build_execution_service()
     try:
-        result = await service.decide(opportunity_id, body.decision, qty=body.qty)
+        result = await service.decide(
+            opportunity_id,
+            body.decision,
+            qty=body.qty,
+            request_id=body.request_id,
+            expected_decision_version=body.expected_decision_version,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except (
-        RuntimeError,
-        AdmissionIdempotencyConflict,
-        StaleDecisionError,
-        AdmissionAuthorityError,
-    ) as exc:
-        DESK_BUS.bump_desk(kind="decide_failed", opportunity_id=str(opportunity_id))
-        DESK_BUS.bump_broker(kind="decide_failed")
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        from trading.approval_errors import ApprovalDomainError
+
+        if isinstance(exc, ApprovalDomainError):
+            DESK_BUS.bump_desk(kind="decide_failed", opportunity_id=str(opportunity_id))
+            DESK_BUS.bump_broker(kind="decide_failed")
+            raise HTTPException(status_code=exc.http_status, detail=str(exc)) from exc
+        if isinstance(
+            exc,
+            (
+                RuntimeError,
+                AdmissionIdempotencyConflict,
+                StaleDecisionError,
+                AdmissionAuthorityError,
+            ),
+        ):
+            DESK_BUS.bump_desk(kind="decide_failed", opportunity_id=str(opportunity_id))
+            DESK_BUS.bump_broker(kind="decide_failed")
+            detail = str(exc)
+            status = 409
+            if detail.startswith("DATA_BLOCKED") or detail.startswith("BUY_REJECTED"):
+                status = 422
+            raise HTTPException(status_code=status, detail=detail) from exc
+        raise
     DESK_BUS.bump_desk(
         kind="decide",
         opportunity_id=str(opportunity_id),

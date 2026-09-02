@@ -502,6 +502,18 @@ export const en = {
   "toast.error.alpacaRateLimit.title": "Alpaca rate limit",
   "toast.error.alpacaRateLimit.detail":
     "Too many requests to the paper API. Wait a couple of seconds — the desk already polls less often.",
+  "toast.error.staleDecision.title": "Card changed — confirm again",
+  "toast.error.staleDecision.detail":
+    "The opportunity was refreshed while you were deciding. Review the new card and press BUY again.",
+  "toast.error.idempotencyConflict.title": "Approve conflict",
+  "toast.error.idempotencyConflict.detail":
+    "This click reused a request id with different market facts. Refresh the card and start a new confirm.",
+  "toast.error.entryInFlight.title": "Entry already in flight",
+  "toast.error.entryInFlight.detail":
+    "A broker attempt for this card is still unresolved. Wait for reconciliation before approving again.",
+  "toast.error.dataBlocked.title": "Required data missing",
+  "toast.error.dataBlocked.detail":
+    "Market, sector, news, or earnings facts are missing or stale. No order was sent.",
   "toast.error.server500.title": "API connection dropped",
   "toast.error.server500.detail":
     "Outside US session a fill wait can outlive the proxy. The card should return — press BUY again or refresh the desk.",

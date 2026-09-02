@@ -115,6 +115,8 @@ def _write(session: Session, intent: OrderIntent) -> None:
                 position_id=intent.position_id,
                 approval_admission_record_id=intent.approval_admission_record_id,
                 geometry_hash=intent.geometry_hash,
+                request_id=intent.request_id.hex if intent.request_id else None,
+                request_fingerprint=intent.request_fingerprint,
                 created_at=intent.created_at,
                 payload=data,
             )
@@ -128,6 +130,10 @@ def _write(session: Session, intent: OrderIntent) -> None:
         row.approval_admission_record_id = intent.approval_admission_record_id
         if hasattr(row, "geometry_hash"):
             row.geometry_hash = intent.geometry_hash
+        if hasattr(row, "request_id"):
+            row.request_id = intent.request_id.hex if intent.request_id else None
+        if hasattr(row, "request_fingerprint"):
+            row.request_fingerprint = intent.request_fingerprint
         row.payload = data
 
 

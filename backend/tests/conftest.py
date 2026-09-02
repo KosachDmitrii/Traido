@@ -218,11 +218,17 @@ def keyless_earnings_calendar(
 
 
 @pytest.fixture(autouse=True)
-def isolated_admission_and_watches(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+def isolated_admission_and_watches(
+    isolated_default_journal: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
     """Admission lives on the journal engine — FKs from opportunities/intents require it.
 
     Rows are wiped per test so evaluations do not leak across cases. Watches stay
     in-memory (persistence disabled) as before.
+
+    Depends on `isolated_default_journal` so get_sync_engine() never resolves to
+    the developer's real journal (stale schema → init_db refuses to boot).
     """
     from sqlalchemy import text
 

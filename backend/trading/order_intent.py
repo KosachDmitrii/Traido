@@ -299,6 +299,8 @@ class OrderIntent(StrictModel):
     # Entry-only: fail-closed link to ApprovalAdmission. Non-null for purpose=entry.
     approval_admission_record_id: UUID | None = None
     geometry_hash: str | None = None
+    request_id: UUID | None = None
+    request_fingerprint: str | None = None
 
     status: IntentStatus = IntentStatus.CREATED
     broker_order_id: str | None = None

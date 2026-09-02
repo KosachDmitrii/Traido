@@ -60,65 +60,72 @@ def commit_approval_bundle(
     intent_store: Any,
     admission_store: AdmissionRecordStore | None = None,
     decision_version: int = 0,
+    request_id: UUID | None = None,
+    request_fingerprint: str | None = None,
 ) -> ApprovalBundle:
     """Persist claim + ApprovalAdmission + opp link + Entry intent before broker.
 
     SQL stores share one session/transaction. Memory stores share one process lock.
+    Reuse requires matching request_id + request_fingerprint (geometry alone is
+    not enough).
     """
     # Resolve at call time so test monkeypatches of ADMISSION_RECORDS apply.
     from trading import admission_records as adm_mod
 
     adm = admission_store or adm_mod.ADMISSION_RECORDS
+    fp = request_fingerprint or _fingerprint(
+        admission_input,
+        geometry_hash,
+        decision_version,
+        request_id=request_id,
+        sized_qty=qty,
+        limit_price=limit_px,
+    )
+    kwargs = {
+        "opportunity_id": opportunity_id,
+        "admission": admission,
+        "admission_input": admission_input,
+        "geometry_hash": geometry_hash,
+        "quote_ts": quote_ts,
+        "market_gate_ts": market_gate_ts,
+        "pipeline_run_id": pipeline_run_id,
+        "broker_name": broker_name,
+        "qty": qty,
+        "limit_px": limit_px,
+        "stop_px": stop_px,
+        "risk_snapshot": risk_snapshot,
+        "strategy_version": strategy_version,
+        "symbol": symbol,
+        "opportunity_store": opportunity_store,
+        "intent_store": intent_store,
+        "admission_store": adm,
+        "decision_version": decision_version,
+        "request_id": request_id,
+        "request_fingerprint": fp,
+    }
     if isinstance(opportunity_store, OpportunityStore) and isinstance(
         intent_store, OrderIntentStore
     ):
-        return _commit_sql(
-            opportunity_id=opportunity_id,
-            admission=admission,
-            admission_input=admission_input,
-            geometry_hash=geometry_hash,
-            quote_ts=quote_ts,
-            market_gate_ts=market_gate_ts,
-            pipeline_run_id=pipeline_run_id,
-            broker_name=broker_name,
-            qty=qty,
-            limit_px=limit_px,
-            stop_px=stop_px,
-            risk_snapshot=risk_snapshot,
-            strategy_version=strategy_version,
-            symbol=symbol,
-            opportunity_store=opportunity_store,
-            intent_store=intent_store,
-            admission_store=adm,
-            decision_version=decision_version,
-        )
-    return _commit_memory(
-        opportunity_id=opportunity_id,
-        admission=admission,
-        admission_input=admission_input,
-        geometry_hash=geometry_hash,
-        quote_ts=quote_ts,
-        market_gate_ts=market_gate_ts,
-        pipeline_run_id=pipeline_run_id,
-        broker_name=broker_name,
-        qty=qty,
-        limit_px=limit_px,
-        stop_px=stop_px,
-        risk_snapshot=risk_snapshot,
-        strategy_version=strategy_version,
-        symbol=symbol,
-        opportunity_store=opportunity_store,
-        intent_store=intent_store,
-        admission_store=adm,
-        decision_version=decision_version,
-    )
+        return _commit_sql(**kwargs)
+    return _commit_memory(**kwargs)
 
 
-def _fingerprint(admission_input: AdmissionInput, geometry_hash: str, decision_version: int) -> str:
+def _fingerprint(
+    admission_input: AdmissionInput,
+    geometry_hash: str,
+    decision_version: int,
+    *,
+    request_id: UUID | None = None,
+    sized_qty: Decimal | None = None,
+    limit_price: Decimal | None = None,
+) -> str:
     return build_request_fingerprint(
         admission_input,
         geometry_hash=geometry_hash,
         decision_version=decision_version,
+        request_id=request_id,
+        sized_qty=sized_qty,
+        limit_price=limit_price,
     )
 
 
@@ -142,8 +149,10 @@ def _commit_sql(
     intent_store: OrderIntentStore,
     admission_store: AdmissionRecordStore,
     decision_version: int,
+    request_id: UUID | None,
+    request_fingerprint: str,
 ) -> ApprovalBundle:
-    fp = _fingerprint(admission_input, geometry_hash, decision_version)
+    fp = request_fingerprint
     engine = opportunity_store._engine
     if engine is None:
         from database.session import get_sync_engine
@@ -180,6 +189,12 @@ def _commit_sql(
         if row is None:
             raise ValueError("invalid_status:missing_or_claimed")
         opp = _from_row(row)
+        if opp.decision_version != decision_version:
+            from trading.approval_errors import StaleDecisionError
+
+            raise StaleDecisionError(
+                f"decision_version:{opp.decision_version}!={decision_version}"
+            )
         already_approving = row.status == OpportunityStatus.APPROVING.value
         if not already_approving:
             opp = opp.model_copy(
@@ -189,10 +204,10 @@ def _commit_sql(
                 }
             )
 
-        # Lost-reply / restart: reuse unresolved entry intent before writing
-        # a new admission (fingerprint may differ only by wall-clock stamps).
+        from core.metrics import METRICS
         from database.models.desk import OrderIntentRow
         from trading.admission_records import StaleDecisionError
+        from trading.approval_errors import EntryInFlightError, IdempotencyConflictError
         from trading.intents import _from_row as intent_from_row
 
         prefix = f"entry:{opportunity_id}:"
@@ -205,8 +220,33 @@ def _commit_sql(
         prior = [intent_from_row(r) for r in prior_rows]
         live = next((i for i in prior if i.is_unresolved), None)
         if live is not None:
-            if live.geometry_hash != geometry_hash:
-                raise StaleDecisionError("unresolved_intent_fingerprint_mismatch")
+            if request_id is not None and live.request_id is not None:
+                if live.request_id != request_id:
+                    # Different user click while broker attempt still open.
+                    METRICS.counter(
+                        "entry_in_flight_blocked",
+                        help_text="New APPROVE blocked by unresolved entry intent",
+                    )
+                    raise EntryInFlightError(str(live.id))
+                prior_fp = live.request_fingerprint or (
+                    admission_store.get(live.approval_admission_record_id).request_fingerprint
+                    if live.approval_admission_record_id
+                    and admission_store.get(live.approval_admission_record_id)
+                    else None
+                )
+                # UNKNOWN + same request_id = transport retry after lost reply:
+                # recover the existing intent; do not demand a fresh fingerprint
+                # match (re-evaluation always drifts wall-clock snapshot fields).
+                if live.status is IntentStatus.UNKNOWN:
+                    prior_fp = fp
+                if prior_fp is not None and prior_fp != fp:
+                    METRICS.counter(
+                        "approval_fingerprint_mismatch",
+                        help_text="Same request_id with different ApprovalEvidence fingerprint",
+                    )
+                    raise IdempotencyConflictError(f"request_id={request_id}")
+            elif live.geometry_hash != geometry_hash:
+                raise StaleDecisionError("unresolved_intent_geometry_mismatch")
             if live.approval_admission_record_id is None:
                 raise StaleDecisionError("intent_missing_admission_fk")
             record = admission_store.get(live.approval_admission_record_id)
@@ -217,8 +257,19 @@ def _commit_sql(
                 if row_adm is None:
                     raise StaleDecisionError("admission_missing_for_intent")
                 record = AdmissionRecord.model_validate(row_adm.payload)
-            # Qty is frozen on the unresolved intent — a lost-reply retry must
-            # not re-size and treat the difference as STALE_DECISION.
+            # Same request_id + fingerprint (or UNKNOWN recovery): reuse.
+            if (
+                record.request_fingerprint
+                and record.request_fingerprint != fp
+                and live.status is not IntentStatus.UNKNOWN
+            ):
+                if request_id is not None and live.request_id == request_id:
+                    raise IdempotencyConflictError(f"request_id={request_id}")
+                raise StaleDecisionError("admission_fingerprint_mismatch")
+            METRICS.counter(
+                "approval_idempotent_reuse",
+                help_text="ApprovalBundle reused for transport retry",
+            )
             opp = opp.model_copy(
                 update={
                     "approval_admission_record_id": record.id,
@@ -238,9 +289,6 @@ def _commit_sql(
                 created_intent=False,
             )
 
-        # An entry intent that already reached a terminal (or any) state means
-        # this opportunity already took a shot at the broker. Minting a second
-        # CREATED row under APPROVING is how concurrent approvers double-buy.
         if prior:
             raise ValueError("invalid_status:entry_intent_exists")
         if already_approving:
@@ -257,6 +305,7 @@ def _commit_sql(
                 "phase": "approval",
                 "admission_input": admission_input.model_dump(mode="json"),
                 "request_fingerprint": fp,
+                "request_id": str(request_id) if request_id else None,
                 "evaluated_at": admission_input.evaluated_at.isoformat(),
                 "effective_rr": admission.effective_rr,
             },
@@ -290,6 +339,8 @@ def _commit_sql(
             strategy_version=strategy_version,
             approval_admission_record_id=record.id,
             geometry_hash=geometry_hash,
+            request_id=request_id,
+            request_fingerprint=fp,
         )
         assert_authority_invariant(record, opp, intent)
         session.commit()
@@ -314,20 +365,28 @@ def _intent_in_session(
     strategy_version: str,
     approval_admission_record_id: UUID,
     geometry_hash: str,
+    request_id: UUID | None = None,
+    request_fingerprint: str | None = None,
 ) -> tuple[OrderIntent, bool]:
     from database.models.desk import OrderIntentRow
     from trading.intents import _from_row as intent_from_row
 
-    prefix = f"entry:{opportunity_id}:"
-    rows = (
-        session.query(OrderIntentRow)
-        .filter(OrderIntentRow.idempotency_key.startswith(prefix))
-        .order_by(OrderIntentRow.created_at.asc())
-        .all()
-    )
-    existing = [intent_from_row(r) for r in rows]
+    # Prefer request_id-scoped key when present (unique per click).
+    if request_id is not None:
+        key = f"entry:{opportunity_id}:{request_id.hex}"
+    else:
+        prefix = f"entry:{opportunity_id}:"
+        rows = (
+            session.query(OrderIntentRow)
+            .filter(OrderIntentRow.idempotency_key.startswith(prefix))
+            .order_by(OrderIntentRow.created_at.asc())
+            .all()
+        )
+        existing = [intent_from_row(r) for r in rows]
+        key = entry_idempotency_key(opportunity_id, len(existing))
+
     candidate = OrderIntent(
-        idempotency_key=entry_idempotency_key(opportunity_id, len(existing)),
+        idempotency_key=key,
         broker=broker_name,
         broker_account_id=None,
         symbol=symbol,
@@ -341,6 +400,8 @@ def _intent_in_session(
         risk_snapshot=risk_snapshot,
         approval_admission_record_id=approval_admission_record_id,
         geometry_hash=geometry_hash,
+        request_id=request_id,
+        request_fingerprint=request_fingerprint,
         purpose=IntentPurpose.ENTRY,
         status=IntentStatus.CREATED,
     )
@@ -369,8 +430,10 @@ def _commit_memory(
     intent_store: Any,
     admission_store: AdmissionRecordStore,
     decision_version: int,
+    request_id: UUID | None,
+    request_fingerprint: str,
 ) -> ApprovalBundle:
-    fp = _fingerprint(admission_input, geometry_hash, decision_version)
+    fp = request_fingerprint
     with _MEMORY_BUNDLE_LOCK:
         opp = opportunity_store.get(opportunity_id)
         if opp is None:
@@ -380,6 +443,12 @@ def _commit_memory(
             OpportunityStatus.APPROVING,
         }:
             raise ValueError(f"invalid_status:{opp.status.value}")
+        if opp.decision_version != decision_version:
+            from trading.approval_errors import StaleDecisionError
+
+            raise StaleDecisionError(
+                f"decision_version:{opp.decision_version}!={decision_version}"
+            )
 
         already_approving = opp.status is OpportunityStatus.APPROVING
         if not already_approving:
@@ -395,15 +464,48 @@ def _commit_memory(
         existing = intent_store.list_by_key_prefix(f"entry:{opportunity_id}:")
         live = next((i for i in existing if i.is_unresolved), None)
         if live is not None:
+            from core.metrics import METRICS
             from trading.admission_records import StaleDecisionError
+            from trading.approval_errors import EntryInFlightError, IdempotencyConflictError
 
-            if live.geometry_hash != geometry_hash:
-                raise StaleDecisionError("unresolved_intent_fingerprint_mismatch")
+            if request_id is not None and live.request_id is not None:
+                if live.request_id != request_id:
+                    METRICS.counter(
+                        "entry_in_flight_blocked",
+                        help_text="New APPROVE blocked by unresolved entry intent",
+                    )
+                    raise EntryInFlightError(str(live.id))
+                prior_fp = live.request_fingerprint or (
+                    (admission_store.get(live.approval_admission_record_id) or None)
+                    and admission_store.get(live.approval_admission_record_id).request_fingerprint  # type: ignore[union-attr]
+                )
+                if live.status is IntentStatus.UNKNOWN:
+                    prior_fp = fp
+                if prior_fp is not None and prior_fp != fp:
+                    METRICS.counter(
+                        "approval_fingerprint_mismatch",
+                        help_text="Same request_id with different ApprovalEvidence fingerprint",
+                    )
+                    raise IdempotencyConflictError(f"request_id={request_id}")
+            elif live.geometry_hash != geometry_hash:
+                raise StaleDecisionError("unresolved_intent_geometry_mismatch")
             if live.approval_admission_record_id is None:
                 raise StaleDecisionError("intent_missing_admission_fk")
             record = admission_store.get(live.approval_admission_record_id)
             if record is None:
                 raise StaleDecisionError("admission_missing_for_intent")
+            if (
+                record.request_fingerprint
+                and record.request_fingerprint != fp
+                and live.status is not IntentStatus.UNKNOWN
+            ):
+                if request_id is not None and live.request_id == request_id:
+                    raise IdempotencyConflictError(f"request_id={request_id}")
+                raise StaleDecisionError("admission_fingerprint_mismatch")
+            METRICS.counter(
+                "approval_idempotent_reuse",
+                help_text="ApprovalBundle reused for transport retry",
+            )
             opp = opp.model_copy(
                 update={
                     "approval_admission_record_id": record.id,
@@ -437,6 +539,7 @@ def _commit_memory(
                 "phase": "approval",
                 "admission_input": admission_input.model_dump(mode="json"),
                 "request_fingerprint": fp,
+                "request_id": str(request_id) if request_id else None,
                 "evaluated_at": admission_input.evaluated_at.isoformat(),
                 "effective_rr": admission.effective_rr,
             },
@@ -458,8 +561,13 @@ def _commit_memory(
         )
         opportunity_store.update(opp)
 
+        key = (
+            f"entry:{opportunity_id}:{request_id.hex}"
+            if request_id is not None
+            else entry_idempotency_key(opportunity_id, len(existing))
+        )
         candidate = OrderIntent(
-            idempotency_key=entry_idempotency_key(opportunity_id, len(existing)),
+            idempotency_key=key,
             broker=broker_name,
             broker_account_id=None,
             symbol=symbol,
@@ -473,6 +581,8 @@ def _commit_memory(
             risk_snapshot=risk_snapshot,
             approval_admission_record_id=record.id,
             geometry_hash=geometry_hash,
+            request_id=request_id,
+            request_fingerprint=fp,
             purpose=IntentPurpose.ENTRY,
             status=IntentStatus.CREATED,
         )

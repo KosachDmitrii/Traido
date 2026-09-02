@@ -68,6 +68,14 @@ class OrderIntentRow(Base):
     __tablename__ = "order_intents"
     __table_args__ = (
         Index("ix_order_intents_approval_admission", "approval_admission_record_id"),
+        Index(
+            "uq_entry_intent_opportunity_request",
+            "opportunity_id",
+            "request_id",
+            unique=True,
+            sqlite_where=text("purpose = 'entry' AND request_id IS NOT NULL"),
+            postgresql_where=text("purpose = 'entry' AND request_id IS NOT NULL"),
+        ),
         CheckConstraint(
             "(purpose != 'entry') OR (approval_admission_record_id IS NOT NULL)",
             name="ck_entry_intent_has_approval_admission",
@@ -95,6 +103,8 @@ class OrderIntentRow(Base):
         nullable=True,
     )
     geometry_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
     updated_at: Mapped[datetime] = mapped_column(
@@ -185,6 +195,7 @@ class AdmissionRecordRow(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     source_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     request_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
 
 
 class ShadowOutcomeRow(Base):
@@ -208,11 +219,27 @@ class ExternalPositionIncidentRow(Base):
     """Orphan/external broker exposure — never an OrderIntent or admission."""
 
     __tablename__ = "external_position_incidents"
+    __table_args__ = (
+        Index(
+            "uq_open_external_position_incident",
+            "broker",
+            "account_id",
+            "symbol",
+            unique=True,
+            sqlite_where=text("resolution = 'open'"),
+            postgresql_where=text("resolution = 'open'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUIDType, primary_key=True, default=uuid.uuid4)
     symbol: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     broker: Mapped[str] = mapped_column(String(32), nullable=False)
     qty: Mapped[str] = mapped_column(String(32), nullable=False)
+    account_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    broker_order_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    broker_perm_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    client_order_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    correlation_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
     resolution: Mapped[str] = mapped_column(String(32), nullable=False, index=True, default="open")
     first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -236,3 +263,25 @@ class AuditEventRow(Base):
     entity_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
     payload_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ArchivedEntryIntentRow(Base):
+    """Quarantine for legacy entry intents that lacked admission/geometry."""
+
+    __tablename__ = "archived_entry_intents"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    archive_reason: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
+
+
+class ArchivedActivityEventRow(Base):
+    """Archive of pre-0011/0012 activity_events rows (no silent DROP)."""
+
+    __tablename__ = "archived_activity_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    archive_reason: Mapped[str] = mapped_column(String(128), nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)

@@ -317,6 +317,7 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
     act: string,
     symbol: string,
     qty?: number | null,
+    expectedDecisionVersion?: number,
   ) {
     setBusyId(id);
     let slot: FlashSlot | undefined;
@@ -331,10 +332,14 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
     }
     try {
       if (kind === "buy") {
+        const requestId = crypto.randomUUID();
         const data = await decideBuy(
           id,
           act === "approve" ? "approve" : "skip",
           act === "approve" && qty != null ? qty : undefined,
+          act === "approve"
+            ? { requestId, expectedDecisionVersion: expectedDecisionVersion ?? 0 }
+            : undefined,
         );
         onFlash(
           act === "skip" ? flashSkipOk(symbol) : flashBuyOk(symbol, String(data.status || "")),
@@ -487,7 +492,9 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
                           ? t("opp.buy.title.outsideRth")
                           : t("opp.buy.title.locked"))
                   }
-                  onClick={() => onDecide("buy", opp.id, "approve", c.symbol, chosenQty)}
+                  onClick={() =>
+                    onDecide("buy", opp.id, "approve", c.symbol, chosenQty, opp.decision_version)
+                  }
                 >
                   {busy && busyId === opp.id ? "…" : t("action.buy")}
                 </Button>

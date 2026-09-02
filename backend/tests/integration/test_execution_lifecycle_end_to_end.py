@@ -12,6 +12,7 @@ naked while the log said success". Each of those is a test here.
 from __future__ import annotations
 
 from decimal import Decimal
+from uuid import uuid4
 
 from core.enums import IntentPurpose, IntentStatus, OrderSide
 
@@ -292,8 +293,13 @@ def test_17_a_restart_does_not_resubmit_an_entry_the_venue_already_has(desk) -> 
             "the unresolved intent must survive the restart"
         )
         assert restarted.post(
-            f"/api/v1/opportunities/{opp.id}/decide", json={"decision": "approve"}
-        ).status_code in {409, 400}
+            f"/api/v1/opportunities/{opp.id}/decide",
+            json={
+                "decision": "approve",
+                "request_id": str(uuid4()),
+                "expected_decision_version": opp.decision_version,
+            },
+        ).status_code in {409, 400, 422}
         assert len([m for m in desk.backend.placed if m.side == "buy"]) == submitted_before, (
             "a restart must not re-send an order the venue already holds"
         )

@@ -21,17 +21,15 @@ ADMISSION_ORCHESTRATION_VERSION = "final_admission@1"
 
 ADMISSION_RECORD_TTL_SEC = 900.0
 
-# Wall-clock fields excluded from the request fingerprint.
+# Only technical persistence fields — never decision-determining source timestamps.
 _FINGERPRINT_DROP = frozenset(
     {
-        "evaluated_at",
+        "id",
+        "recorded_at",
+        "expires_at",
         "created_at",
-        "quote_ts",
-        "last_bar_ts",
-        "market_gate_ts",
-        "structural_source_ts",
-        "basis_timestamp",
-        "ts",  # Quote.ts and other wall-clock stamps nested in AdmissionInput
+        "updated_at",
+        "evaluated_at",  # wall-clock of this evaluation pass; source ts stay
     }
 )
 
@@ -53,8 +51,16 @@ def build_request_fingerprint(
     *,
     geometry_hash: str,
     decision_version: int,
+    request_id: UUID | str | None = None,
+    sized_qty: Any = None,
+    limit_price: Any = None,
+    extra: dict[str, Any] | None = None,
 ) -> str:
-    """Stable hash of immutable approve inputs — excludes evaluation timestamps."""
+    """Stable hash of ApprovalEvidence facts — includes source timestamps.
+
+    Spec: do not globally strip quote/bar/market/sector source timestamps.
+    Only drop technical persistence fields that do not determine the decision.
+    """
     if isinstance(admission_input, AdmissionInput):
         raw = admission_input.model_dump(mode="json")
     else:
@@ -62,6 +68,14 @@ def build_request_fingerprint(
     scrubbed = _drop_fingerprint_stamps(raw)
     scrubbed["geometry_hash"] = geometry_hash
     scrubbed["decision_version"] = int(decision_version)
+    if request_id is not None:
+        scrubbed["request_id"] = str(request_id)
+    if sized_qty is not None:
+        scrubbed["sized_qty"] = str(sized_qty)
+    if limit_price is not None:
+        scrubbed["limit_price"] = str(limit_price)
+    if extra:
+        scrubbed.update(extra)
     payload = json.dumps(scrubbed, sort_keys=True, default=str)
     return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
@@ -84,12 +98,11 @@ class AdmissionIdempotencyConflict(Exception):
         super().__init__(f"admission_idempotency_conflict:{evaluation_key}")
 
 
-class StaleDecisionError(RuntimeError):
-    """Same decision_version/key family but a different request fingerprint."""
-
-    def __init__(self, detail: str = "") -> None:
-        self.detail = detail or "fingerprint_mismatch"
-        super().__init__(f"STALE_DECISION:{self.detail}")
+from trading.approval_errors import (
+    EntryInFlightError,
+    IdempotencyConflictError,
+    StaleDecisionError,
+)
 
 
 # Identity / wall-clock stamps that change on every persist of the same decision.

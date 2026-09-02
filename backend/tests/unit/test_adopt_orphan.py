@@ -76,6 +76,26 @@ async def test_adopt_orphan_writes_ledger_from_broker_and_card(monkeypatch, tmp_
         session.commit()
 
     stop_oid = "stop-broker-1"
+    entry_oid = "entry-broker-1"
+    admission_id = uuid4()
+    intents.create_or_get(
+        OrderIntent(
+            idempotency_key=f"entry:{opp_id}:0",
+            broker="AlpacaPaperBroker",
+            symbol="LLY",
+            side=OrderSide.BUY,
+            requested_qty=Decimal(4),
+            order_type=OrderType.LIMIT,
+            purpose=IntentPurpose.ENTRY,
+            status=IntentStatus.FILLED,
+            broker_order_id=entry_oid,
+            opportunity_id=opp_id,
+            approval_admission_record_id=admission_id,
+            geometry_hash="adopt-test-geo",
+            filled_qty=Decimal(4),
+            created_at=datetime.now(UTC),
+        )
+    )
     intents.create_or_get(
         OrderIntent(
             idempotency_key="protection:LLY:0",
@@ -119,11 +139,22 @@ async def test_adopt_orphan_writes_ledger_from_broker_and_card(monkeypatch, tmp_
                 )
             ]
 
+    # Without correlation IDs, adoption must refuse (no "latest card by symbol").
+    refused = await adopt_orphan_position(
+        symbol="LLY",
+        broker=_Broker(),
+        ledger=ledger,
+        intents=intents,
+    )
+    assert refused["status"] == "error"
+    assert refused["reason"] == "correlation_required"
+
     result = await adopt_orphan_position(
         symbol="LLY",
         broker=_Broker(),
         ledger=ledger,
         intents=intents,
+        expected_broker_order_id=entry_oid,
     )
     assert result["status"] == "adopted"
     row = ledger.find_open_by_symbol("LLY")

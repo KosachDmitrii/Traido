@@ -306,6 +306,8 @@ class ExecutionService:
         decision: UserDecision,
         *,
         qty: Decimal | None = None,
+        request_id: UUID | None = None,
+        expected_decision_version: int | None = None,
     ) -> TradeOpportunity:
         opp = self.store.get(opportunity_id)
         if opp is None:
@@ -320,6 +322,28 @@ class ExecutionService:
             raise ValueError("invalid_status:approving")
         if opp.status != OpportunityStatus.AWAITING_CONFIRMATION:
             raise ValueError(f"invalid_status:{opp.status.value}")
+
+        if decision == UserDecision.APPROVE:
+            from uuid import uuid4
+
+            from trading.approval_errors import StaleDecisionError
+
+            # API refuses missing fields; direct service callers (tests / internal)
+            # may omit them — synthesize a fresh request_id and bind the card version.
+            if request_id is None:
+                request_id = uuid4()
+            if expected_decision_version is None:
+                expected_decision_version = opp.decision_version
+            if expected_decision_version != opp.decision_version:
+                from core.metrics import METRICS
+
+                METRICS.counter(
+                    "stale_decision_rejected",
+                    help_text="APPROVE rejected: card decision_version mismatch",
+                )
+                raise StaleDecisionError(
+                    f"decision_version:{opp.decision_version}!={expected_decision_version}"
+                )
 
         if opp.expires_at and datetime.now(UTC) > opp.expires_at:
             claimed = self.store.claim(
@@ -433,8 +457,23 @@ class ExecutionService:
 
         evaluated_at = self._clock()
         from agents.market.agent import assess_market
+        from trading.sector_assessment import get_sector_assessment_port
 
         fresh_market = await assess_market(get_settings().fred_api_key, now=evaluated_at)
+        sector = await get_sector_assessment_port().assess(
+            priced.symbol, now=evaluated_at
+        )
+        if not sector.fresh or sector.tradable_long is None:
+            from core.metrics import METRICS
+            from trading.approval_errors import DataBlockedError
+
+            METRICS.counter(
+                "sector_data_blocked",
+                help_text="APPROVE blocked: sector assessment missing or stale",
+            )
+            raise DataBlockedError(
+                ",".join(sector.reason_codes) or "SECTOR_ASSESSMENT_REQUIRED"
+            )
         try:
             final_eval = await build_and_evaluate_final_admission(
                 priced,
@@ -442,8 +481,8 @@ class ExecutionService:
                 market_data=self.market_data,
                 now=evaluated_at,
                 market=fresh_market,
-                sector_label=fresh_market.sector_label,
-                sector_tradable=fresh_market.sector_tradable,
+                sector_label=sector.sector_label,
+                sector_tradable=sector.tradable_long,
                 require_sector=True,
                 opportunity_id=opp.id,
                 decision_version=opp.decision_version,
@@ -592,6 +631,73 @@ class ExecutionService:
         from trading.admission_authority import AdmissionAuthorityError
         from trading.admission_records import StaleDecisionError
         from trading.approval_commit import commit_approval_bundle
+        from trading.approval_errors import (
+            DataBlockedError,
+            EntryInFlightError,
+            IdempotencyConflictError,
+        )
+
+        # Freeze full ApprovalEvidence facts into AdmissionInput before commit.
+        portfolio_snap = portfolio.model_dump(mode="json")
+        risk_snap = risk.model_dump(mode="json")
+        liquidity_snap = {"ok": True, "qty": str(qty), "price": str(limit_px)}
+        news_status = None
+        earnings_status = None
+        if context is not None:
+            news_status = getattr(context, "news", None) or getattr(context, "news_status", None)
+            earnings_status = getattr(context, "earnings", None) or getattr(
+                context, "earnings_status", None
+            )
+        if news_status is None or earnings_status is None:
+            raise DataBlockedError("news_or_earnings_missing_on_approval_evidence")
+
+        from core.schemas import ApprovalCommand
+        from trading.approval_errors import NoTradeError
+        from trading.approval_evidence import evaluate_final_approval
+
+        cmd = ApprovalCommand(
+            request_id=request_id,
+            opportunity_id=opp.id,
+            expected_decision_version=opp.decision_version,
+            requested_qty=qty,
+            requested_at=evaluated_at,
+            actor="user",
+        )
+        admission_input = admission_input.model_copy(
+            update={
+                "request_id": request_id,
+                "opportunity_id": opp.id,
+                "decision_version": opp.decision_version,
+                "sector_label": sector.sector_label,
+                "sector_tradable": sector.tradable_long,
+                "sector_benchmark": sector.benchmark,
+                "sector_provider": sector.provider,
+                "sector_source_ts": sector.source_ts,
+                "portfolio_snapshot": portfolio_snap,
+                "risk_snapshot": risk_snap,
+                "liquidity_snapshot": liquidity_snap,
+                "news_status": news_status,
+                "earnings_status": earnings_status,
+                "sized_qty": qty,
+                "limit_price": limit_px,
+                "stop_price": stop_px,
+                "geometry_hash": final_eval.geometry_hash or admission_input.geometry_hash,
+            }
+        )
+        final_ok = evaluate_final_approval(
+            command=cmd,
+            admission_input=admission_input,
+            geometry_hash=final_eval.geometry_hash or admission_input.geometry_hash,
+            sized_qty=qty,
+            limit_price=limit_px,
+            stop_price=stop_px,
+            risk_verdict=risk.verdict.value,
+            liquidity_ok=True,
+            prior_admission=approval_admission,
+        )
+        approval_admission = final_ok.admission
+        admission_input = final_ok.evidence.admission_input
+        fp = final_ok.fingerprint
 
         try:
             bundle = commit_approval_bundle(
@@ -606,14 +712,22 @@ class ExecutionService:
                 qty=qty,
                 limit_px=limit_px,
                 stop_px=stop_px,
-                risk_snapshot=risk.model_dump(mode="json"),
+                risk_snapshot=risk_snap,
                 strategy_version=opp.candidate.strategy_version,
                 symbol=priced.symbol,
                 opportunity_store=self.store,
                 intent_store=self.intents,
                 decision_version=opp.decision_version,
+                request_id=request_id,
+                request_fingerprint=fp,
             )
-        except StaleDecisionError:
+        except (
+            StaleDecisionError,
+            IdempotencyConflictError,
+            EntryInFlightError,
+            DataBlockedError,
+            NoTradeError,
+        ):
             raise
         except AdmissionAuthorityError:
             raise

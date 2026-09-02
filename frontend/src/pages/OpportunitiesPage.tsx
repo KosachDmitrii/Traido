@@ -103,6 +103,7 @@ export function OpportunitiesPage() {
     act: string,
     symbol: string,
     qty?: number | null,
+    expectedDecisionVersion?: number,
   ) {
     setBusyId(id);
     const reachesBroker = act === "approve" || act === "sell";
@@ -122,10 +123,14 @@ export function OpportunitiesPage() {
     }
     try {
       if (kind === "buy") {
+        const requestId = crypto.randomUUID();
         const data = await decideBuy(
           id,
           act === "approve" ? "approve" : "skip",
           act === "approve" && qty != null ? qty : undefined,
+          act === "approve"
+            ? { requestId, expectedDecisionVersion: expectedDecisionVersion ?? 0 }
+            : undefined,
         );
         showFlash(
           act === "skip" ? flashSkipOk(symbol) : flashBuyOk(symbol, String(data.status || "")),
@@ -249,7 +254,9 @@ export function OpportunitiesPage() {
                               ? t("opp.buy.title.outsideRth")
                               : t("opp.buy.title.locked"))
                       }
-                      onClick={() => onDecide("buy", opp.id, "approve", c.symbol, chosenQty)}
+                      onClick={() =>
+                        onDecide("buy", opp.id, "approve", c.symbol, chosenQty, opp.decision_version)
+                      }
                     >
                       {busy ? "…" : t("action.buy")}
                     </Button>

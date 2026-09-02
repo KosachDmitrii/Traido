@@ -1,5 +1,7 @@
 from database.models.desk import (
     AdmissionRecordRow,
+    ArchivedActivityEventRow,
+    ArchivedEntryIntentRow,
     AuditEventRow,
     EntryWatchRow,
     ExitOpportunityRow,
@@ -13,6 +15,8 @@ from database.models.positions import OpenPositionRow
 
 __all__ = [
     "AdmissionRecordRow",
+    "ArchivedActivityEventRow",
+    "ArchivedEntryIntentRow",
     "AuditEventRow",
     "BacktestRunRow",
     "EntryWatchRow",
