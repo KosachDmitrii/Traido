@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
 from core.enums import AdmissionDecision, DataHealthStatus
@@ -141,7 +142,8 @@ def explain_from_admission(
                     status="info",
                 )
             )
-        ai = ctx.get("admission_input") if isinstance(ctx.get("admission_input"), dict) else {}
+        raw_ai = ctx.get("admission_input")
+        ai: dict[str, Any] = raw_ai if isinstance(raw_ai, dict) else {}
         if ai.get("sector_benchmark") or ai.get("sector_tradable") is not None:
             fields.append(
                 AdmissionExplainField(
