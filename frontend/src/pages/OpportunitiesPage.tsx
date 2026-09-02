@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { BuyOpportunity } from "@/lib/api";
 import { decideBuy, decideSell } from "@/lib/api";
 import {
@@ -12,7 +12,6 @@ import {
 } from "@/lib/messages";
 import { useDesk } from "@/context/DeskContext";
 import { useT } from "@/i18n/I18nProvider";
-import type { MessageKey } from "@/i18n";
 import { Button } from "@/ui";
 
 function riskMaxQty(opp: BuyOpportunity): number | null {
@@ -27,20 +26,6 @@ function fmtPx(value: string | number | null | undefined): string {
   const n = Number(value);
   if (!Number.isFinite(n)) return String(value);
   return n.toFixed(2);
-}
-
-function ageLabel(
-  createdAt: string | undefined,
-  now: number,
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
-): string | null {
-  if (!createdAt) return null;
-  const ms = now - new Date(createdAt).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return null;
-  const min = Math.floor(ms / 60000);
-  if (min < 1) return t("rail.age.justNow");
-  if (min < 60) return t("rail.age.minutes", { n: min });
-  return t("rail.age.hours", { n: Math.floor(min / 60) });
 }
 
 function viabilityView(
@@ -75,12 +60,6 @@ export function OpportunitiesPage() {
   const sells = desk?.sell_opportunities ?? [];
   const [busyId, setBusyId] = useState<string | null>(null);
   const [qtyById, setQtyById] = useState<Record<string, number>>({});
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    const tick = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(tick);
-  }, []);
 
   function qtyFor(opp: BuyOpportunity): number | null {
     const max = riskMaxQty(opp);
@@ -162,7 +141,6 @@ export function OpportunitiesPage() {
           buys.map((opp) => {
             const c = opp.candidate;
             const busy = busyId === opp.id;
-            const age = ageLabel(opp.created_at, now, t);
             const viability = viabilityView(opp, entriesAllowed, t);
             const canBuy = viability.buyable && busyId === null;
             const maxQty = riskMaxQty(opp);
@@ -179,16 +157,9 @@ export function OpportunitiesPage() {
                       <div className="title">{c.symbol}</div>
                       {c.name ? <div className="rail-opp__name">{c.name}</div> : null}
                     </div>
-                    {age ? <span className="rail-opp__age">{age}</span> : null}
-                  </div>
-                  <div className="rail-opp__sub">
-                    {(c.thesis || "bullish").toUpperCase()}
-                    {" · "}
-                    {t("rail.buy.quality", { q: c.entry_quality ?? "—" })}
-                    {" · "}
-                    {t("rail.buy.conf", { conf: ((c.confidence || 0) * 100).toFixed(0) })}
-                    {" · "}
-                    {t("rail.buy.rr", { rr: c.risk_reward })}
+                    {c.risk_reward != null ? (
+                      <span className="rail-opp__age">{t("rail.buy.rr", { rr: c.risk_reward })}</span>
+                    ) : null}
                   </div>
                 </header>
 
@@ -203,12 +174,7 @@ export function OpportunitiesPage() {
                   </div>
                   <div>
                     <dt>{t("opp.levels.tgt")}</dt>
-                    <dd className="mono">
-                      {fmtPx(c.target)}
-                      {c.target_reachability ? (
-                        <span className="rail-opp__reach"> {c.target_reachability}</span>
-                      ) : null}
-                    </dd>
+                    <dd className="mono">{fmtPx(c.target)}</dd>
                   </div>
                   <div>
                     <dt>{t("opp.levels.qty")}</dt>
@@ -306,9 +272,6 @@ export function OpportunitiesPage() {
                     <dd className="mono">{fmtPx(p.current)}</dd>
                   </div>
                 </dl>
-                {(p.reasons || []).length > 0 ? (
-                  <p className="opp-card__reasons">{(p.reasons || []).join(" · ")}</p>
-                ) : null}
                 <footer className="rail-opp__footer">
                   <span />
                   <div className="actions">

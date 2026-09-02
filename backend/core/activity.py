@@ -52,10 +52,13 @@ class AgentActivityBoard:
         self._lock = Lock()
         self.agents: dict[str, AgentState] = {
             "scanner": AgentState("scanner", "Scanner"),
-            "technical": AgentState("technical", "Technical"),
-            "news": AgentState("news", "News"),
-            "market": AgentState("market", "Market"),
-            "strategy": AgentState("strategy", "Strategy"),
+            "context": AgentState("context", "Context"),
+            "universe": AgentState("universe", "Universe"),
+            "structure": AgentState("structure", "Structure"),
+            "setup": AgentState("setup", "Setup"),
+            "entry": AgentState("entry", "Entry"),
+            "risk_plan": AgentState("risk_plan", "Risk plan"),
+            "checklist": AgentState("checklist", "Checklist"),
             "risk": AgentState("risk", "Risk Engine"),
             "review": AgentState("review", "Review"),
             "position": AgentState("position", "Position"),
