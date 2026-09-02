@@ -149,6 +149,7 @@ export const en = {
   "funnel.problem.aiBudget": "AI budget spent",
   "funnel.problem.held": "Already held",
   "funnel.problem.noSlot": "No slot",
+  "funnel.problem.capped": "Universe cap",
   "funnel.warn.unbalanced": "Funnel does not balance · {n} unaccounted",
   "funnel.warn.fullQueue": "Paused on a full queue · decide or expire a proposal to resume",
 
@@ -162,7 +163,7 @@ export const en = {
   "rail.wait.header": "THESIS {thesis} · ENTRY WAIT · Quality {q}/100",
   "rail.wait.nowLabel": "Now",
   "rail.wait.now": "Now ~{p}",
-  "rail.wait.zone": "Zone {lo}–{hi}",
+  "rail.wait.zone": "Entry zone {lo}–{hi}",
   "rail.wait.gap": "+{pct}% above zone",
   "rail.wait.target": "Target {t}",
   "rail.wait.status.passed": "Setup passed — target already reached; card will drop soon",
@@ -380,7 +381,7 @@ export const en = {
   "settings.entry.title": "Entry conditions",
   "settings.entry.lead": "Five levels: Сильно → Слабо. Structure, Setup, and entry timing.",
   "settings.entry.what":
-    "Strong — daily uptrend + EMA, RSI 68. Firmer — same HTF, RSI 70. Medium — range+EMA, RSI 72. Softer — range without EMA, RSI 75. Weak — loosest chase, RSI 78.",
+    "Strong — daily uptrend + EMA, RSI 70. Firmer — same HTF, RSI 72, shallow dip under SMA20. Medium — range+EMA, RSI 74. Softer — range without EMA, RSI 77. Weak — loosest chase, RSI 80.",
   "settings.entry.keeps":
     "Risk, liquidity, RTH, earnings and news stay the same — all five steps only move analysis/entry floors.",
   "settings.entry.hint":

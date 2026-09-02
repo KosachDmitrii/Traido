@@ -241,7 +241,28 @@ async def test_reference_data_is_not_refetched_every_cycle() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_changed_policy_invalidates_the_cache() -> None:
+async def test_snapshot_reports_how_many_eligible_were_capped() -> None:
+    """Funnel needs capped_out so universe_total can reconcile after max_size."""
+    curated = [
+        _instrument("NVDA", exchange="NASDAQ", fractionable=True),
+        _instrument("MSFT", exchange="NASDAQ", fractionable=True),
+    ]
+    # Short major-exchange symbols so Stage 0 does not reject them on identity.
+    junk = [
+        _instrument(sym, exchange="NASDAQ", fractionable=False)
+        for sym in ("AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH")
+    ]
+    all_names = curated + junk
+    provider = StaticUniverseProvider(all_names)
+    service = UniverseService(provider, curated_provider=StaticUniverseProvider(curated))
+
+    snap = await service.get_universe(tier=UniverseTier.EXTENDED, max_size=5)
+
+    assert len(snap.eligible) == 5
+    assert snap.rejected_count == 0
+    assert snap.capped_out == len(all_names) - 5
+    assert snap.total == len(snap.eligible) + snap.rejected_count + snap.capped_out
+
     """A cached verdict computed under a different policy is wrong, not stale.
 
     Without the input version in the cache key the desk would enforce

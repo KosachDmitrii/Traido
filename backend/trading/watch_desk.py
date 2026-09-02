@@ -17,9 +17,10 @@ APPROACHING_ATR = 0.5
 
 
 def derive_ui_state(watch: EntryWatch, *, price: float, distance_atr: float | None) -> str:
-    if watch.status is EntryWatchStatus.TRIGGERED:
+    in_zone = price_in_zone(price, watch)
+    if watch.status is EntryWatchStatus.TRIGGERED and in_zone:
         return "TRIGGERED"
-    if price_in_zone(price, watch):
+    if in_zone:
         return "IN_ZONE"
     if distance_atr is not None and distance_atr <= APPROACHING_ATR:
         return "APPROACHING"
@@ -75,7 +76,9 @@ def enrich_watch_for_desk(
         if arrival.crash_velocity or arrival.structural_damage:
             payload["buy_blocked"] = True
         else:
-            min_arrival = 60
+            from trading.entry_policy import get_entry_thresholds
+
+            min_arrival = get_entry_thresholds().min_zone_arrival_quality
             payload["buy_blocked"] = arrival.score < min_arrival
     else:
         payload["zone_arrival"] = None

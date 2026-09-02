@@ -151,6 +151,7 @@ export const ru: Record<MessageKey, string> = {
   "funnel.problem.aiBudget": "AI-бюджет исчерпан",
   "funnel.problem.held": "Уже в позиции",
   "funnel.problem.noSlot": "Нет слота",
+  "funnel.problem.capped": "Урезано cap",
   "funnel.warn.unbalanced": "Воронка не сходится · {n} без учёта",
   "funnel.warn.fullQueue": "Пауза: очередь полна · реши или истеки предложение",
 
@@ -164,7 +165,7 @@ export const ru: Record<MessageKey, string> = {
   "rail.wait.header": "THESIS {thesis} · ENTRY WAIT · Качество {q}/100",
   "rail.wait.nowLabel": "Сейчас",
   "rail.wait.now": "Сейчас ~{p}",
-  "rail.wait.zone": "Зона {lo}–{hi}",
+  "rail.wait.zone": "Зона входа {lo}–{hi}",
   "rail.wait.gap": "+{pct}% над зоной",
   "rail.wait.target": "Цель {t}",
   "rail.wait.status.passed": "Сетап пройден — цель уже достигнута, карточка скоро снимется",
@@ -382,7 +383,7 @@ export const ru: Record<MessageKey, string> = {
   "settings.entry.title": "Условия входа",
   "settings.entry.lead": "Пять уровней: Сильно → Слабо. Structure, Setup и тайминг входа.",
   "settings.entry.what":
-    "Сильно — дневной uptrend + EMA, RSI 68. Построже — тот же HTF, RSI 70. Средне — range+EMA, RSI 72. Помягче — range без EMA, RSI 75. Слабо — самый широкий chase, RSI 78.",
+    "Сильно — дневной uptrend + EMA, RSI 70. Построже — тот же HTF, RSI 72, лёгкий уход под SMA20. Средне — range+EMA, RSI 74. Помягче — range без EMA, RSI 77. Слабо — самый широкий chase, RSI 80.",
   "settings.entry.keeps":
     "Risk, ликвидность, RTH, earnings и news не трогаем — пять ступеней двигают только пороги анализа и входа.",
   "settings.entry.hint":

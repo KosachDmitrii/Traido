@@ -1,7 +1,8 @@
 """Five desk steps (0/25/50/75/100) → Structure / Setup floors.
 
 Matches Settings «Сильно → Слабо». Risk, liquidity, RTH, earnings and news
-are unchanged.
+are unchanged. Floors are slightly looser than the first trader-desk cut so
+WAIT/BUY ideas can surface without disarming hard capital gates.
 """
 
 from __future__ import annotations
@@ -44,9 +45,9 @@ _GATES: dict[int, TraderGatePolicy] = {
         require_uptrend=True,
         allow_range=False,
         require_ema_stack=True,
-        rsi_overbought=68.0,
-        chase_ext_frac=0.030,
-        near_sma_frac=0.020,
+        rsi_overbought=70.0,
+        chase_ext_frac=0.035,
+        near_sma_frac=0.025,
         allow_below_sma=False,
     ),
     25: TraderGatePolicy(
@@ -55,10 +56,10 @@ _GATES: dict[int, TraderGatePolicy] = {
         require_uptrend=True,
         allow_range=False,
         require_ema_stack=True,
-        rsi_overbought=70.0,
-        chase_ext_frac=0.035,
-        near_sma_frac=0.022,
-        allow_below_sma=False,
+        rsi_overbought=72.0,
+        chase_ext_frac=0.040,
+        near_sma_frac=0.028,
+        allow_below_sma=True,
     ),
     50: TraderGatePolicy(
         aggressiveness=50,
@@ -66,10 +67,10 @@ _GATES: dict[int, TraderGatePolicy] = {
         require_uptrend=False,
         allow_range=True,
         require_ema_stack=True,
-        rsi_overbought=72.0,
-        chase_ext_frac=0.040,
-        near_sma_frac=0.025,
-        allow_below_sma=False,
+        rsi_overbought=74.0,
+        chase_ext_frac=0.048,
+        near_sma_frac=0.032,
+        allow_below_sma=True,
     ),
     75: TraderGatePolicy(
         aggressiveness=75,
@@ -77,9 +78,9 @@ _GATES: dict[int, TraderGatePolicy] = {
         require_uptrend=False,
         allow_range=True,
         require_ema_stack=False,
-        rsi_overbought=75.0,
-        chase_ext_frac=0.050,
-        near_sma_frac=0.030,
+        rsi_overbought=77.0,
+        chase_ext_frac=0.055,
+        near_sma_frac=0.038,
         allow_below_sma=True,
     ),
     100: TraderGatePolicy(
@@ -88,9 +89,9 @@ _GATES: dict[int, TraderGatePolicy] = {
         require_uptrend=False,
         allow_range=True,
         require_ema_stack=False,
-        rsi_overbought=78.0,
-        chase_ext_frac=0.060,
-        near_sma_frac=0.035,
+        rsi_overbought=80.0,
+        chase_ext_frac=0.070,
+        near_sma_frac=0.045,
         allow_below_sma=True,
     ),
 }

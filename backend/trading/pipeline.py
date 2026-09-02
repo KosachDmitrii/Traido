@@ -193,7 +193,11 @@ async def run_symbol_pipeline(
     new_decision = candidate.entry_decision or EntryDecision.BUY_NOW
     if admission is not None:
         if admission.decision is AdmissionDecision.BUY_ALLOWED:
-            new_decision = EntryDecision.BUY_NOW
+            # WAIT cards score admission on zone-plan levels, not the live ask.
+            # That pass must not promote WAIT → BUY_NOW while price is still
+            # outside the zone — conversion belongs to the entry-watch loop.
+            if new_decision is not EntryDecision.WAIT_FOR_ENTRY:
+                new_decision = EntryDecision.BUY_NOW
         elif admission.decision is AdmissionDecision.WAIT:
             new_decision = EntryDecision.WAIT_FOR_ENTRY
         elif admission.decision is AdmissionDecision.DATA_BLOCKED:
@@ -351,7 +355,12 @@ async def run_symbol_pipeline(
             score=100,
         )
         return result.model_copy(
-            update={"status": "risk_passed", "risk": risk, "opportunity": None}
+            update={
+                "status": "risk_passed",
+                "risk": risk,
+                "opportunity": None,
+                "trade_admission": admission,
+            }
         )
 
     return await publish_opportunity(

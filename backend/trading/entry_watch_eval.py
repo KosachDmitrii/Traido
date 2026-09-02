@@ -91,6 +91,54 @@ def revalidate_triggered_watch_full(
         return None
     watch = marked
 
+    try:
+        result = _revalidate_after_claim(
+            watch,
+            exec_snap=exec_snap,
+            quote=quote,
+            market=market,
+            bars=bars,
+        )
+    except Exception:
+        # Never leave the desk card on «Повторная проверка» after a crash.
+        _release_revalidating(watch.id, reason="REVALIDATE_ABORTED")
+        raise
+
+    current = ENTRY_WATCHES.get(watch.id)
+    if current is not None and current.status is EntryWatchStatus.REVALIDATING:
+        # Caller returned without releasing the lease — recover for the desk.
+        _release_revalidating(watch.id, reason="REVALIDATE_STILL_CLAIMED")
+    return result
+
+def _release_revalidating(watch_id, *, reason: str) -> None:
+    if ENTRY_WATCHES.mark(watch_id, EntryWatchStatus.TRIGGERED, reason=reason) is not None:
+        return
+    current = ENTRY_WATCHES.get(watch_id)
+    if current is None or current.status is not EntryWatchStatus.REVALIDATING:
+        return
+    ENTRY_WATCHES.update(
+        current.model_copy(
+            update={
+                "status": EntryWatchStatus.TRIGGERED,
+                "reasons": [*current.reasons, reason],
+                "claimed_at": None,
+                "claim_token": None,
+                "claim_owner_id": None,
+                "lease_expires_at": None,
+            }
+        )
+    )
+
+
+def _revalidate_after_claim(
+    watch: EntryWatch,
+    *,
+    exec_snap: FeatureSnapshot,
+    quote: Quote,
+    market: MarketAssessment | None,
+    bars: list[Bar] | None,
+) -> WatchRevalidationResult | None:
+    """Body of revalidation while the REVALIDATING lease is held."""
     facts = evaluate_timing(
         exec_snap,
         signal_price=float(watch.signal_price),
@@ -99,6 +147,14 @@ def revalidate_triggered_watch_full(
         planned_target=float(watch.planned_target),
         market=market,
     )
+    # Admission / RR still use the ask; zone membership must match the mark that
+    # triggered WAIT (last trade), or ask-above-zone flaps reset every pass.
+    mark_price = (
+        float(watch.last_price)
+        if watch.last_price is not None
+        else float(quote.ask)
+    )
+    facts_for_wait = facts.model_copy(update={"current_price": mark_price})
     facts = facts.model_copy(update={"current_price": float(quote.ask)})
     if facts.nearest_support is not None and float(quote.ask) < facts.nearest_support:
         ENTRY_WATCHES.mark(watch.id, EntryWatchStatus.INVALIDATED, reason=SUPPORT_BREAK)
@@ -121,20 +177,22 @@ def revalidate_triggered_watch_full(
         stop_price=float(watch.planned_stop),
         target=target,
     )
-    pending = unmet_wait_conditions(watch, facts, quote=quote)
+    pending = unmet_wait_conditions(watch, facts_for_wait, quote=quote)
     if pending:
-        ENTRY_WATCHES.update(
-            watch.model_copy(
-                update={
-                    "status": EntryWatchStatus.WAITING,
-                    "reasons": [
-                        *watch.reasons,
-                        "TRIGGERED_CONDITIONS_PENDING",
-                        *pending[:4],
-                    ],
-                }
+        reason = "TRIGGERED_CONDITIONS_PENDING:" + ",".join(pending[:4])
+        if ENTRY_WATCHES.mark(watch.id, EntryWatchStatus.WAITING, reason=reason) is None:
+            ENTRY_WATCHES.update(
+                watch.model_copy(
+                    update={
+                        "status": EntryWatchStatus.WAITING,
+                        "reasons": [*watch.reasons, reason],
+                        "claimed_at": None,
+                        "claim_token": None,
+                        "claim_owner_id": None,
+                        "lease_expires_at": None,
+                    }
+                )
             )
-        )
         return None
 
     setup_type = watch.setup_type or SetupType.PULLBACK_CONTINUATION
@@ -183,13 +241,10 @@ def revalidate_triggered_watch_full(
     )
 
     if admission.decision is AdmissionDecision.DATA_BLOCKED:
-        ENTRY_WATCHES.update(
-            watch.model_copy(
-                update={
-                    "status": EntryWatchStatus.WAITING,
-                    "reasons": [*watch.reasons, *admission.reason_codes[:6]],
-                }
-            )
+        ENTRY_WATCHES.mark(
+            watch.id,
+            EntryWatchStatus.WAITING,
+            reason=",".join(admission.reason_codes[:6]) or "DATA_BLOCKED",
         )
         return WatchRevalidationResult(
             entry_decision=EntryDecision.WAIT_FOR_ENTRY,
@@ -253,14 +308,30 @@ def revalidate_triggered_watch_full(
             geometry_hash=gh,
         )
 
-    ENTRY_WATCHES.update(
-        watch.model_copy(
-            update={
-                "status": EntryWatchStatus.TRIGGERED,
-                "reasons": [*watch.reasons, *admission.reason_codes[:6]],
-            }
+    # Soft WAIT from admission — stay TRIGGERED (lease cleared) for the next pass.
+    if (
+        ENTRY_WATCHES.mark(
+            watch.id,
+            EntryWatchStatus.TRIGGERED,
+            reason=",".join(admission.reason_codes[:6]) or "REVALIDATE_WAIT",
         )
-    )
+        is None
+    ):
+        ENTRY_WATCHES.update(
+            watch.model_copy(
+                update={
+                    "status": EntryWatchStatus.TRIGGERED,
+                    "reasons": [
+                        *watch.reasons,
+                        *(admission.reason_codes[:6] or ["REVALIDATE_WAIT"]),
+                    ],
+                    "claimed_at": None,
+                    "claim_token": None,
+                    "claim_owner_id": None,
+                    "lease_expires_at": None,
+                }
+            )
+        )
     return WatchRevalidationResult(
         entry_decision=EntryDecision.WAIT_FOR_ENTRY,
         admission=admission,

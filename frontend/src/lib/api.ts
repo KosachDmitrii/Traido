@@ -60,6 +60,8 @@ export type ScanFunnel = {
   universe_total: number;
   structurally_eligible: number;
   stage0_rejected: number;
+  /** Passed Stage 0, cut by universe_max_size before market filter. */
+  eligible_capped: number;
 
   market_filter_evaluated: number;
   market_filter_passed: number;
@@ -72,6 +74,8 @@ export type ScanFunnel = {
   quant_outranked: number;
 
   deep_analysis_started: number;
+  /** Shortlisted then cut by deep_analysis_top_k before analysis. */
+  deep_analysis_outranked: number;
   deep_analysis_passed: number;
   deep_analysis_failed: number;
   deep_analysis_no_candidate: number;

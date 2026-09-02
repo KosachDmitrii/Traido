@@ -20,7 +20,7 @@ from trading.geometry_hash import geometry_hash_from_watch
 
 logger = logging.getLogger(__name__)
 
-LEASE_SECONDS = 120
+LEASE_SECONDS = 45
 
 _ALLOWED: dict[EntryWatchStatus, set[EntryWatchStatus]] = {
     EntryWatchStatus.WAITING: {
@@ -64,6 +64,23 @@ def _sf(engine: Engine | None = None) -> sessionmaker[Session]:
 
 def _needs_lease(to_status: EntryWatchStatus) -> bool:
     return to_status in _LEASE_STATUSES
+
+
+def lease_expired(watch: EntryWatch, *, now: datetime | None = None) -> bool:
+    """True when a REVALIDATING/CONVERTING lease is past its deadline."""
+    if watch.status not in _LEASE_STATUSES:
+        return False
+    now = now or datetime.now(UTC)
+    lease_exp = watch.lease_expires_at
+    if lease_exp is not None:
+        exp = lease_exp if lease_exp.tzinfo else lease_exp.replace(tzinfo=UTC)
+        return exp <= now
+    claimed = watch.claimed_at
+    if claimed is not None:
+        c = claimed if claimed.tzinfo else claimed.replace(tzinfo=UTC)
+        return c + timedelta(seconds=LEASE_SECONDS) <= now
+    # Lease status with no claim timestamps — treat as stuck.
+    return True
 
 
 def try_transition(
@@ -171,47 +188,107 @@ def try_transition(
     return updated
 
 
+def _watch_from_row(row: EntryWatchRow) -> EntryWatch | None:
+    """Prefer column status/version over payload — they can drift after a failed sync."""
+    try:
+        watch = EntryWatch.model_validate(row.payload)
+    except Exception:  # noqa: BLE001
+        logger.warning("lease recovery: skip corrupt watch row %s", row.id)
+        return None
+    patch: dict[str, object] = {
+        "status": EntryWatchStatus(row.status),
+        "state_version": int(row.state_version or watch.state_version),
+    }
+    if hasattr(row, "claim_token"):
+        patch["claim_token"] = row.claim_token
+    if hasattr(row, "claimed_at"):
+        patch["claimed_at"] = row.claimed_at
+    if hasattr(row, "claim_owner_id"):
+        patch["claim_owner_id"] = getattr(row, "claim_owner_id", None)
+    if hasattr(row, "lease_expires_at"):
+        patch["lease_expires_at"] = getattr(row, "lease_expires_at", None)
+    return watch.model_copy(update=patch)
+
+
 def recover_stale_leases(*, engine: Engine | None = None) -> int:
-    """Return REVALIDATING→TRIGGERED and CONVERTING→ADMITTED when lease expired."""
-    if not persistence_enabled():
-        return 0
+    """Return REVALIDATING→TRIGGERED and CONVERTING→ADMITTED when lease expired.
+
+    Always syncs the in-memory store. A DB-only recover left the desk card stuck
+    on «Повторная проверка» while SQLite already said triggered.
+    """
+    from trading.entry_watches import ENTRY_WATCHES
+
     now = datetime.now(UTC)
     recovered = 0
-    SessionLocal = _sf(engine)
-    with SessionLocal() as session:
-        rows = (
-            session.query(EntryWatchRow)
-            .filter(EntryWatchRow.status.in_(["revalidating", "converting"]))
-            .all()
+
+    # 1) In-memory first — this is what the desk and watch loop read.
+    for watch in ENTRY_WATCHES.list_actionable():
+        if not lease_expired(watch, now=now):
+            continue
+        if watch.status is EntryWatchStatus.REVALIDATING:
+            target = EntryWatchStatus.TRIGGERED
+            reason = "LEASE_EXPIRED_REVALIDATING"
+        elif watch.status is EntryWatchStatus.CONVERTING:
+            target = EntryWatchStatus.ADMITTED
+            reason = "LEASE_EXPIRED_CONVERTING"
+        else:
+            continue
+        out = ENTRY_WATCHES.mark(watch.id, target, reason=reason)
+        if out is None:
+            # Memory/DB version skew: force memory onto the safe target.
+            cleared = watch.model_copy(
+                update={
+                    "status": target,
+                    "reasons": [*watch.reasons, reason],
+                    "state_version": watch.state_version + 1,
+                    "claimed_at": None,
+                    "claim_token": None,
+                    "claim_owner_id": None,
+                    "lease_expires_at": None,
+                }
+            )
+            ENTRY_WATCHES.update(cleared)
+            out = cleared
+        recovered += 1
+        logger.info(
+            "entry watch lease recovery (memory): %s %s → %s",
+            watch.symbol,
+            watch.status.value,
+            target.value,
         )
-        for row in rows:
-            lease_exp = getattr(row, "lease_expires_at", None)
-            claimed = row.claimed_at
-            expired = False
-            if lease_exp is not None:
-                exp = lease_exp if lease_exp.tzinfo else lease_exp.replace(tzinfo=UTC)
-                expired = exp <= now
-            elif claimed is not None:
-                c = claimed if claimed.tzinfo else claimed.replace(tzinfo=UTC)
-                expired = c + timedelta(seconds=LEASE_SECONDS) <= now
-            if not expired:
-                continue
-            try:
-                watch = EntryWatch.model_validate(row.payload)
-            except Exception:  # noqa: BLE001
-                logger.warning("lease recovery: skip corrupt watch row %s", row.id)
-                continue
-            if row.status == EntryWatchStatus.REVALIDATING.value:
-                target = EntryWatchStatus.TRIGGERED
-                reason = "LEASE_EXPIRED_REVALIDATING"
-            else:
-                target = EntryWatchStatus.ADMITTED
-                reason = "LEASE_EXPIRED_CONVERTING"
-            out = try_transition(watch, target, reason=reason, engine=engine)
-            if out is not None:
+
+    # 2) DB orphans (row leased, not present or still leased in SQL).
+    if persistence_enabled():
+        SessionLocal = _sf(engine)
+        with SessionLocal() as session:
+            rows = (
+                session.query(EntryWatchRow)
+                .filter(EntryWatchRow.status.in_(["revalidating", "converting"]))
+                .all()
+            )
+            for row in rows:
+                watch = _watch_from_row(row)
+                if watch is None or not lease_expired(watch, now=now):
+                    continue
+                if row.status == EntryWatchStatus.REVALIDATING.value:
+                    target = EntryWatchStatus.TRIGGERED
+                    reason = "LEASE_EXPIRED_REVALIDATING"
+                else:
+                    target = EntryWatchStatus.ADMITTED
+                    reason = "LEASE_EXPIRED_CONVERTING"
+                out = try_transition(watch, target, reason=reason, engine=engine)
+                if out is None:
+                    continue
+                ENTRY_WATCHES.update(out)
                 recovered += 1
+                logger.info(
+                    "entry watch lease recovery (db): %s → %s",
+                    watch.symbol,
+                    target.value,
+                )
+
     if recovered:
-        logger.info("entry watch lease recovery: %d rows", recovered)
+        logger.info("entry watch lease recovery: %d watches", recovered)
     return recovered
 
 

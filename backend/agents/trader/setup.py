@@ -72,7 +72,7 @@ def run_setup(bundle: TraderBundle) -> StepResult:
         elif close >= sma20:
             score += 10
             reasons.append("above SMA20, not extended")
-        elif policy.allow_below_sma and dist <= policy.near_sma_frac * 1.5:
+        elif policy.allow_below_sma and dist <= policy.near_sma_frac * 2.0:
             score += 5
             reasons.append(f"shallow below SMA20 ({dist * 100:.1f}%)")
         else:

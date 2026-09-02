@@ -280,6 +280,18 @@ def _etag_for(payload: dict) -> str:
             for s in payload.get("sell_opportunities") or []
         ],
         "pos": [(p.get("symbol"), p.get("qty")) for p in payload.get("positions") or []],
+        "watches": [
+            (
+                w.get("id"),
+                w.get("symbol"),
+                w.get("status"),
+                w.get("last_price"),
+                w.get("last_observed_at"),
+                w.get("ui_state"),
+                w.get("buy_blocked"),
+            )
+            for w in payload.get("entry_watches") or []
+        ],
         "trades": (payload.get("review") or {}).get("trade_count"),
         # Operator entry strictness must bust the ETag: leaving it out meant a
         # Settings save + refresh kept a 304 of the previous desk payload and

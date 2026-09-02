@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from core.enums import InstrumentThesis
 from tests.unit.test_entry_timing_f3 import _snap
 from trading.entry_policy import (
@@ -17,10 +19,10 @@ from trading.entry_timing import detect_chasing, evaluate_timing, zone_from_fact
 def test_zero_matches_shipped_f3_floors() -> None:
     th = thresholds_for(0)
     assert th.aggressiveness == 0
-    assert th.ema_ext_pct == 2.5
-    assert th.vwap_ext_pct == 1.0
-    assert th.min_buy_quality == 55
-    assert th.zone_gap_frac == 0.0
+    assert th.ema_ext_pct == pytest.approx(2.8)
+    assert th.vwap_ext_pct == pytest.approx(1.2)
+    assert th.min_buy_quality == 52
+    assert th.zone_gap_frac == pytest.approx(0.05)
     assert th.allow_soft_chase_buy is False
     assert th.wait_ttl_minutes == 390
     assert th.flag_impulse_weak is True
@@ -40,24 +42,24 @@ def test_levels_snap_within_production_ceiling() -> None:
 def test_production_max_does_not_reach_forbidden_floors() -> None:
     th = thresholds_for(PRODUCTION_MAX_AGGRESSIVENESS)
     # Softest production step — still far below old experimental extremes.
-    assert th.vwap_ext_pct <= 4.5
-    assert th.ema_ext_pct <= 9.0
-    assert th.atr_ext_max <= 3.0
-    assert th.max_spread_bps <= 40.0
-    assert th.min_setup_quality >= 52
-    assert th.min_entry_quality >= 48
+    assert th.vwap_ext_pct <= 5.0
+    assert th.ema_ext_pct <= 9.5
+    assert th.atr_ext_max <= 3.2
+    assert th.max_spread_bps <= 42.0
+    assert th.min_setup_quality >= 48
+    assert th.min_entry_quality >= 44
 
 
 def test_medium_matches_historical_production_soft_end() -> None:
-    """a=50 must keep the old three-step medium floors so desk behaviour does not jump."""
+    """a=50 stays the middle desk step with soft chase / fast pullback on."""
     th = thresholds_for(50)
     assert th.aggressiveness == 50
-    assert th.vwap_ext_pct == 3.5
-    assert th.ema_ext_pct == 7.0
+    assert th.vwap_ext_pct == pytest.approx(3.8)
+    assert th.ema_ext_pct == pytest.approx(7.5)
     assert th.wait_ttl_minutes == 180
     assert th.allow_soft_chase_buy is True
     assert th.allow_fast_pullback is True
-
+    assert th.pullback_deep_no_trade is False
 
 def test_weak_extends_past_medium() -> None:
     mid = thresholds_for(50)
@@ -66,6 +68,9 @@ def test_weak_extends_past_medium() -> None:
     assert weak.vwap_ext_pct > mid.vwap_ext_pct
     assert weak.wait_ttl_minutes == 90
     assert weak.zone_gap_frac > mid.zone_gap_frac
+    assert weak.require_momentum_flip is False
+    assert weak.momentum_min_pct < mid.momentum_min_pct
+    assert weak.min_zone_arrival_quality <= mid.min_zone_arrival_quality
 
 
 def test_hard_veto_survives_aggressiveness() -> None:

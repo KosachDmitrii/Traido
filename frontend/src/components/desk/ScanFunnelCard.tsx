@@ -66,6 +66,7 @@ export function ScanFunnelCard() {
       { labelKey: "funnel.problem.aiBudget" as const, value: funnel.ai_budget_exhausted },
       { labelKey: "funnel.problem.held" as const, value: funnel.position_open },
       { labelKey: "funnel.problem.noSlot" as const, value: funnel.capacity_rejected },
+      { labelKey: "funnel.problem.capped" as const, value: funnel.eligible_capped ?? 0 },
     ] satisfies Row[]
   ).filter((r) => r.value > 0);
 

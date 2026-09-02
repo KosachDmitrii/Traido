@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -38,34 +37,17 @@ from trading.watch_enrichment import refresh_watch_desk_cache
 
 logger = logging.getLogger(__name__)
 
-WATCH_INTERVAL_SEC = 30.0
-_JOURNAL_SYNC_EVERY = 20  # passes ≈ 10 minutes at 30s
+WATCH_INTERVAL_SEC = 10.0
+_JOURNAL_SYNC_EVERY = 60  # passes ≈ 10 minutes at 10s
 
 _loop_task: asyncio.Task[None] | None = None
 _pass_count = 0
 
 
-async def _mark_price(md: Any, symbol: str, quote: Quote | None) -> float | None:
-    """Last trade when available — matches Alpaca dashboard; else quote mid."""
-    if hasattr(md, "get_last_price"):
-        try:
-            last = float(await md.get_last_price(symbol))
-            if last > 0:
-                return last
-        except Exception:
-            logger.debug("watch: last trade unavailable for %s", symbol, exc_info=True)
-    if quote is not None:
-        bid = float(quote.bid or 0)
-        ask = float(quote.ask or 0)
-        if bid > 0 and ask >= bid:
-            return (bid + ask) / 2.0
-        return float(quote.ask or quote.bid or 0) or None
-    return None
-
-
 async def run_watch_pass() -> dict[str, int]:
     """One pass over actionable watches. Safe to call from tests."""
     from trading.entry_watch_transitions import recover_stale_leases
+    from trading.watch_marks import refresh_all_watch_marks, stamp_watch_price
 
     recover_stale_leases()
     watches = ENTRY_WATCHES.list_actionable()
@@ -83,27 +65,30 @@ async def run_watch_pass() -> dict[str, int]:
     md = create_market_data_port(settings)
     audit = create_audit()
 
+    # Phase 1: stamp every mark in parallel so one slow revalidate cannot freeze
+    # the rest of the rail for tens of seconds.
+    marks = await refresh_all_watch_marks(md, watches)
+
     for watch in watches:
         stats["checked"] += 1
         try:
-            quote = None
-            if hasattr(md, "get_quote"):
-                quote = await md.get_quote(watch.symbol)
-
-            price: float | None = await _mark_price(md, watch.symbol, quote)
+            current = ENTRY_WATCHES.get(watch.id) or watch
+            prev_price = float(current.last_price) if current.last_price is not None else None
+            marked = marks.get(current.symbol)
+            if marked is not None:
+                price, quote = marked
+            else:
+                price = prev_price
+                quote = None
             if price is None:
                 end = datetime.now(UTC)
-                bars = await md.get_bars(watch.symbol, Timeframe.M5, end - timedelta(hours=2), end)
+                bars = await md.get_bars(current.symbol, Timeframe.M5, end - timedelta(hours=2), end)
                 if bars:
                     price = float(bars[-1].close)
+                    current = stamp_watch_price(current, price)
             if price is None:
                 continue
 
-            from trading.shadow_outcomes import SHADOW_OUTCOMES
-
-            SHADOW_OUTCOMES.update_price(watch.symbol, price)
-
-            current = watch
             if current.status is EntryWatchStatus.WAITING:
                 stale = stale_invalidate_reason(current, price)
                 if stale is not None:
@@ -125,23 +110,12 @@ async def run_watch_pass() -> dict[str, int]:
                     stats["invalidated"] += 1
                     continue
                 if current.status is EntryWatchStatus.WAITING:
-                    # Desk «Сейчас» used to freeze at creation; keep last tick.
-                    prev = float(current.last_price) if current.last_price is not None else None
-                    px = Decimal(str(round(price, 4)))
-                    ENTRY_WATCHES.update(
-                        current.model_copy(
-                            update={
-                                "last_price": px,
-                                "last_observed_at": datetime.now(UTC),
-                            }
-                        )
-                    )
                     refreshed = await refresh_watch_desk_cache(
                         ENTRY_WATCHES.get(current.id) or current,
                         price=price,
                         quote=quote,
                         md=md,
-                        prev_price=prev,
+                        prev_price=prev_price,
                     )
                     ENTRY_WATCHES.update(refreshed)
                     from trading.watch_telemetry import record_watch_telemetry
@@ -151,8 +125,6 @@ async def run_watch_pass() -> dict[str, int]:
                         price=price,
                         enrichment=refreshed.desk_enrichment,
                     )
-                    if prev is None or abs(price - prev) / max(abs(prev), 1e-9) >= 0.0005:
-                        DESK_BUS.bump_desk(kind="entry_watch_price", symbol=current.symbol)
                     stats["still_waiting"] += 1
                     continue
 
@@ -166,6 +138,37 @@ async def run_watch_pass() -> dict[str, int]:
             if current.status is EntryWatchStatus.CONVERTING:
                 stats["still_waiting"] += 1
                 continue
+
+            if current.status is EntryWatchStatus.REVALIDATING:
+                # Single-worker desk: an active lease here means the previous pass
+                # died mid-revalidate or never released. Do not park the card on
+                # «Повторная проверка» until the lease clock runs out.
+                from trading.entry_watch_transitions import lease_expired
+
+                reason = (
+                    "LEASE_EXPIRED_REVALIDATING"
+                    if lease_expired(current)
+                    else "REVALIDATING_TAKEOVER"
+                )
+                recovered = ENTRY_WATCHES.mark(
+                    current.id,
+                    EntryWatchStatus.TRIGGERED,
+                    reason=reason,
+                )
+                if recovered is None:
+                    ENTRY_WATCHES.update(
+                        current.model_copy(
+                            update={
+                                "status": EntryWatchStatus.TRIGGERED,
+                                "reasons": [*current.reasons, reason],
+                                "claimed_at": None,
+                                "claim_token": None,
+                                "claim_owner_id": None,
+                                "lease_expires_at": None,
+                            }
+                        )
+                    )
+                current = ENTRY_WATCHES.get(current.id) or current
 
             if current.status is not EntryWatchStatus.TRIGGERED:
                 continue
@@ -185,7 +188,6 @@ async def run_watch_pass() -> dict[str, int]:
             snap = compute_features(watch.symbol, Timeframe.H1, bars_h1)
             q = quote
             if q is None or q.bid is None or q.ask is None:
-                # No real top-of-book → cannot admit to buy; stay in wait/trigger cycle.
                 await audit.append(
                     "EntryWatchRevalidateSkipped",
                     "entry_timing",
@@ -199,7 +201,7 @@ async def run_watch_pass() -> dict[str, int]:
                 price=price,
                 quote=q,
                 md=md,
-                prev_price=float(current.last_price) if current.last_price is not None else None,
+                prev_price=prev_price,
             )
             ENTRY_WATCHES.update(cached)
             current = ENTRY_WATCHES.get(current.id) or current

@@ -33,6 +33,12 @@ class ScanFunnel:
 
     structurally_eligible: int = 0
     stage0_rejected: int = 0
+    eligible_capped: int = 0
+    """Passed Stage 0, then cut by `universe_max_size` before any market read.
+
+    Terminal. Without this bucket a broad universe of 14k with a 2k scan cap
+    reports thousands "unaccounted" even though the cut is deliberate.
+    """
 
     # ── Stage 1: cheap market filter ────────────────────────────────────────
     market_filter_evaluated: int = 0
@@ -117,6 +123,7 @@ class ScanFunnel:
         """
         return (
             self.stage0_rejected
+            + self.eligible_capped
             + self.market_filter_rejected
             + self.quant_rejected
             + self.quant_outranked

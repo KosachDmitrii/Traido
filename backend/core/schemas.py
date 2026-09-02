@@ -1134,6 +1134,9 @@ class PipelineResult(StrictModel):
     opportunity: TradeOpportunity | None = None
     entry_decision: EntryDecisionBundle | None = None
     entry_watch: EntryWatch | None = None
+    # Ranking pass keeps the creation admission so publish does not re-score
+    # against a drifted quote and silently drop a risk-passed BUY.
+    trade_admission: TradeAdmissionResult | None = None
     errors: list[str] = Field(default_factory=list)
     prompt_versions: dict[str, str] = Field(default_factory=dict)
 

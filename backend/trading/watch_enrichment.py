@@ -5,11 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from core.enums import Timeframe
+from core.enums import EntryWatchStatus, Timeframe
 from core.schemas import Bar, EntryTimingFacts, EntryWatch, Quote
 from quant.engine import compute_features
 from trading.entry_timing import evaluate_timing
-from trading.watch_desk import enrich_watch_for_desk
+from trading.watch_desk import derive_ui_state, enrich_watch_for_desk
 
 # Display-only keys cached on the watch. Machine state always comes from the row.
 _DISPLAY_KEYS = frozenset(
@@ -127,6 +127,8 @@ def desk_payload(watch: EntryWatch) -> dict[str, Any]:
         "reasons",
         "valid_until",
         "created_at",
+        "last_price",
+        "last_observed_at",
     }
     if watch.desk_enrichment:
         for key, value in watch.desk_enrichment.items():
@@ -146,4 +148,34 @@ def desk_payload(watch: EntryWatch) -> dict[str, Any]:
             if key in machine_keys or key == "desk_enrichment":
                 continue
             base[key] = value
+
+    # Live mark always wins; re-derive ui_state so a stale TRIGGERED cache cannot
+    # claim "in zone" while last_price sits above the band.
+    px = float(watch.last_price or watch.current_price_at_creation)
+    base["last_price"] = str(watch.last_price) if watch.last_price is not None else base.get("last_price")
+    if watch.last_observed_at is not None:
+        base["last_observed_at"] = watch.last_observed_at.isoformat().replace("+00:00", "Z")
+    # Desk must not stick on revalidating — treat as triggered for display when
+    # the mark is still actionable (single-worker lease is an internal lock).
+    if watch.status is EntryWatchStatus.REVALIDATING:
+        base["status"] = EntryWatchStatus.TRIGGERED.value
+    dist = base.get("distance_to_zone_atr")
+    try:
+        dist_f = float(dist) if dist is not None else None
+    except (TypeError, ValueError):
+        dist_f = None
+    display_watch = watch
+    if watch.status is EntryWatchStatus.REVALIDATING:
+        display_watch = watch.model_copy(update={"status": EntryWatchStatus.TRIGGERED})
+    ui = derive_ui_state(display_watch, price=px, distance_atr=dist_f)
+    base["ui_state"] = ui
+    base["status_label"] = ui
+    lo = float(watch.entry_zone_low)
+    hi = float(watch.entry_zone_high)
+    if not (lo <= px <= hi):
+        base["buy_blocked"] = False
+        base["zone_arrival"] = None
+        base["zone_arrival_quality"] = None
+        base["zone_arrival_type"] = None
+        base["arrival_reason_codes"] = []
     return base

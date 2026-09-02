@@ -22,9 +22,9 @@ def unmet_wait_conditions(
 ) -> list[str]:
     """Return required condition codes still failing after TRIGGERED."""
     th = get_entry_thresholds()
-    missing: list[str] = []
     price = facts.current_price
     required = set(getattr(watch, "required_conditions", None) or [])
+    missing: list[str] = []
 
     if PRICE_ENTERS_ZONE in required and not price_in_zone(price, watch):  # type: ignore[arg-type]
         missing.append(PRICE_ENTERS_ZONE)
@@ -40,9 +40,9 @@ def unmet_wait_conditions(
     ):
         missing.append(VWAP_HOLDS)
 
-    if MOMENTUM_TURNS_POSITIVE in required:
+    if MOMENTUM_TURNS_POSITIVE in required and th.require_momentum_flip:
         mom = facts.short_term_momentum_pct
-        if mom is None or mom <= 0:
+        if mom is None or mom <= th.momentum_min_pct:
             missing.append(MOMENTUM_TURNS_POSITIVE)
 
     if PULLBACK_VOL_DIGESTING in required:

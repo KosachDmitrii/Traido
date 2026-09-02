@@ -56,25 +56,38 @@ function waitPrice(w: EntryWatchCard): number {
 
 function waitStatusKey(w: EntryWatchCard): MessageKey {
   const machine = (w.status || "").toLowerCase();
-  if (machine === "revalidating") return "rail.wait.machine.revalidating";
-  if (machine === "admitted") return "rail.wait.machine.admitted";
-  if (machine === "converting") return "rail.wait.machine.converting";
-  if (machine === "converted") return "rail.wait.machine.converted";
-  const ui = w.ui_state ?? w.status_label;
-  if (ui === "APPROACHING") return "rail.wait.status.approaching";
-  if (ui === "IN_ZONE" || ui === "TRIGGERED") {
-    if (w.buy_blocked) return "rail.wait.status.inZoneBlocked";
-    return "rail.wait.status.inZone";
-  }
   const price = waitPrice(w);
   const zoneLo = Number(w.entry_zone_low);
   const zoneHi = Number(w.entry_zone_high);
   const target = Number(w.planned_target);
-  if (Number.isFinite(target) && price >= target) return "rail.wait.status.passed";
-  if (Number.isFinite(zoneLo) && Number.isFinite(zoneHi) && price >= zoneLo && price <= zoneHi) {
+  const inZone =
+    Number.isFinite(zoneLo) &&
+    Number.isFinite(zoneHi) &&
+    Number.isFinite(price) &&
+    price >= zoneLo &&
+    price <= zoneHi;
+
+  // Live geometry first — a stuck REVALIDATING lease must not hide "in zone".
+  if (inZone) {
+    if (w.buy_blocked) return "rail.wait.status.inZoneBlocked";
+    if (machine === "revalidating") return "rail.wait.status.inZone";
+    if (machine === "admitted") return "rail.wait.machine.admitted";
+    if (machine === "converting") return "rail.wait.machine.converting";
+    if (machine === "converted") return "rail.wait.machine.converted";
     return "rail.wait.status.inZone";
   }
+
+  if (machine === "revalidating") return "rail.wait.machine.revalidating";
+  if (machine === "admitted") return "rail.wait.machine.admitted";
+  if (machine === "converting") return "rail.wait.machine.converting";
+  if (machine === "converted") return "rail.wait.machine.converted";
+
+  if (Number.isFinite(target) && price >= target) return "rail.wait.status.passed";
   if (Number.isFinite(zoneHi) && price > zoneHi) return "rail.wait.status.aboveZone";
+  if (Number.isFinite(zoneLo) && price < zoneLo) return "rail.wait.status.belowZone";
+
+  const ui = w.ui_state ?? w.status_label;
+  if (ui === "APPROACHING") return "rail.wait.status.approaching";
   return "rail.wait.status.belowZone";
 }
 
@@ -389,6 +402,13 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
                 <dd className="mono">{fmtPx(w.planned_target)}</dd>
               </div>
             </dl>
+
+            <p className="rail-wait__zone mono">
+              {t("rail.wait.zone", {
+                lo: fmtPx(w.entry_zone_low),
+                hi: fmtPx(w.entry_zone_high),
+              })}
+            </p>
 
             <p
               className={`rail-wait__status${
