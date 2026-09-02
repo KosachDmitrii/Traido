@@ -23,8 +23,7 @@ def lookup_zone_touch_calibration(
     matched = [
         r
         for r in rows
-        if r.setup_type == setup_type
-        and distance_atr_bucket(r.distance_atr_at_origin) == bucket
+        if r.setup_type == setup_type and distance_atr_bucket(r.distance_atr_at_origin) == bucket
     ]
     if len(matched) < MIN_CALIBRATION_SAMPLES:
         # Fall back to setup_type only when bucket is thin.

@@ -46,16 +46,13 @@ async def refresh_watch_desk_cache(
     facts: EntryTimingFacts | None = None
     end = datetime.now(UTC)
 
-    in_zone = (
-        float(watch.entry_zone_low) <= price <= float(watch.entry_zone_high)
-        or watch.status.value in {"triggered", "revalidating"}
-    )
+    in_zone = float(watch.entry_zone_low) <= price <= float(
+        watch.entry_zone_high
+    ) or watch.status.value in {"triggered", "revalidating"}
 
     if md is not None and in_zone:
         try:
-            bars = await md.get_bars(
-                watch.symbol, Timeframe.H1, end - timedelta(days=60), end
-            )
+            bars = await md.get_bars(watch.symbol, Timeframe.H1, end - timedelta(days=60), end)
             if len(bars) >= 30:
                 snap = compute_features(watch.symbol, Timeframe.H1, bars)
                 facts = evaluate_timing(

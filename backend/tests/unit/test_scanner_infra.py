@@ -316,9 +316,7 @@ def test_the_llm_budget_is_among_the_tightest_shipped() -> None:
     assert deep == 1
     assert llm <= 2
     assert llm <= min(
-        b.max_concurrency
-        for b in DEFAULT_BUDGETS.values()
-        if b.name not in {"broker", "deep"}
+        b.max_concurrency for b in DEFAULT_BUDGETS.values() if b.name not in {"broker", "deep"}
     )
 
 

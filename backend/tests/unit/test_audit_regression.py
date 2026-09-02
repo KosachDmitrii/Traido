@@ -331,7 +331,15 @@ def test_export_archive_excludes_forbidden(tmp_path: Path) -> None:
     for n in names:
         norm = n.replace("\\", "/")
         if (
-            norm == ".env" or norm.endswith(("/.env", "traido_journal.db")) or "/.git/" in f"/{norm}" or norm.startswith(".git/") or "/node_modules/" in f"/{norm}" or "/.venv/" in f"/{norm}" or "/.venv312/" in f"/{norm}" or "/dist/" in f"/{norm}" or "/backend/data/backups/" in f"/{norm}"
+            norm == ".env"
+            or norm.endswith(("/.env", "traido_journal.db"))
+            or "/.git/" in f"/{norm}"
+            or norm.startswith(".git/")
+            or "/node_modules/" in f"/{norm}"
+            or "/.venv/" in f"/{norm}"
+            or "/.venv312/" in f"/{norm}"
+            or "/dist/" in f"/{norm}"
+            or "/backend/data/backups/" in f"/{norm}"
         ):
             forbidden.append(norm)
     assert forbidden == [], f"forbidden paths in archive: {forbidden}"

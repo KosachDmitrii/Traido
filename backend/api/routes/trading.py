@@ -33,7 +33,9 @@ class KillSwitchBody(BaseModel):
 
 
 class EntryPolicyBody(BaseModel):
-    aggressiveness: int = Field(ge=0, le=100, description="0=strict pullback, 100=buy nearer market")
+    aggressiveness: int = Field(
+        ge=0, le=100, description="0=strict pullback, 100=buy nearer market"
+    )
 
 
 @router.get("/opportunities", response_model=list[TradeOpportunity])
@@ -97,6 +99,7 @@ async def decide_opportunity(opportunity_id: UUID, body: DecisionBody) -> TradeO
     # This decision may have been the one holding the queue full.
     wake_scanner()
     return result
+
 
 @router.get("/portfolio", response_model=PortfolioSnapshot)
 async def portfolio() -> PortfolioSnapshot:

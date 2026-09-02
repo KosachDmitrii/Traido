@@ -187,8 +187,11 @@ def test_earnings_far_away_does_not_block() -> None:
 
 def test_just_reported_earnings_blocks_the_trade() -> None:
     ctx = RiskContext(
-        news=NewsCheck.CHECKED, earnings=EarningsCheck.CHECKED,
-        sector_check=SectorCheck.CHECKED, last_earnings=_TODAY, now=_NOW
+        news=NewsCheck.CHECKED,
+        earnings=EarningsCheck.CHECKED,
+        sector_check=SectorCheck.CHECKED,
+        last_earnings=_TODAY,
+        now=_NOW,
     )
     decision = RiskEngine().evaluate(_candidate(), _portfolio(), context=ctx)
     assert "EARNINGS_JUST_REPORTED" in decision.reasons
@@ -209,8 +212,11 @@ def test_earnings_window_is_configurable() -> None:
 
 def test_zero_day_window_still_blocks_same_day_earnings() -> None:
     ctx = RiskContext(
-        news=NewsCheck.CHECKED, earnings=EarningsCheck.CHECKED,
-        sector_check=SectorCheck.CHECKED, next_earnings=_TODAY, now=_NOW
+        news=NewsCheck.CHECKED,
+        earnings=EarningsCheck.CHECKED,
+        sector_check=SectorCheck.CHECKED,
+        next_earnings=_TODAY,
+        now=_NOW,
     )
     engine = RiskEngine(RiskLimits(block_days_before_earnings=0))
     assert "EARNINGS_IMMINENT" in engine.evaluate(_candidate(), _portfolio(), context=ctx).reasons
@@ -235,8 +241,11 @@ def test_past_earnings_date_in_next_field_is_ignored() -> None:
 
 def test_untradable_regime_blocks_new_longs() -> None:
     ctx = RiskContext(
-        news=NewsCheck.CHECKED, earnings=EarningsCheck.CHECKED,
-        sector_check=SectorCheck.CHECKED, regime_tradable=False, now=_NOW
+        news=NewsCheck.CHECKED,
+        earnings=EarningsCheck.CHECKED,
+        sector_check=SectorCheck.CHECKED,
+        regime_tradable=False,
+        now=_NOW,
     )
     decision = RiskEngine().evaluate(_candidate(), _portfolio(), context=ctx)
     assert "REGIME_NOT_TRADABLE" in decision.reasons

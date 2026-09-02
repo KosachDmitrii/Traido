@@ -207,7 +207,12 @@ def classify(outcome: Outcome) -> str:
 
     # Direction at longest available horizon.
     long_r = next((x for x in (r120, r60, r15, r5) if x is not None), None)
-    if long_r is not None and long_r <= -0.002 and (r60 is None or r60 <= 0) and (r120 is None or r120 <= 0):
+    if (
+        long_r is not None
+        and long_r <= -0.002
+        and (r60 is None or r60 <= 0)
+        and (r120 is None or r120 <= 0)
+    ):
         if (r5 is not None and r5 < 0) and (r15 is not None and r15 < 0):
             return "DIRECTION_WRONG"
 
@@ -383,7 +388,9 @@ def summarize(outcomes: list[Outcome], label: str) -> dict:
 
     classes = Counter(o.classification for o in outcomes)
 
-    interpretation = interpret(medians, immediate_adverse_n, len(with_5), dir_correct_120, len(dir_120), classes)
+    interpretation = interpret(
+        medians, immediate_adverse_n, len(with_5), dir_correct_120, len(dir_120), classes
+    )
 
     return {
         "label": label,
@@ -422,7 +429,14 @@ def interpret(
     ambitious = classes.get("TARGET_TOO_AMBITIOUS", 0)
     usable_classes = late + wrong + stop_tight + ambitious
 
-    if r5 is not None and r5 < 0 and r120 is not None and r120 > 0 and adverse_rate >= 0.55 and dir_rate >= 0.55:
+    if (
+        r5 is not None
+        and r5 < 0
+        and r120 is not None
+        and r120 > 0
+        and adverse_rate >= 0.55
+        and dir_rate >= 0.55
+    ):
         return (
             "DIRECTION MAY BE VALID; ENTRY TIMING IS SYSTEMATICALLY LATE "
             f"(median 5m={r5:.2%}, 120m={r120:.2%}, immediate adverse={adverse_rate:.0%}, "
@@ -521,8 +535,10 @@ def print_report(summary: dict) -> None:
     print("=" * 64)
     print(f"BUY SIGNAL AFTERMATH — {summary['label']}")
     print("=" * 64)
-    print(f"Samples        {summary['samples_usable']} usable / {summary['samples_total']} total "
-          f"({summary['samples_insufficient']} insufficient)")
+    print(
+        f"Samples        {summary['samples_usable']} usable / {summary['samples_total']} total "
+        f"({summary['samples_insufficient']} insufficient)"
+    )
     print()
     print("Median returns:")
     for h in HORIZONS_MIN:
@@ -574,11 +590,7 @@ async def main() -> None:
         "executed": executed,
         "executed_rth": executed_rth,
         "confluence_0_2_deduped_5m_rth": dedupe_5m_bucket(
-            [
-                s
-                for s in proposed_rth
-                if s.strategy_version.startswith("strategy_confluence@0.2")
-            ]
+            [s for s in proposed_rth if s.strategy_version.startswith("strategy_confluence@0.2")]
         ),
     }
     for name, sigs in cohorts.items():
@@ -588,10 +600,7 @@ async def main() -> None:
     needed = {s.symbol for sigs in cohorts.values() for s in sigs}
     if args.max_symbols:
         needed = set(sorted(needed)[: args.max_symbols])
-        cohorts = {
-            k: [s for s in v if s.symbol in needed]
-            for k, v in cohorts.items()
-        }
+        cohorts = {k: [s for s in v if s.symbol in needed] for k, v in cohorts.items()}
 
     if not proposed:
         raise SystemExit("no TradeCandidateProposed rows")

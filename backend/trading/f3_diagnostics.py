@@ -42,9 +42,7 @@ def build_f3_diagnostics() -> dict[str, Any]:
         if r.get("old_policy") == "buy_now" and r.get("new_policy") == "wait_for_entry"
     )
     no_trade_instead = sum(
-        1
-        for r in shadows
-        if r.get("old_policy") == "buy_now" and r.get("new_policy") == "no_trade"
+        1 for r in shadows if r.get("old_policy") == "buy_now" and r.get("new_policy") == "no_trade"
     )
     both_buy = sum(
         1 for r in shadows if r.get("old_policy") == "buy_now" and r.get("new_policy") == "buy_now"
@@ -99,9 +97,7 @@ def build_f3_diagnostics() -> dict[str, Any]:
             else None,
         },
         "forward_paper": {
-            "note": (
-                "Do not claim FIXED until ~100 new RTH shadow samples accumulate under F3"
-            ),
+            "note": ("Do not claim FIXED until ~100 new RTH shadow samples accumulate under F3"),
             "shadow_samples": len(shadows),
             "rth_shadow_samples": rth_n,
             "target_rth_samples": target_rth,

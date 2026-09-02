@@ -75,4 +75,8 @@ def test_moderate_distance() -> None:
         price=115.5,
         facts=EntryTimingFacts(current_price=115.5, atr=2.0),
     )
-    assert lik.classification in {LikelihoodClass.MODERATE, LikelihoodClass.HIGH, LikelihoodClass.LOW}
+    assert lik.classification in {
+        LikelihoodClass.MODERATE,
+        LikelihoodClass.HIGH,
+        LikelihoodClass.LOW,
+    }

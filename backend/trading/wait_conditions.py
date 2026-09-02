@@ -35,8 +35,7 @@ def unmet_wait_conditions(
             and facts.distance_from_vwap_pct < th.vwap_hold_min_pct
         )
         or (
-            facts.anchor_price is not None
-            and price < facts.anchor_price * th.vwap_anchor_hold_frac
+            facts.anchor_price is not None and price < facts.anchor_price * th.vwap_anchor_hold_frac
         )
     ):
         missing.append(VWAP_HOLDS)

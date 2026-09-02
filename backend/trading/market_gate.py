@@ -71,7 +71,9 @@ def evaluate_market_gate(
         now = now.astimezone(UTC)
 
     if market is None:
-        return _blocked(label="missing", reasons=["REGIME_MISSING"], now=now, sector_label=sector_label)
+        return _blocked(
+            label="missing", reasons=["REGIME_MISSING"], now=now, sector_label=sector_label
+        )
 
     regime_ts = getattr(market, "evaluated_at", None) or getattr(market, "as_of", None)
     if regime_ts is None:
@@ -217,7 +219,9 @@ def evaluate_market_gate_for_candidate(
 
     label = candidate.market_label
     if not label:
-        return _blocked(label="missing", reasons=["REGIME_MISSING"], now=now, sector_label=sector_label)
+        return _blocked(
+            label="missing", reasons=["REGIME_MISSING"], now=now, sector_label=sector_label
+        )
 
     regime = parse_regime_label(label)
     if regime is None:

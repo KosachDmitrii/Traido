@@ -111,7 +111,7 @@ class EntryWatchStore:
             effective_rr_at_creation=plan.risk_reward,
             aggressiveness=th.aggressiveness,
             created_at=now,
-            )
+        )
         aligned = None
         if candidate is not None:
             aligned = candidate.model_copy(
@@ -288,6 +288,7 @@ class EntryWatchStore:
                 }:
                     out.append(w)
             return list(out)
+
     def status_counts(self) -> dict[str, int]:
         with self._lock:
             counts: dict[str, int] = {}
@@ -295,7 +296,6 @@ class EntryWatchStore:
                 key = w.status.value
                 counts[key] = counts.get(key, 0) + 1
             return counts
-
 
     def get(self, watch_id: UUID) -> EntryWatch | None:
         with self._lock:

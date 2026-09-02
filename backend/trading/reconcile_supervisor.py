@@ -262,8 +262,6 @@ recorded on every decision taken under it.
 """
 
 
-
-
 def max_reconciliation_age() -> float:
     raw = os.getenv("TRAIDO_MAX_RECONCILIATION_AGE_SEC")
     if not raw:

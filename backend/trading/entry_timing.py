@@ -261,11 +261,13 @@ def detect_chasing(
         facts.signal_to_current_drift_pct is not None
         and facts.remaining_expected_reward_pct is not None
         and facts.remaining_expected_reward_pct > 0
-        and facts.signal_to_current_drift_pct
-        >= reward_frac * facts.remaining_expected_reward_pct
+        and facts.signal_to_current_drift_pct >= reward_frac * facts.remaining_expected_reward_pct
     ):
         reasons.append(REWARD_ALREADY_CONSUMED)
-    if facts.signal_to_current_drift_pct is not None and facts.signal_to_current_drift_pct > drift_high:
+    if (
+        facts.signal_to_current_drift_pct is not None
+        and facts.signal_to_current_drift_pct > drift_high
+    ):
         reasons.append(SIGNAL_TO_ENTRY_DRIFT_HIGH)
     if (
         facts.normal_expected_retrace_pct is not None

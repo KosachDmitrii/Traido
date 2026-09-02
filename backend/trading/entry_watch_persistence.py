@@ -90,7 +90,9 @@ def persist_watch(watch: EntryWatch, *, engine: Engine | None = None) -> None:
             session.commit()
 
 
-def hydrate_entry_watches(store: EntryWatchStore | None = None, *, engine: Engine | None = None) -> int:
+def hydrate_entry_watches(
+    store: EntryWatchStore | None = None, *, engine: Engine | None = None
+) -> int:
     """Load actionable watches from DB into the in-memory store on startup."""
     if not _enabled:
         return 0
@@ -112,10 +114,14 @@ def hydrate_entry_watches(store: EntryWatchStore | None = None, *, engine: Engin
             if watch.status not in _ACTIONABLE:
                 continue
             existing = target.get(watch.id)
-            if existing is None or existing.last_observed_at is None or (
-                watch.last_observed_at
-                and existing.last_observed_at
-                and watch.last_observed_at > existing.last_observed_at
+            if (
+                existing is None
+                or existing.last_observed_at is None
+                or (
+                    watch.last_observed_at
+                    and existing.last_observed_at
+                    and watch.last_observed_at > existing.last_observed_at
+                )
             ):
                 target.update(watch)
                 loaded += 1

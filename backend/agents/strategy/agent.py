@@ -245,8 +245,10 @@ def propose_with_entry_timing(
         f"News {news.sentiment} ({news.score}/100)",
         f"Market {market.regime.value} / {market.risk_posture}",
         f"Overall {overall}/100",
-        (f"Thesis BULLISH · entry {bundle.entry_decision.value} · "
-        f"setup {bundle.setup_quality}/100 · entry {bundle.entry_quality}/100"),
+        (
+            f"Thesis BULLISH · entry {bundle.entry_decision.value} · "
+            f"setup {bundle.setup_quality}/100 · entry {bundle.entry_quality}/100"
+        ),
         f"Target model {target_plan.model} · {target_plan.reachability.value}",
         *conf_reasons[:4],
         *bundle.chase_reasons[:3],

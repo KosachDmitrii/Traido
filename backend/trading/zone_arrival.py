@@ -83,7 +83,11 @@ def detect_crash_velocity(
     bars: int,
     volume_ratio: float | None,
 ) -> bool:
-        return bool(decline_atr >= CRASH_DECLINE_ATR and bars <= CRASH_MAX_BARS and (volume_ratio is None or volume_ratio >= CRASH_VOLUME_MULT))
+    return bool(
+        decline_atr >= CRASH_DECLINE_ATR
+        and bars <= CRASH_MAX_BARS
+        and (volume_ratio is None or volume_ratio >= CRASH_VOLUME_MULT)
+    )
 
 
 def evaluate_zone_arrival(

@@ -193,10 +193,7 @@ def test_cap_keeps_curated_even_when_alphabet_would_drop_them() -> None:
         _instrument("KO", exchange="NYSE", fractionable=True),
     ]
     # Many early-alphabet shells that used to consume the entire budget.
-    junk = [
-        _instrument(f"A{i:03d}", exchange="NASDAQ", fractionable=False)
-        for i in range(50)
-    ]
+    junk = [_instrument(f"A{i:03d}", exchange="NASDAQ", fractionable=False) for i in range(50)]
     eligible = curated + junk
     curated_keys = frozenset(i.key for i in curated)
 

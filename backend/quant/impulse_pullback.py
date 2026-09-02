@@ -127,11 +127,7 @@ def compute_impulse_pullback(
         vol_ratio = pullback_vol_avg / impulse_vol_avg
 
     range_atr = impulse_range / atr if atr and atr > 0 else None
-    up_bars = sum(
-        1
-        for i in range(low_rel, hi_abs + 1)
-        if c[i] > float(segment[i].open)
-    )
+    up_bars = sum(1 for i in range(low_rel, hi_abs + 1) if c[i] > float(segment[i].open))
     bar_count = hi_abs - low_rel + 1
     directional_frac = up_bars / bar_count if bar_count > 0 else 0.0
 

@@ -194,11 +194,7 @@ async def adopt_orphan_position(
 
     if dry_run:
         plan["orphan_blocks_cleared"] = len(
-            [
-                i
-                for i in intents.list_by_key_prefix(f"{_ORPHAN_PREFIX}{ticker}:")
-                if i.is_unresolved
-            ]
+            [i for i in intents.list_by_key_prefix(f"{_ORPHAN_PREFIX}{ticker}:") if i.is_unresolved]
         )
         return plan
 

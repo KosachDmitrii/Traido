@@ -55,7 +55,9 @@ def compute_features(symbol: str, timeframe: Timeframe, bars: list[Bar]) -> Feat
     atr_v = last(atr_s)
     vwap_v = last(vwap_s)
     anchor = vwap_v if isinstance(vwap_v, (int, float)) else last(sma20)
-    leg = compute_impulse_pullback(bars, atr_v if isinstance(atr_v, (int, float)) else None, anchor=anchor)
+    leg = compute_impulse_pullback(
+        bars, atr_v if isinstance(atr_v, (int, float)) else None, anchor=anchor
+    )
     leg_ind = metrics_to_indicators(leg)
 
     e50 = last(ema50)

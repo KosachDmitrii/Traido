@@ -188,7 +188,9 @@ def test_invalid_stop_blocks() -> None:
         target=125.0,
     )
     assert admission.admitted is False
-    assert "INVALID_STOP" in admission.vetoes or any("INVALID_STOP" in r for r in admission.reason_codes)
+    assert "INVALID_STOP" in admission.vetoes or any(
+        "INVALID_STOP" in r for r in admission.reason_codes
+    )
 
 
 def test_missing_target_blocks() -> None:

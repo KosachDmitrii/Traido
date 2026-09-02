@@ -40,9 +40,7 @@ async def positions() -> dict:
         meta = by_sym.get(p.symbol.upper())
         payload = (meta.payload or {}) if meta else {}
         stop_oid = payload.get("stop_order_id")
-        ledger_stop = (
-            meta.stop_price if meta is not None and meta.stop_price is not None else None
-        )
+        ledger_stop = meta.stop_price if meta is not None and meta.stop_price is not None else None
         stop_px = protective_stop_for_display(
             symbol=p.symbol,
             qty=p.qty,

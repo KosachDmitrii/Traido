@@ -218,10 +218,13 @@ def decide_entry(
         soft_only = bool(chase) and set(chase) <= SOFT_CHASE_CODES
         aggressive_ok = th.allow_soft_chase_buy and soft_only and quality >= min_quality
 
-        if ATR_EXTENSION_HIGH in chase and quality < th.atr_extension_min_quality and not aggressive_ok or (
-            chase
-            and quality < min_quality + th.chase_wait_quality_buffer
+        if (
+            ATR_EXTENSION_HIGH in chase
+            and quality < th.atr_extension_min_quality
             and not aggressive_ok
+            or (
+                chase and quality < min_quality + th.chase_wait_quality_buffer and not aggressive_ok
+            )
         ):
             decision = EntryDecision.WAIT_FOR_ENTRY
         elif quality < min_quality:
@@ -240,9 +243,10 @@ def decide_entry(
                 else "ENTRY_QUALITY_ACCEPTABLE"
             )
 
-    if thesis is InstrumentThesis.BULLISH and {"REWARD_ALREADY_CONSUMED", "ASYMMETRIC_DOWNSIDE"}.issubset(
-        set(chase)
-    ):
+    if thesis is InstrumentThesis.BULLISH and {
+        "REWARD_ALREADY_CONSUMED",
+        "ASYMMETRIC_DOWNSIDE",
+    }.issubset(set(chase)):
         decision = EntryDecision.NO_TRADE
         reasons.append("NO_EDGE_LEFT_AT_PRICE")
     elif thesis is InstrumentThesis.BULLISH and PULLBACK_TOO_DEEP in chase:

@@ -314,7 +314,9 @@ def request_rescan(*, reason: str = "operator") -> dict[str, bool | int]:
     aborted = abort_scan_cycle()
     start_scanner()
     wake_scanner()
-    BOARD.log("scanner", f"Rescan requested ({reason})" + (" · aborted prior cycle" if aborted else ""))
+    BOARD.log(
+        "scanner", f"Rescan requested ({reason})" + (" · aborted prior cycle" if aborted else "")
+    )
     return {
         "aborted": aborted,
         "requested": True,

@@ -32,44 +32,35 @@ def _stop_order(
 
 def test_prefers_ledger_stop_when_present() -> None:
     orders = [_stop_order(symbol="LLY", qty="4", stop_price="1153.25", broker_order_id="abc")]
-    assert (
-        protective_stop_for_display(
-            symbol="LLY",
-            qty=Decimal(4),
-            open_orders=orders,
-            ledger_stop=Decimal("1160.00"),
-            stop_order_id="abc",
-        )
-        == Decimal("1160.00")
-    )
+    assert protective_stop_for_display(
+        symbol="LLY",
+        qty=Decimal(4),
+        open_orders=orders,
+        ledger_stop=Decimal("1160.00"),
+        stop_order_id="abc",
+    ) == Decimal("1160.00")
 
 
 def test_falls_back_to_linked_stop_order_id() -> None:
     orders = [_stop_order(symbol="LLY", qty="4", stop_price="1153.25", broker_order_id="abc")]
-    assert (
-        protective_stop_for_display(
-            symbol="LLY",
-            qty=Decimal(4),
-            open_orders=orders,
-            ledger_stop=None,
-            stop_order_id="abc",
-        )
-        == Decimal("1153.25")
-    )
+    assert protective_stop_for_display(
+        symbol="LLY",
+        qty=Decimal(4),
+        open_orders=orders,
+        ledger_stop=None,
+        stop_order_id="abc",
+    ) == Decimal("1153.25")
 
 
 def test_falls_back_to_symbol_stop_when_id_missing() -> None:
     orders = [_stop_order(symbol="LLY", qty="4", stop_price="1153.25", broker_order_id="abc")]
-    assert (
-        protective_stop_for_display(
-            symbol="LLY",
-            qty=Decimal(4),
-            open_orders=orders,
-            ledger_stop=None,
-            stop_order_id=None,
-        )
-        == Decimal("1153.25")
-    )
+    assert protective_stop_for_display(
+        symbol="LLY",
+        qty=Decimal(4),
+        open_orders=orders,
+        ledger_stop=None,
+        stop_order_id=None,
+    ) == Decimal("1153.25")
 
 
 def test_returns_none_when_no_protective_stop() -> None:

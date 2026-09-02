@@ -140,11 +140,7 @@ def clamp_aggressiveness(
 
 def _label(a: int) -> str:
     a = clamp_aggressiveness(a, experimental=a > PRODUCTION_MAX_AGGRESSIVENESS)
-    return (
-        ENTRY_LEVEL_LABELS.get(a)
-        or EXPERIMENTAL_ENTRY_LEVEL_LABELS.get(a)
-        or "strong"
-    )
+    return ENTRY_LEVEL_LABELS.get(a) or EXPERIMENTAL_ENTRY_LEVEL_LABELS.get(a) or "strong"
 
 
 def thresholds_for(aggressiveness: int) -> EntryThresholds:

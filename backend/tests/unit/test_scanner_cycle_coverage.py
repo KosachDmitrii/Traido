@@ -77,10 +77,7 @@ def _empty_result() -> SimpleNamespace:
 def _fake_open(n: int) -> list:
     """Stand-ins for open BUY cards. Must expose `.candidate.symbol` — the cycle
     reads that set to skip duplicates, and a bare `None` blows up mid-scan."""
-    return [
-        SimpleNamespace(candidate=SimpleNamespace(symbol=f"OPEN{i}"))
-        for i in range(n)
-    ]
+    return [SimpleNamespace(candidate=SimpleNamespace(symbol=f"OPEN{i}")) for i in range(n)]
 
 
 def _install(

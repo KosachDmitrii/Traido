@@ -168,9 +168,7 @@ class AccountQuota:
             wait = max(0.0, wait)
         await self._bucket.penalize(wait)
         async with self._lock:
-            self._cooldown_until_mono = max(
-                self._cooldown_until_mono, time.monotonic() + wait
-            )
+            self._cooldown_until_mono = max(self._cooldown_until_mono, time.monotonic() + wait)
             # Remaining is zero until the window resets — do not pretend otherwise.
             if self._remaining is None or self._remaining > 0:
                 self._remaining = 0

@@ -93,9 +93,7 @@ async def run_watch_pass() -> dict[str, int]:
             price: float | None = await _mark_price(md, watch.symbol, quote)
             if price is None:
                 end = datetime.now(UTC)
-                bars = await md.get_bars(
-                    watch.symbol, Timeframe.M5, end - timedelta(hours=2), end
-                )
+                bars = await md.get_bars(watch.symbol, Timeframe.M5, end - timedelta(hours=2), end)
                 if bars:
                     price = float(bars[-1].close)
             if price is None:
@@ -109,7 +107,9 @@ async def run_watch_pass() -> dict[str, int]:
             if current.status is EntryWatchStatus.WAITING:
                 stale = stale_invalidate_reason(current, price)
                 if stale is not None:
-                    marked = ENTRY_WATCHES.mark(current.id, EntryWatchStatus.INVALIDATED, reason=stale)
+                    marked = ENTRY_WATCHES.mark(
+                        current.id, EntryWatchStatus.INVALIDATED, reason=stale
+                    )
                     if marked is not None:
                         from trading.shadow_outcomes import maybe_begin_shadow_for_terminal_watch
 
@@ -172,9 +172,7 @@ async def run_watch_pass() -> dict[str, int]:
             stats["triggered"] += 1
 
             end = datetime.now(UTC)
-            bars_h1 = await md.get_bars(
-                watch.symbol, Timeframe.H1, end - timedelta(days=60), end
-            )
+            bars_h1 = await md.get_bars(watch.symbol, Timeframe.H1, end - timedelta(days=60), end)
             if len(bars_h1) < 30:
                 await audit.append(
                     "EntryWatchRevalidateSkipped",
@@ -276,14 +274,11 @@ async def _convert_admitted_watch(
 
     q = quote
     if q is None or q.bid is None or q.ask is None:
-        ENTRY_WATCHES.mark(
-            current.id, EntryWatchStatus.ADMITTED, reason="NO_TOP_OF_BOOK"
-        )
+        ENTRY_WATCHES.mark(current.id, EntryWatchStatus.ADMITTED, reason="NO_TOP_OF_BOOK")
         stats["still_waiting"] += 1
         return
 
     if admission is None:
-
         if not current.last_admission_record_id:
             ENTRY_WATCHES.mark(
                 current.id, EntryWatchStatus.INVALIDATED, reason="MISSING_ADMISSION_RECORD"
@@ -299,9 +294,7 @@ async def _convert_admitted_watch(
             stats["still_waiting"] += 1
             return
 
-    forced = build_candidate_from_revalidation(
-        current, base=base, admission=admission, quote=q
-    )
+    forced = build_candidate_from_revalidation(current, base=base, admission=admission, quote=q)
 
     if forced is None:
         ENTRY_WATCHES.mark(
@@ -381,9 +374,7 @@ async def _convert_admitted_watch(
                 },
             )
         else:
-            ENTRY_WATCHES.mark(
-                current.id, EntryWatchStatus.ADMITTED, reason="PUBLISH_DEFERRED"
-            )
+            ENTRY_WATCHES.mark(current.id, EntryWatchStatus.ADMITTED, reason="PUBLISH_DEFERRED")
             stats["still_waiting"] += 1
 
 

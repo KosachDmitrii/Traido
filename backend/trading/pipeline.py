@@ -227,8 +227,7 @@ async def run_symbol_pipeline(
         )
         BOARD.log(
             "strategy",
-            f"WAIT_FOR_ENTRY · quality {candidate.entry_quality}/100 · "
-            f"no BUY card",
+            f"WAIT_FOR_ENTRY · quality {candidate.entry_quality}/100 · no BUY card",
             symbol=symbol,
         )
         return result.model_copy(
@@ -271,9 +270,7 @@ async def run_symbol_pipeline(
     for note in built.notes:
         BOARD.log("risk", note, symbol=symbol, level="warn")
 
-    risk = RiskEngine(default_risk_limits()).evaluate(
-        candidate, portfolio, context=built.context
-    )
+    risk = RiskEngine(default_risk_limits()).evaluate(candidate, portfolio, context=built.context)
 
     await audit.append(
         "RiskDecisionRecorded",

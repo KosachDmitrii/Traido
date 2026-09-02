@@ -867,7 +867,9 @@ class ExecutionService:
                 "claimed_at": None,
                 "approved_qty": qty,
                 "executed_qty": filled_qty,
-                "proposed_qty": opp.proposed_qty if opp.proposed_qty is not None else risk.sized_qty,
+                "proposed_qty": opp.proposed_qty
+                if opp.proposed_qty is not None
+                else risk.sized_qty,
                 "approved_at": opp.approved_at or opp.claimed_at,
                 "approval_price": opp.approval_price or limit_px,
                 "submitted_at": opp.submitted_at,
@@ -1974,14 +1976,10 @@ class ExecutionService:
             if broker_order_id not in open_ids:
                 return True
             await asyncio.sleep(0.25)
-        logger.warning(
-            "execution: order %s still open after cancel (%s)", broker_order_id, note
-        )
+        logger.warning("execution: order %s still open after cancel (%s)", broker_order_id, note)
         return False
 
-    async def _free_shares_for_exit(
-        self, *, symbol: str, stop_order_id: str | None
-    ) -> None:
+    async def _free_shares_for_exit(self, *, symbol: str, stop_order_id: str | None) -> None:
         """Drop protective sells that pin the position before a market exit."""
         to_cancel: list[str] = []
         if stop_order_id:
@@ -2003,13 +2001,9 @@ class ExecutionService:
                 exc_info=True,
             )
         for oid in to_cancel:
-            ok = await self._cancel_and_await_gone(
-                oid, note="exit supersedes protective stop"
-            )
+            ok = await self._cancel_and_await_gone(oid, note="exit supersedes protective stop")
             if not ok:
-                raise BrokerRejection(
-                    f"protective stop {oid} still holding {symbol} shares"
-                )
+                raise BrokerRejection(f"protective stop {oid} still holding {symbol} shares")
 
     async def _emergency_flatten(
         self,
@@ -2640,9 +2634,7 @@ class ExecutionService:
         # The protective stop and the exit both want to sell the same shares.
         # Cancel must finish (not merely be requested) or Alpaca rejects the
         # market sell with insufficient qty / held_for_orders.
-        await self._free_shares_for_exit(
-            symbol=intent.symbol, stop_order_id=stop_order_id
-        )
+        await self._free_shares_for_exit(symbol=intent.symbol, stop_order_id=stop_order_id)
 
         client_id = f"traido-x-{intent.id.hex[:16]}"
         claimed = self.intents.transition_from(

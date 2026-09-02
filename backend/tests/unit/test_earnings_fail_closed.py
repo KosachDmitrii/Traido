@@ -92,7 +92,14 @@ def test_an_unread_calendar_refuses_the_entry_and_names_the_cause(
     one shared code they would be one undifferentiated count on the funnel, and
     the desk could not tell a five-minute fix from a vendor having a bad day.
     """
-    ctx = RiskContext(news=NewsCheck.CHECKED, earnings=status, sector_check=SectorCheck.CHECKED, sector='technology', regime_tradable=True, now=_NOW)
+    ctx = RiskContext(
+        news=NewsCheck.CHECKED,
+        earnings=status,
+        sector_check=SectorCheck.CHECKED,
+        sector="technology",
+        regime_tradable=True,
+        now=_NOW,
+    )
     decision = RiskEngine().evaluate(_candidate(), _portfolio(), context=ctx)
 
     assert decision.verdict is RiskVerdict.REJECT
@@ -104,8 +111,22 @@ def test_a_calendar_that_answered_with_no_print_is_not_the_same_as_no_calendar()
 
     Both arrive at the engine as two None dates. One of them is a cleared check.
     """
-    checked = RiskContext(news=NewsCheck.CHECKED, earnings=EarningsCheck.CHECKED, sector_check=SectorCheck.CHECKED, sector='technology', regime_tradable=True, now=_NOW)
-    unchecked = RiskContext(news=NewsCheck.CHECKED, earnings=EarningsCheck.NOT_CONFIGURED, sector_check=SectorCheck.CHECKED, sector='technology', regime_tradable=True, now=_NOW)
+    checked = RiskContext(
+        news=NewsCheck.CHECKED,
+        earnings=EarningsCheck.CHECKED,
+        sector_check=SectorCheck.CHECKED,
+        sector="technology",
+        regime_tradable=True,
+        now=_NOW,
+    )
+    unchecked = RiskContext(
+        news=NewsCheck.CHECKED,
+        earnings=EarningsCheck.NOT_CONFIGURED,
+        sector_check=SectorCheck.CHECKED,
+        sector="technology",
+        regime_tradable=True,
+        now=_NOW,
+    )
     engine = RiskEngine()
 
     assert engine.evaluate(_candidate(), _portfolio(), context=checked).verdict is RiskVerdict.PASS
@@ -142,7 +163,14 @@ def test_running_without_a_calendar_is_possible_but_recorded() -> None:
     the question being unanswerable because nothing distinguished them.
     """
     limits = RiskLimits(require_earnings_check=False)
-    ctx = RiskContext(news=NewsCheck.CHECKED, earnings=EarningsCheck.NOT_CONFIGURED, sector_check=SectorCheck.CHECKED, sector='technology', regime_tradable=True, now=_NOW)
+    ctx = RiskContext(
+        news=NewsCheck.CHECKED,
+        earnings=EarningsCheck.NOT_CONFIGURED,
+        sector_check=SectorCheck.CHECKED,
+        sector="technology",
+        regime_tradable=True,
+        now=_NOW,
+    )
     decision = RiskEngine(limits).evaluate(_candidate(), _portfolio(), context=ctx)
 
     assert decision.verdict is RiskVerdict.PASS
@@ -209,7 +237,13 @@ async def test_a_calendar_that_cannot_be_read_at_the_click_stops_the_order() -> 
     risk = RiskEngine(RiskLimits(require_earnings_check=False)).evaluate(
         _candidate(),
         await broker.get_portfolio(),
-        context=RiskContext(news=NewsCheck.CHECKED, earnings=EarningsCheck.NOT_CONFIGURED, sector_check=SectorCheck.CHECKED, sector='technology', regime_tradable=True),
+        context=RiskContext(
+            news=NewsCheck.CHECKED,
+            earnings=EarningsCheck.NOT_CONFIGURED,
+            sector_check=SectorCheck.CHECKED,
+            sector="technology",
+            regime_tradable=True,
+        ),
     )
     opp = store.create(_candidate(), risk, TradingMode.CONFIRMATION)
     service = ExecutionService(

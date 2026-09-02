@@ -94,9 +94,8 @@ def final_pretrade_validation(
     if data.status is DataHealthStatus.UNHEALTHY:
         raise PretradeRejection("BUY_REJECTED_STALE_DATA", ",".join(data.reason_codes))
 
-    if (
-        market_gate is not None
-        and (market_gate.status is DataHealthStatus.UNHEALTHY or not market_gate.tradable_long)
+    if market_gate is not None and (
+        market_gate.status is DataHealthStatus.UNHEALTHY or not market_gate.tradable_long
     ):
         raise PretradeRejection(
             "BUY_REJECTED_REGIME",
@@ -122,17 +121,19 @@ def final_pretrade_validation(
         raise PretradeRejection("BUY_REJECTED_STALE_DATA", "FEATURE_SNAPSHOT_REQUIRED")
 
     setup_type = candidate.setup_type
-    zone_low = snap.entry_zone_low if snap else (
-        float(candidate.entry_zone_low) if candidate.entry_zone_low else None
+    zone_low = (
+        snap.entry_zone_low
+        if snap
+        else (float(candidate.entry_zone_low) if candidate.entry_zone_low else None)
     )
-    zone_high = snap.entry_zone_high if snap else (
-        float(candidate.entry_zone_high) if candidate.entry_zone_high else None
+    zone_high = (
+        snap.entry_zone_high
+        if snap
+        else (float(candidate.entry_zone_high) if candidate.entry_zone_high else None)
     )
     atr = snap.atr_at_creation if snap else None
 
-    allowed, zone_reasons = entry_allowed_for_setup_type(
-        setup_type, mid, zone_low, zone_high, atr
-    )
+    allowed, zone_reasons = entry_allowed_for_setup_type(setup_type, mid, zone_low, zone_high, atr)
     if not allowed and setup_type is not SetupType.UNKNOWN:
         raise PretradeRejection("PRICE_OUTSIDE_ENTRY_POLICY", ",".join(zone_reasons))
 

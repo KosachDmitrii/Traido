@@ -44,11 +44,7 @@ def _canonical_payload(data: dict[str, Any]) -> str:
     import json
 
     # Exclude volatile identity fields from equality.
-    scrubbed = {
-        k: v
-        for k, v in data.items()
-        if k not in {"id", "recorded_at", "expires_at"}
-    }
+    scrubbed = {k: v for k, v in data.items() if k not in {"id", "recorded_at", "expires_at"}}
     return json.dumps(scrubbed, sort_keys=True, default=str)
 
 

@@ -38,9 +38,7 @@ def build_target_plan(
 
     hist_target = None
     if historical_mfe_pct is not None and historical_sample_size >= 30:
-        hist_target = Decimal(
-            str(round(float(entry) * (1.0 + historical_mfe_pct / 100.0), 4))
-        )
+        hist_target = Decimal(str(round(float(entry) * (1.0 + historical_mfe_pct / 100.0), 4)))
 
     candidates: list[tuple[str, Decimal]] = [("2R", two_r)]
     if atr_target is not None and atr_target > entry:

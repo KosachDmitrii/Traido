@@ -146,9 +146,7 @@ def revalidate_triggered_watch_full(
         atr = facts.atr
         if watch.admission_snapshot and watch.admission_snapshot.atr_at_creation:
             atr = atr or watch.admission_snapshot.atr_at_creation
-        arrival_facts = evaluate_zone_arrival(
-            watch, bars, atr=atr, current_price=float(quote.ask)
-        )
+        arrival_facts = evaluate_zone_arrival(watch, bars, atr=atr, current_price=float(quote.ask))
         zone_arrival_quality = round(arrival_facts.score)
         zone_arrival_type = arrival_facts.arrival_type.value
 
@@ -206,7 +204,9 @@ def revalidate_triggered_watch_full(
             strategy_version=watch.strategy_version,
         )
         if snap_gh != gh:
-            ENTRY_WATCHES.mark(watch.id, EntryWatchStatus.INVALIDATED, reason="GEOMETRY_VERSION_MISMATCH")
+            ENTRY_WATCHES.mark(
+                watch.id, EntryWatchStatus.INVALIDATED, reason="GEOMETRY_VERSION_MISMATCH"
+            )
             return None
 
     stop_plan = StopPlan(

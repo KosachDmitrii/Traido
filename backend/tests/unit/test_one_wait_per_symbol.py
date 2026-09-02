@@ -21,9 +21,7 @@ def _bundle_and_candidate(symbol: str, *, quality_score: int = 88):
         planned_stop=98.5,
         planned_target=103.0,
     )
-    bundle = decide_entry(
-        InstrumentThesis.BULLISH, facts, technical_score=quality_score
-    )
+    bundle = decide_entry(InstrumentThesis.BULLISH, facts, technical_score=quality_score)
     assert bundle.entry_decision is EntryDecision.WAIT_FOR_ENTRY
     cand = TradeCandidate(
         symbol=symbol,

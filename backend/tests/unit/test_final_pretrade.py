@@ -25,7 +25,9 @@ def _snap(symbol: str = "NEM", close: float = 112.0, atr: float = 2.0) -> Featur
     )
 
 
-def _candidate(*, entry: float = 112.0, stop: float = 108.0, target: float = 120.0) -> TradeCandidate:
+def _candidate(
+    *, entry: float = 112.0, stop: float = 108.0, target: float = 120.0
+) -> TradeCandidate:
     return TradeCandidate(
         symbol="NEM",
         action=TradeAction.BUY,

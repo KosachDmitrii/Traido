@@ -31,7 +31,9 @@ from trading.trade_admission import ADMISSION_VERSION
 from trading.zone_touch_calibration import lookup_zone_touch_calibration
 
 
-def _admission(*, decision: AdmissionDecision = AdmissionDecision.BUY_ALLOWED) -> TradeAdmissionResult:
+def _admission(
+    *, decision: AdmissionDecision = AdmissionDecision.BUY_ALLOWED
+) -> TradeAdmissionResult:
     return TradeAdmissionResult(
         decision=decision,
         admitted=decision is AdmissionDecision.BUY_ALLOWED,

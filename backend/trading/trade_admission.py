@@ -123,7 +123,9 @@ def evaluate_trade_admission(
 
     ent = entry or (candidate.entry if candidate else facts.current_price)
     stp = stop or bundle.stop_price or (candidate.stop if candidate else None)
-    tgt = target or (bundle.target.price if bundle.target else (candidate.target if candidate else None))
+    tgt = target or (
+        bundle.target.price if bundle.target else (candidate.target if candidate else None)
+    )
     tp = target_plan or bundle.target
 
     zone_low = float(bundle.entry_zone_low) if bundle.entry_zone_low else None
@@ -216,9 +218,7 @@ def evaluate_trade_admission(
         )
         if effective_rr_val < req_rr:
             vetoes.append("INSUFFICIENT_EFFECTIVE_RR")
-            reason_codes.append(
-                f"INSUFFICIENT_EFFECTIVE_RR:{effective_rr_val:.2f}<{req_rr:.2f}"
-            )
+            reason_codes.append(f"INSUFFICIENT_EFFECTIVE_RR:{effective_rr_val:.2f}<{req_rr:.2f}")
 
     if quote is not None:
         bid = float(quote.bid or 0)
@@ -243,8 +243,7 @@ def evaluate_trade_admission(
         ):
             reason_codes.append(f"ZONE_ARRIVAL_QUALITY_LOW:{int(zone_arrival.score)}")
         if (
-            zone_arrival.arrival_type.value
-            in {"SELL_OFF", "CRASH", "GAP_DOWN", "STRUCTURAL_BREAK"}
+            zone_arrival.arrival_type.value in {"SELL_OFF", "CRASH", "GAP_DOWN", "STRUCTURAL_BREAK"}
             and not th.allow_fast_pullback
         ):
             reason_codes.append(f"ARRIVAL_TYPE_{zone_arrival.arrival_type.value}")
@@ -256,12 +255,28 @@ def evaluate_trade_admission(
     min_entry = th.min_entry_quality
 
     if hard:
-        decision = AdmissionDecision.NO_TRADE if any(
-            v in hard for v in ("STRUCTURAL_DAMAGE", "INSUFFICIENT_EFFECTIVE_RR", "MISSING_TARGET", "INVALID_STOP", "TARGET_UNREALISTIC")
-        ) else AdmissionDecision.WAIT
+        decision = (
+            AdmissionDecision.NO_TRADE
+            if any(
+                v in hard
+                for v in (
+                    "STRUCTURAL_DAMAGE",
+                    "INSUFFICIENT_EFFECTIVE_RR",
+                    "MISSING_TARGET",
+                    "INVALID_STOP",
+                    "TARGET_UNREALISTIC",
+                )
+            )
+            else AdmissionDecision.WAIT
+        )
         if "STALE_DATA" in hard or "MARKET_DATA_UNHEALTHY" in hard:
             decision = AdmissionDecision.DATA_BLOCKED
-        elif not allowed or "ENTRY_OUTSIDE_ALLOWED_ZONE" in hard or "EXTREME_CHASE" in hard or any("ZONE_ARRIVAL" in r or "ARRIVAL_TYPE" in r for r in reason_codes):
+        elif (
+            not allowed
+            or "ENTRY_OUTSIDE_ALLOWED_ZONE" in hard
+            or "EXTREME_CHASE" in hard
+            or any("ZONE_ARRIVAL" in r or "ARRIVAL_TYPE" in r for r in reason_codes)
+        ):
             decision = AdmissionDecision.WAIT
         return _result(
             decision,

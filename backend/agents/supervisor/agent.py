@@ -179,9 +179,7 @@ class Supervisor:
                     },
                 )
 
-            decision_label = (
-                candidate.entry_decision.value if candidate.entry_decision else "buy"
-            )
+            decision_label = candidate.entry_decision.value if candidate.entry_decision else "buy"
             BOARD.set_agent(
                 "strategy",
                 status="done",

@@ -60,7 +60,11 @@ def _quote(bid: str, ask: str, *, age_sec: float = 1.0) -> Quote:
 
 
 def _live(bid: str, ask: str) -> SpreadReading:
-    return SpreadReading(source=SpreadSource.LIVE, bps=float((Decimal(ask) - Decimal(bid)) / ((Decimal(ask) + Decimal(bid)) / 2) * 10_000), age_sec=1.0)
+    return SpreadReading(
+        source=SpreadSource.LIVE,
+        bps=float((Decimal(ask) - Decimal(bid)) / ((Decimal(ask) + Decimal(bid)) / 2) * 10_000),
+        age_sec=1.0,
+    )
 
 
 def test_a_tight_book_at_the_card_is_live() -> None:

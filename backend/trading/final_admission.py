@@ -86,9 +86,7 @@ async def build_and_evaluate_final_admission(
     sec_tradable = sector_tradable
     if assessment is not None:
         sec_label = sec_label if sec_label is not None else assessment.sector_label
-        sec_tradable = (
-            sec_tradable if sec_tradable is not None else assessment.sector_tradable
-        )
+        sec_tradable = sec_tradable if sec_tradable is not None else assessment.sector_tradable
 
     gate = evaluate_market_gate(
         assessment,

@@ -57,7 +57,9 @@ def validate_stop(
         "retest",
         "invalidation",
     }
-    if model in structural_models and (source or level is not None or facts.nearest_support is not None):
+    if model in structural_models and (
+        source or level is not None or facts.nearest_support is not None
+    ):
         structural = True
         if level is None and facts.nearest_support is not None:
             level = float(facts.nearest_support)

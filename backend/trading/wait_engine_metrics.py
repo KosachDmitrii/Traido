@@ -34,9 +34,7 @@ def compute_wait_engine_metrics(*, limit: int = 2000) -> WaitEngineMetrics:
     knives = [
         r
         for r in rows
-        if r.zone_reached
-        and r.zone_arrival_quality is not None
-        and r.zone_arrival_quality < 60
+        if r.zone_reached and r.zone_arrival_quality is not None and r.zone_arrival_quality < 60
     ]
     avoided = [r for r in knives if r.mae_pct is not None and r.mae_pct <= -3.0]
     fk_rate = len(avoided) / len(knives) * 100.0 if knives else None

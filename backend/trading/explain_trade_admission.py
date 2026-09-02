@@ -56,7 +56,9 @@ def explain_from_admission(
         headline = "WHY WAS BUY PROHIBITED?"
 
     fields: list[AdmissionExplainField] = [
-        AdmissionExplainField(label="Setup type", value=str(admission.setup_type.value), status="info"),
+        AdmissionExplainField(
+            label="Setup type", value=str(admission.setup_type.value), status="info"
+        ),
         AdmissionExplainField(
             label="Setup quality",
             value=str(admission.setup_quality),
@@ -213,11 +215,17 @@ def explain_trade_admission(
                 fields=[
                     AdmissionExplainField(
                         label="Entry decision",
-                        value=cand.entry_decision.value if cand.entry_decision is not None else "n/a",
+                        value=cand.entry_decision.value
+                        if cand.entry_decision is not None
+                        else "n/a",
                         status="info",
                     ),
-                    AdmissionExplainField(label="Setup quality", value=str(cand.setup_quality or "n/a"), status="info"),
-                    AdmissionExplainField(label="Entry quality", value=str(cand.entry_quality or "n/a"), status="info"),
+                    AdmissionExplainField(
+                        label="Setup quality", value=str(cand.setup_quality or "n/a"), status="info"
+                    ),
+                    AdmissionExplainField(
+                        label="Entry quality", value=str(cand.entry_quality or "n/a"), status="info"
+                    ),
                 ],
                 reason_codes=list(cand.reasons[:8]),
                 recorded_at=opp.created_at,

@@ -31,7 +31,9 @@ def test_extension_veto_red_without_fix() -> None:
     )
     # Green: extension veto active → not BUY_NOW
     assert (
-        decide_entry(InstrumentThesis.BULLISH, facts, market=market, technical_score=92).entry_decision
+        decide_entry(
+            InstrumentThesis.BULLISH, facts, market=market, technical_score=92
+        ).entry_decision
         is not EntryDecision.BUY_NOW
     )
 

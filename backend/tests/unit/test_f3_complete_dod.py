@@ -120,9 +120,7 @@ async def test_watch_pass_never_places_broker_order(monkeypatch: pytest.MonkeyPa
         async def get_bars(self, *a, **k):
             return []
 
-    monkeypatch.setattr(
-        "trading.entry_watch_loop.create_market_data_port", lambda *_a, **_k: _MD()
-    )
+    monkeypatch.setattr("trading.entry_watch_loop.create_market_data_port", lambda *_a, **_k: _MD())
 
     async def _boom_place(*_a, **_k):
         placed.append(True)

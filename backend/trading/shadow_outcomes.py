@@ -82,9 +82,7 @@ class ShadowOutcomeStore:
     ) -> ShadowOutcomeRecord:
         now = datetime.now(UTC)
         ref = reference_price or float(watch.last_price or watch.current_price_at_creation)
-        admission_decision = (
-            admission.decision if admission else AdmissionDecision.WAIT
-        )
+        admission_decision = admission.decision if admission else AdmissionDecision.WAIT
         enrichment: dict[str, object] = dict(watch.desk_enrichment or {})
         if zone_arrival_quality is None:
             raw_quality = enrichment.get("zone_arrival_quality")
