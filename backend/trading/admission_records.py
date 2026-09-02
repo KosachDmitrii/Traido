@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from core.schemas import AdmissionInput, AdmissionRecord, TradeAdmissionResult
 from database.models.desk import AdmissionRecordRow
 from database.session import session_factory
+from trading.approval_errors import StaleDecisionError
 
 ADMISSION_ORCHESTRATION_VERSION = "final_admission@1"
 
@@ -96,13 +97,6 @@ class AdmissionIdempotencyConflict(Exception):
     def __init__(self, evaluation_key: str) -> None:
         self.evaluation_key = evaluation_key
         super().__init__(f"admission_idempotency_conflict:{evaluation_key}")
-
-
-from trading.approval_errors import (
-    EntryInFlightError,
-    IdempotencyConflictError,
-    StaleDecisionError,
-)
 
 
 # Identity / wall-clock stamps that change on every persist of the same decision.

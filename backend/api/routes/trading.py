@@ -125,7 +125,7 @@ async def decide_opportunity(opportunity_id: UUID, body: DecisionBody) -> TradeO
             DESK_BUS.bump_broker(kind="decide_failed")
             detail = str(exc)
             status = 409
-            if detail.startswith("DATA_BLOCKED") or detail.startswith("BUY_REJECTED"):
+            if detail.startswith(("DATA_BLOCKED", "BUY_REJECTED")):
                 status = 422
             raise HTTPException(status_code=status, detail=detail) from exc
         raise

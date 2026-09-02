@@ -30,6 +30,7 @@ from trading.admission_authority import AdmissionAuthorityError, assert_authorit
 from trading.admission_records import (
     StaleDecisionError,
 )
+from trading.approval_errors import ApprovalDomainError
 from trading.execution import ExecutionService
 from trading.exits import MemoryExitStore
 from trading.intents import MemoryOrderIntentStore
@@ -433,8 +434,11 @@ async def test_hundred_concurrent_approves_one_buy() -> None:
                 request_id=rid,
                 expected_decision_version=version,
             )
-        except Exception:
-            pass
+        except (ValueError, RuntimeError):
+            # Losers: claim races, entry-in-flight, already executed, etc.
+            return
+        except ApprovalDomainError:
+            return
 
     await asyncio.gather(*[_one() for _ in range(100)])
     buy_calls = [

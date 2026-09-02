@@ -29,12 +29,12 @@ from core.schemas import (
     TradeAdmissionResult,
 )
 from database.session import init_db
+from tests.unit.test_strict_admission_authority import _approved_opp, _service
 from trading.admission_records import AdmissionRecordStore, build_request_fingerprint
 from trading.approval_commit import commit_approval_bundle
 from trading.approval_errors import IdempotencyConflictError, StaleDecisionError
 from trading.intents import MemoryOrderIntentStore
 from trading.opportunities import MemoryOpportunityStore
-from tests.unit.test_strict_admission_authority import _approved_opp, _service
 
 
 def _breakdown() -> EntryQualityBreakdown:
@@ -65,37 +65,37 @@ def _minimal_input(**overrides) -> AdmissionInput:
         chase_reasons=[],
         reasons=["ok"],
     )
-    base = dict(
-        bundle=bundle,
-        setup_type=SetupType.PULLBACK_CONTINUATION,
-        setup_quality=80,
-        target_plan=TargetPlan(
-            price=Decimal("110"),
+    base = {
+        "bundle": bundle,
+        "setup_type": SetupType.PULLBACK_CONTINUATION,
+        "setup_quality": 80,
+        "target_plan": TargetPlan(
+            price=Decimal(110),
             model="test",
             reachability=TargetReachabilityClass.REALISTIC,
         ),
-        quote=Quote(
+        "quote": Quote(
             symbol="AAPL",
             bid=Decimal("99.9"),
             ask=Decimal("100.1"),
             ts=datetime(2026, 3, 10, 15, 0, tzinfo=UTC),
             source="test",
         ),
-        bars_count=60,
-        bar_timeframe="1Day",
-        last_bar_ts=datetime(2026, 3, 10, 14, 0, tzinfo=UTC),
-        sector_label="technology",
-        sector_tradable=True,
-        strategy_version="test@1",
-        admission_version="admission@1",
-        policy_version="entry_policy@1",
-        aggressiveness=0,
-        geometry_hash="geo1",
-        evaluated_at=datetime(2026, 3, 10, 15, 1, tzinfo=UTC),
-        portfolio_snapshot={"equity": "100000"},
-        risk_snapshot={"verdict": "pass", "sized_qty": "10"},
-        liquidity_snapshot={"ok": True},
-    )
+        "bars_count": 60,
+        "bar_timeframe": "1Day",
+        "last_bar_ts": datetime(2026, 3, 10, 14, 0, tzinfo=UTC),
+        "sector_label": "technology",
+        "sector_tradable": True,
+        "strategy_version": "test@1",
+        "admission_version": "admission@1",
+        "policy_version": "entry_policy@1",
+        "aggressiveness": 0,
+        "geometry_hash": "geo1",
+        "evaluated_at": datetime(2026, 3, 10, 15, 1, tzinfo=UTC),
+        "portfolio_snapshot": {"equity": "100000"},
+        "risk_snapshot": {"verdict": "pass", "sized_qty": "10"},
+        "liquidity_snapshot": {"ok": True},
+    }
     base.update(overrides)
     return AdmissionInput(**base)
 

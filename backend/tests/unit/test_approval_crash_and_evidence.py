@@ -36,7 +36,7 @@ from database.session import init_db
 from tests.unit.test_strict_admission_authority import _approved_opp, _service
 from trading.admission_records import AdmissionRecordStore, build_request_fingerprint
 from trading.approval_commit import commit_approval_bundle
-from trading.approval_errors import EntryInFlightError
+from trading.approval_errors import ApprovalDomainError, EntryInFlightError
 from trading.approval_evidence import evaluate_final_approval
 from trading.intents import MemoryOrderIntentStore
 from trading.opportunities import MemoryOpportunityStore
@@ -73,26 +73,26 @@ def _input(**overrides) -> AdmissionInput:
         chase_reasons=[],
         reasons=["ok"],
     )
-    base = dict(
-        bundle=bundle,
-        setup_type=SetupType.PULLBACK_CONTINUATION,
-        setup_quality=80,
-        target_plan=TargetPlan(
+    base = {
+        "bundle": bundle,
+        "setup_type": SetupType.PULLBACK_CONTINUATION,
+        "setup_quality": 80,
+        "target_plan": TargetPlan(
             price=Decimal(110),
             model="test",
             reachability=TargetReachabilityClass.REALISTIC,
         ),
-        quote=Quote(
+        "quote": Quote(
             symbol="AAPL",
             bid=Decimal("99.9"),
             ask=Decimal("100.1"),
             ts=datetime(2026, 3, 10, 15, 0, tzinfo=UTC),
             source="test",
         ),
-        bars_count=60,
-        bar_timeframe="1Day",
-        last_bar_ts=datetime(2026, 3, 10, 14, 0, tzinfo=UTC),
-        market=MarketAssessment(
+        "bars_count": 60,
+        "bar_timeframe": "1Day",
+        "last_bar_ts": datetime(2026, 3, 10, 14, 0, tzinfo=UTC),
+        "market": MarketAssessment(
             regime="risk_on",
             score=80,
             risk_posture="risk_on",
@@ -100,24 +100,24 @@ def _input(**overrides) -> AdmissionInput:
             evaluated_at=datetime(2026, 3, 10, 15, 0, tzinfo=UTC),
             benchmark="SPY",
         ),
-        sector_label="technology",
-        sector_tradable=True,
-        sector_benchmark="XLK",
-        sector_provider="test",
-        sector_source_ts=datetime(2026, 3, 10, 15, 0, tzinfo=UTC),
-        news_status=NewsCheck.CHECKED,
-        earnings_status=EarningsCheck.CHECKED,
-        strategy_version="test@1",
-        admission_version="admission@1",
-        policy_version="entry_policy@1",
-        aggressiveness=0,
-        geometry_hash="geo1",
-        evaluated_at=datetime(2026, 3, 10, 15, 1, tzinfo=UTC),
-        portfolio_snapshot={"equity": "100000"},
-        risk_snapshot={"verdict": "pass", "sized_qty": "10"},
-        liquidity_snapshot={"ok": True},
-        decision_version=0,
-    )
+        "sector_label": "technology",
+        "sector_tradable": True,
+        "sector_benchmark": "XLK",
+        "sector_provider": "test",
+        "sector_source_ts": datetime(2026, 3, 10, 15, 0, tzinfo=UTC),
+        "news_status": NewsCheck.CHECKED,
+        "earnings_status": EarningsCheck.CHECKED,
+        "strategy_version": "test@1",
+        "admission_version": "admission@1",
+        "policy_version": "entry_policy@1",
+        "aggressiveness": 0,
+        "geometry_hash": "geo1",
+        "evaluated_at": datetime(2026, 3, 10, 15, 1, tzinfo=UTC),
+        "portfolio_snapshot": {"equity": "100000"},
+        "risk_snapshot": {"verdict": "pass", "sized_qty": "10"},
+        "liquidity_snapshot": {"ok": True},
+        "decision_version": 0,
+    }
     base.update(overrides)
     return AdmissionInput(**base)
 
@@ -193,7 +193,7 @@ async def test_hundred_distinct_request_ids_second_blocked_while_in_flight() -> 
             return result.status.value
         except EntryInFlightError:
             return "in_flight"
-        except Exception as exc:
+        except (ApprovalDomainError, ValueError, RuntimeError) as exc:
             return type(exc).__name__
 
     outcomes = await asyncio.gather(*[_one() for _ in range(100)])
