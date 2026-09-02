@@ -36,9 +36,9 @@ def load_valid_approval_admission(
     if record is None:
         raise AdmissionAuthorityError("ADMISSION_REQUIRED", "approval_record_missing")
 
-    if record.phase not in {None, "approval"} and record.context.get("phase") != "approval":
-        if record.phase != "approval":
-            raise AdmissionAuthorityError("ADMISSION_REQUIRED", f"wrong_phase:{record.phase}")
+    effective_phase = record.phase or record.context.get("phase")
+    if effective_phase not in {None, "approval"}:
+        raise AdmissionAuthorityError("ADMISSION_REQUIRED", f"wrong_phase:{effective_phase}")
 
     if record.opportunity_id is not None and record.opportunity_id != opportunity.id:
         raise AdmissionAuthorityError("ADMISSION_REQUIRED", "opportunity_mismatch")

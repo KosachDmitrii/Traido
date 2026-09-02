@@ -357,7 +357,6 @@ def admission_metadata_on_store_create(monkeypatch: pytest.MonkeyPatch) -> Itera
     Does not invent R:R, REALISTIC reachability, or lift targets. Only fills
     missing thesis/breakdown/target_model required by the capital path.
     """
-    from tests.support import ensure_admission_ready
     from trading.opportunities import MemoryOpportunityStore, OpportunityStore
 
     def _wrap(cls):

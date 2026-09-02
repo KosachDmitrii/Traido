@@ -578,8 +578,13 @@ async def block_symbol_as_unknown(
                 intents.transition(
                     legacy.id, IntentStatus.CANCELED, last_error="migrated_to_external_incident"
                 )
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:
+                logger.warning(
+                    "failed to cancel legacy orphan intent %s for %s",
+                    legacy.id,
+                    ticker,
+                    exc_info=True,
+                )
 
     if audit:
         await audit.append(

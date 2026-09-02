@@ -12,7 +12,6 @@ from decimal import Decimal
 from core.enums import (
     AdmissionDecision,
     DataHealthStatus,
-    EntryDecision,
     InstrumentThesis,
     SetupType,
     TargetReachabilityClass,

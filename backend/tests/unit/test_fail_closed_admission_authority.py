@@ -39,8 +39,8 @@ from tests.support import (
     ensure_admission_ready,
     liquid_market_data,
 )
-from trading.execution import ExecutionService
 from trading import external_positions as external_positions_mod
+from trading.execution import ExecutionService
 from trading.exits import MemoryExitStore
 from trading.final_pretrade import map_admission_rejection
 from trading.intents import MemoryOrderIntentStore
@@ -176,9 +176,9 @@ async def test_raw_legacy_lly_requires_admission_zero_broker(
         symbol="LLY",
         action=TradeAction.BUY,
         confidence=0.95,
-        entry=Decimal("800"),
-        stop=Decimal("780"),
-        target=Decimal("860"),
+        entry=Decimal(800),
+        stop=Decimal(780),
+        target=Decimal(860),
         risk_reward=3.0,
         reasons=["legacy card"],
         strategy_version="legacy@0",
@@ -226,10 +226,10 @@ async def test_nem_orphan_creates_external_incident_not_admission() -> None:
     incident = await block_symbol_as_unknown(
         intents,
         symbol="NEM",
-        qty=Decimal("100"),
+        qty=Decimal(100),
         reason="broker position with no ledger row",
         audit=audit,
-        avg_entry=Decimal("50"),
+        avg_entry=Decimal(50),
         broker="ibkr",
     )
     assert incident.symbol == "NEM"
@@ -255,7 +255,7 @@ async def test_aged_lly_card_invalidated_after_orphan(monkeypatch: pytest.Monkey
 
     intents = MemoryOrderIntentStore()
     await block_symbol_as_unknown(
-        intents, symbol="LLY", qty=Decimal("10"), reason="orphan after flatten"
+        intents, symbol="LLY", qty=Decimal(10), reason="orphan after flatten"
     )
     updated = store.get(opp.id)
     assert updated is None or updated.status.value != "awaiting_confirmation"
@@ -265,7 +265,7 @@ def test_missing_stop_blocks() -> None:
     now = datetime.now(UTC)
     facts = EntryTimingFacts(current_price=100.0, atr=2.0, nearest_support=95.0)
     plan = TargetPlan(
-        price=Decimal("115"), model="structure", reachability=TargetReachabilityClass.REALISTIC
+        price=Decimal(115), model="structure", reachability=TargetReachabilityClass.REALISTIC
     )
     bundle = EntryDecisionBundle(
         thesis=InstrumentThesis.BULLISH,
@@ -305,9 +305,9 @@ def test_missing_stop_blocks() -> None:
         bars_count=60,
         last_bar_ts=now - timedelta(minutes=20),
         require_bars=True,
-        entry=Decimal("100"),
+        entry=Decimal(100),
         stop=None,
-        target=Decimal("115"),
+        target=Decimal(115),
         target_plan=plan,
         now=now,
     )
@@ -329,9 +329,9 @@ def test_entry_intent_without_admission_fk_refused() -> None:
                 broker="paper",
                 symbol="AAPL",
                 side=OrderSide.BUY,
-                requested_qty=Decimal("1"),
+                requested_qty=Decimal(1),
                 order_type=OrderType.LIMIT,
-                limit_price=Decimal("100"),
+                limit_price=Decimal(100),
                 status=IntentStatus.CREATED,
                 approval_admission_record_id=None,
             )
