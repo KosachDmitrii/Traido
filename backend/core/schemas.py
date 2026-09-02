@@ -740,6 +740,7 @@ class AdmissionRecord(StrictModel):
     # Full fail-closed input + snapshot frozen with the decision.
     admission_input: dict[str, Any] | None = None
     admission_snapshot: AdmissionSnapshot | None = None
+    request_fingerprint: str | None = None
 
 
 class ExternalPositionIncident(StrictModel):

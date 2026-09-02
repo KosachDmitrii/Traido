@@ -88,8 +88,8 @@ def _write(session: Session, intent: OrderIntent) -> None:
 
     if (
         intent.purpose is IntentPurpose.ENTRY
-        and intent.approval_admission_record_id is None
         and intent.status is IntentStatus.CREATED
+        and (intent.approval_admission_record_id is None or not intent.geometry_hash)
     ):
         from core.metrics import METRICS
 
@@ -319,8 +319,8 @@ class MemoryOrderIntentStore:
 
         if (
             intent.purpose is IntentPurpose.ENTRY
-            and intent.approval_admission_record_id is None
             and intent.status is IntentStatus.CREATED
+            and (intent.approval_admission_record_id is None or not intent.geometry_hash)
         ):
             from core.metrics import METRICS
 

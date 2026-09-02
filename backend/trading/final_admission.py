@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from core.enums import Timeframe
 from core.ports import MarketDataPort
 from core.schemas import (
+    AdmissionInput,
     AdmissionSnapshot,
     FeatureSnapshot,
     MarketAssessment,
@@ -27,6 +29,7 @@ ADMISSION_ORCHESTRATION_VERSION = "final_admission@1"
 @dataclass
 class FinalAdmissionEvaluation:
     admission: TradeAdmissionResult
+    admission_input: AdmissionInput
     quote: Quote
     snapshot: AdmissionSnapshot | None
     market_gate: MarketGateResult
@@ -59,11 +62,15 @@ async def build_and_evaluate_final_admission(
     sector_label: str | None = None,
     sector_tradable: bool | None = None,
     require_sector: bool = True,
+    opportunity_id: UUID | None = None,
+    decision_version: int = 0,
 ) -> FinalAdmissionEvaluation:
     """Fetch bars + regime, then run full final_pretrade_validation.
 
     Only production capital-path entry to final admission. Synthetic bars,
     invented SMAs, or scan-time market labels alone are not sufficient.
+    Never stamps evaluated_at onto an assessment that arrived without one —
+    that would launder FRED_NOT_CONFIGURED into a tradable regime.
     """
     evaluated_at = now or datetime.now(UTC)
     if evaluated_at.tzinfo is None:
@@ -77,11 +84,7 @@ async def build_and_evaluate_final_admission(
     bars_count = len(bars) if bars else 0
     last_bar_ts = last_bar_timestamp(bars)
 
-    # Prefer caller-supplied fresh assessment; stamp evaluated_at if missing.
     assessment = market
-    if assessment is not None and assessment.evaluated_at is None:
-        assessment = assessment.model_copy(update={"evaluated_at": evaluated_at})
-
     sec_label = sector_label
     sec_tradable = sector_tradable
     if assessment is not None:
@@ -104,7 +107,8 @@ async def build_and_evaluate_final_admission(
     if candidate.admission_snapshot:
         snap = AdmissionSnapshot.model_validate(candidate.admission_snapshot)
 
-    admission = final_pretrade_validation(
+    gh = geometry_hash_from_candidate(candidate, exec_timeframe=tf.value)
+    admission, admission_input = final_pretrade_validation(
         candidate,
         quote=quote,
         snapshot=snap,
@@ -113,11 +117,18 @@ async def build_and_evaluate_final_admission(
         now=evaluated_at,
         exec_snap=exec_snap,
         market_gate=gate,
+        market=assessment,
+        sector_label=sec_label,
+        sector_tradable=sec_tradable,
+        bar_timeframe=tf.value,
+        geometry_hash=gh,
+        opportunity_id=opportunity_id,
+        decision_version=decision_version,
     )
 
-    gh = geometry_hash_from_candidate(candidate, exec_timeframe=tf.value)
     return FinalAdmissionEvaluation(
         admission=admission,
+        admission_input=admission_input,
         quote=quote,
         snapshot=admission.snapshot or snap,
         market_gate=gate,

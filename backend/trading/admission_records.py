@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import UTC, datetime, timedelta
 from threading import Lock
 from typing import Any
@@ -11,13 +13,27 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from core.schemas import AdmissionRecord, TradeAdmissionResult
+from core.schemas import AdmissionInput, AdmissionRecord, TradeAdmissionResult
 from database.models.desk import AdmissionRecordRow
 from database.session import session_factory
 
 ADMISSION_ORCHESTRATION_VERSION = "final_admission@1"
 
 ADMISSION_RECORD_TTL_SEC = 900.0
+
+# Wall-clock fields excluded from the request fingerprint.
+_FINGERPRINT_DROP = frozenset(
+    {
+        "evaluated_at",
+        "created_at",
+        "quote_ts",
+        "last_bar_ts",
+        "market_gate_ts",
+        "structural_source_ts",
+        "basis_timestamp",
+        "ts",  # Quote.ts and other wall-clock stamps nested in AdmissionInput
+    }
+)
 
 
 def build_evaluation_key(
@@ -32,12 +48,48 @@ def build_evaluation_key(
     return f"{phase}:{entity_id}:{state_or_version}:{geometry_hash}"
 
 
+def build_request_fingerprint(
+    admission_input: AdmissionInput | dict[str, Any],
+    *,
+    geometry_hash: str,
+    decision_version: int,
+) -> str:
+    """Stable hash of immutable approve inputs — excludes evaluation timestamps."""
+    if isinstance(admission_input, AdmissionInput):
+        raw = admission_input.model_dump(mode="json")
+    else:
+        raw = dict(admission_input)
+    scrubbed = _drop_fingerprint_stamps(raw)
+    scrubbed["geometry_hash"] = geometry_hash
+    scrubbed["decision_version"] = int(decision_version)
+    payload = json.dumps(scrubbed, sort_keys=True, default=str)
+    return hashlib.sha256(payload.encode()).hexdigest()[:32]
+
+
+def _drop_fingerprint_stamps(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            k: _drop_fingerprint_stamps(v) for k, v in value.items() if k not in _FINGERPRINT_DROP
+        }
+    if isinstance(value, list):
+        return [_drop_fingerprint_stamps(v) for v in value]
+    return value
+
+
 class AdmissionIdempotencyConflict(Exception):
-    """Same evaluation_key with a different canonical payload."""
+    """Same evaluation_key with a different canonical payload (legacy)."""
 
     def __init__(self, evaluation_key: str) -> None:
         self.evaluation_key = evaluation_key
         super().__init__(f"admission_idempotency_conflict:{evaluation_key}")
+
+
+class StaleDecisionError(RuntimeError):
+    """Same decision_version/key family but a different request fingerprint."""
+
+    def __init__(self, detail: str = "") -> None:
+        self.detail = detail or "fingerprint_mismatch"
+        super().__init__(f"STALE_DECISION:{self.detail}")
 
 
 # Identity / wall-clock stamps that change on every persist of the same decision.
@@ -56,12 +108,6 @@ _CONTEXT_DROP_KEYS = frozenset({"evaluated_at"})
 
 
 def _scrub_for_canonical(value: Any) -> Any:
-    """Drop stamps that are not part of the admission decision itself.
-
-    Retries after a lost broker reply re-evaluate and re-persist under the same
-    evaluation_key. `build_admission_snapshot` always stamps `created_at=now`,
-    so comparing the raw payload would treat every honest retry as a conflict.
-    """
     if isinstance(value, dict):
         return {k: _scrub_for_canonical(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -70,8 +116,6 @@ def _scrub_for_canonical(value: Any) -> Any:
 
 
 def _canonical_payload(data: dict[str, Any]) -> str:
-    import json
-
     scrubbed = {k: v for k, v in data.items() if k not in _CANONICAL_DROP_KEYS}
     snap = scrubbed.get("admission_snapshot")
     if isinstance(snap, dict):
@@ -84,6 +128,18 @@ def _canonical_payload(data: dict[str, Any]) -> str:
     return json.dumps(_scrub_for_canonical(scrubbed), sort_keys=True, default=str)
 
 
+def _fingerprint_of(record: AdmissionRecord | dict[str, Any]) -> str | None:
+    if isinstance(record, AdmissionRecord):
+        ctx = record.context or {}
+        fp = ctx.get("request_fingerprint")
+        if fp:
+            return str(fp)
+        return None
+    ctx = record.get("context") or {}
+    fp = ctx.get("request_fingerprint")
+    return str(fp) if fp else None
+
+
 class AdmissionRecordStore:
     def __init__(self, engine: Engine | None = None) -> None:
         self._engine = engine
@@ -92,36 +148,48 @@ class AdmissionRecordStore:
     def _sf(self) -> sessionmaker[Session]:
         return session_factory(self._engine)
 
-    def record(
+    def _build_record(
         self,
         *,
         symbol: str,
         admission: TradeAdmissionResult,
-        watch_id: UUID | None = None,
-        opportunity_id: UUID | None = None,
-        pipeline_run_id: UUID | None = None,
-        trigger_version: int | None = None,
-        zone_arrival_quality: int | None = None,
-        zone_arrival_type: str | None = None,
-        context: dict[str, Any] | None = None,
-        geometry_hash: str | None = None,
-        quote_ts: datetime | None = None,
-        market_gate_ts: datetime | None = None,
-        phase: str | None = None,
-    ) -> AdmissionRecord:
-        now = datetime.now(UTC)
-        ctx = dict(context or {})
+        watch_id: UUID | None,
+        opportunity_id: UUID | None,
+        pipeline_run_id: UUID | None,
+        trigger_version: int | None,
+        zone_arrival_quality: int | None,
+        zone_arrival_type: str | None,
+        context: dict[str, Any],
+        geometry_hash: str | None,
+        quote_ts: datetime | None,
+        market_gate_ts: datetime | None,
+        phase: str | None,
+        decision_version: int | None,
+        request_fingerprint: str | None,
+        now: datetime,
+    ) -> tuple[AdmissionRecord, str | None]:
+        ctx = dict(context)
         phase_val = phase or ctx.get("phase") or "creation"
         entity_id = watch_id or opportunity_id or pipeline_run_id or symbol
-        version = trigger_version if trigger_version is not None else 0
+        if decision_version is not None:
+            version: int | str = decision_version
+        elif trigger_version is not None:
+            version = trigger_version
+        else:
+            version = 0
         eval_key = build_evaluation_key(
             phase=phase_val,
             entity_id=entity_id,
             state_or_version=version,
             geometry_hash=geometry_hash,
         )
+        if request_fingerprint:
+            ctx["request_fingerprint"] = request_fingerprint
+        if "evaluated_at" not in ctx:
+            ctx["evaluated_at"] = now.isoformat()
         rec_id = uuid4()
         expires = now + timedelta(seconds=ADMISSION_RECORD_TTL_SEC)
+        admission_input = ctx.get("admission_input")
         record = AdmissionRecord(
             id=rec_id,
             symbol=symbol.upper(),
@@ -155,54 +223,181 @@ class AdmissionRecordStore:
             market_gate_ts=market_gate_ts,
             expires_at=expires,
             source_version=ADMISSION_ORCHESTRATION_VERSION,
-            admission_input=ctx.get("admission_input"),
+            admission_input=admission_input if isinstance(admission_input, dict) else None,
             admission_snapshot=admission.snapshot,
+            request_fingerprint=request_fingerprint,
+        )
+        return record, eval_key
+
+    def _resolve_existing(
+        self,
+        existing_rec: AdmissionRecord,
+        *,
+        eval_key: str,
+        request_fingerprint: str | None,
+        canonical: str,
+        now: datetime,
+    ) -> AdmissionRecord:
+        if existing_rec.expires_at is not None:
+            exp = existing_rec.expires_at
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=UTC)
+            if exp <= now:
+                raise StaleDecisionError("admission_expired")
+        existing_fp = _fingerprint_of(existing_rec) or existing_rec.request_fingerprint
+        if request_fingerprint and existing_fp:
+            if existing_fp == request_fingerprint:
+                return existing_rec
+            raise StaleDecisionError(f"fingerprint_mismatch:{eval_key}")
+        if _canonical_payload(existing_rec.model_dump(mode="json")) != canonical:
+            if request_fingerprint or existing_fp:
+                raise StaleDecisionError(f"fingerprint_mismatch:{eval_key}")
+            raise AdmissionIdempotencyConflict(eval_key)
+        return existing_rec
+
+    def record_in_session(
+        self,
+        session: Session,
+        *,
+        symbol: str,
+        admission: TradeAdmissionResult,
+        watch_id: UUID | None = None,
+        opportunity_id: UUID | None = None,
+        pipeline_run_id: UUID | None = None,
+        trigger_version: int | None = None,
+        zone_arrival_quality: int | None = None,
+        zone_arrival_type: str | None = None,
+        context: dict[str, Any] | None = None,
+        geometry_hash: str | None = None,
+        quote_ts: datetime | None = None,
+        market_gate_ts: datetime | None = None,
+        phase: str | None = None,
+        decision_version: int | None = None,
+        request_fingerprint: str | None = None,
+        now: datetime | None = None,
+    ) -> AdmissionRecord:
+        """Persist inside a caller-owned transaction (no commit)."""
+        now = now or datetime.now(UTC)
+        record, eval_key = self._build_record(
+            symbol=symbol,
+            admission=admission,
+            watch_id=watch_id,
+            opportunity_id=opportunity_id,
+            pipeline_run_id=pipeline_run_id,
+            trigger_version=trigger_version,
+            zone_arrival_quality=zone_arrival_quality,
+            zone_arrival_type=zone_arrival_type,
+            context=dict(context or {}),
+            geometry_hash=geometry_hash,
+            quote_ts=quote_ts,
+            market_gate_ts=market_gate_ts,
+            phase=phase,
+            decision_version=decision_version,
+            request_fingerprint=request_fingerprint,
+            now=now,
         )
         data = record.model_dump(mode="json")
         canonical = _canonical_payload(data)
+        phase_val = record.phase or "creation"
+        if eval_key:
+            existing = (
+                session.query(AdmissionRecordRow)
+                .filter(AdmissionRecordRow.evaluation_key == eval_key)
+                .first()
+            )
+            if existing is not None:
+                existing_rec = AdmissionRecord.model_validate(existing.payload)
+                return self._resolve_existing(
+                    existing_rec,
+                    eval_key=eval_key,
+                    request_fingerprint=request_fingerprint,
+                    canonical=canonical,
+                    now=now,
+                )
+        session.add(
+            AdmissionRecordRow(
+                id=record.id,
+                symbol=record.symbol,
+                recorded_at=now,
+                decision=admission.decision.value,
+                watch_id=watch_id,
+                opportunity_id=opportunity_id,
+                pipeline_run_id=pipeline_run_id,
+                payload=data,
+                evaluation_key=eval_key,
+                phase=phase_val,
+                geometry_hash=geometry_hash,
+                quote_ts=quote_ts,
+                market_gate_ts=market_gate_ts,
+                expires_at=record.expires_at,
+                source_version=ADMISSION_ORCHESTRATION_VERSION,
+                request_fingerprint=request_fingerprint,
+            )
+        )
+        session.flush()
+        return record
+
+    def record(
+        self,
+        *,
+        symbol: str,
+        admission: TradeAdmissionResult,
+        watch_id: UUID | None = None,
+        opportunity_id: UUID | None = None,
+        pipeline_run_id: UUID | None = None,
+        trigger_version: int | None = None,
+        zone_arrival_quality: int | None = None,
+        zone_arrival_type: str | None = None,
+        context: dict[str, Any] | None = None,
+        geometry_hash: str | None = None,
+        quote_ts: datetime | None = None,
+        market_gate_ts: datetime | None = None,
+        phase: str | None = None,
+        decision_version: int | None = None,
+        request_fingerprint: str | None = None,
+    ) -> AdmissionRecord:
+        now = datetime.now(UTC)
         with self._lock:
             SessionLocal = self._sf()
             with SessionLocal() as session:
-                if eval_key:
-                    existing = (
-                        session.query(AdmissionRecordRow)
-                        .filter(AdmissionRecordRow.evaluation_key == eval_key)
-                        .first()
-                    )
-                    if existing is not None:
-                        existing_rec = AdmissionRecord.model_validate(existing.payload)
-                        if existing_rec.expires_at is not None:
-                            exp = existing_rec.expires_at
-                            if exp.tzinfo is None:
-                                exp = exp.replace(tzinfo=UTC)
-                            if exp <= now:
-                                raise AdmissionIdempotencyConflict(eval_key)
-                        if _canonical_payload(existing.payload) != canonical:
-                            raise AdmissionIdempotencyConflict(eval_key)
-                        return existing_rec
                 try:
-                    session.add(
-                        AdmissionRecordRow(
-                            id=rec_id,
-                            symbol=record.symbol,
-                            recorded_at=now,
-                            decision=admission.decision.value,
-                            watch_id=watch_id,
-                            opportunity_id=opportunity_id,
-                            pipeline_run_id=pipeline_run_id,
-                            payload=data,
-                            evaluation_key=eval_key,
-                            phase=phase_val,
-                            geometry_hash=geometry_hash,
-                            quote_ts=quote_ts,
-                            market_gate_ts=market_gate_ts,
-                            expires_at=expires,
-                            source_version=ADMISSION_ORCHESTRATION_VERSION,
-                        )
+                    record = self.record_in_session(
+                        session,
+                        symbol=symbol,
+                        admission=admission,
+                        watch_id=watch_id,
+                        opportunity_id=opportunity_id,
+                        pipeline_run_id=pipeline_run_id,
+                        trigger_version=trigger_version,
+                        zone_arrival_quality=zone_arrival_quality,
+                        zone_arrival_type=zone_arrival_type,
+                        context=context,
+                        geometry_hash=geometry_hash,
+                        quote_ts=quote_ts,
+                        market_gate_ts=market_gate_ts,
+                        phase=phase,
+                        decision_version=decision_version,
+                        request_fingerprint=request_fingerprint,
+                        now=now,
                     )
                     session.commit()
+                    return record
                 except IntegrityError:
                     session.rollback()
+                    ctx = dict(context or {})
+                    phase_val = phase or ctx.get("phase") or "creation"
+                    entity_id = watch_id or opportunity_id or pipeline_run_id or symbol
+                    version = (
+                        decision_version
+                        if decision_version is not None
+                        else (trigger_version if trigger_version is not None else 0)
+                    )
+                    eval_key = build_evaluation_key(
+                        phase=phase_val,
+                        entity_id=entity_id,
+                        state_or_version=version,
+                        geometry_hash=geometry_hash,
+                    )
                     if eval_key:
                         existing = (
                             session.query(AdmissionRecordRow)
@@ -210,11 +405,33 @@ class AdmissionRecordStore:
                             .first()
                         )
                         if existing is not None:
-                            if _canonical_payload(existing.payload) != canonical:
-                                raise AdmissionIdempotencyConflict(eval_key)
-                            return AdmissionRecord.model_validate(existing.payload)
+                            existing_rec = AdmissionRecord.model_validate(existing.payload)
+                            built, _ = self._build_record(
+                                symbol=symbol,
+                                admission=admission,
+                                watch_id=watch_id,
+                                opportunity_id=opportunity_id,
+                                pipeline_run_id=pipeline_run_id,
+                                trigger_version=trigger_version,
+                                zone_arrival_quality=zone_arrival_quality,
+                                zone_arrival_type=zone_arrival_type,
+                                context=ctx,
+                                geometry_hash=geometry_hash,
+                                quote_ts=quote_ts,
+                                market_gate_ts=market_gate_ts,
+                                phase=phase,
+                                decision_version=decision_version,
+                                request_fingerprint=request_fingerprint,
+                                now=now,
+                            )
+                            return self._resolve_existing(
+                                existing_rec,
+                                eval_key=eval_key,
+                                request_fingerprint=request_fingerprint,
+                                canonical=_canonical_payload(built.model_dump(mode="json")),
+                                now=now,
+                            )
                     raise
-        return record
 
     def get(self, record_id: UUID) -> AdmissionRecord | None:
         SessionLocal = self._sf()
@@ -287,6 +504,8 @@ def persist_admission(
     quote_ts: datetime | None = None,
     market_gate_ts: datetime | None = None,
     phase: str | None = None,
+    decision_version: int | None = None,
+    request_fingerprint: str | None = None,
     audit: bool = True,
 ) -> AdmissionRecord:
     """Sync persist — critical path; audit is best-effort async only."""
@@ -306,6 +525,8 @@ def persist_admission(
         quote_ts=quote_ts,
         market_gate_ts=market_gate_ts,
         phase=phase_val,
+        decision_version=decision_version,
+        request_fingerprint=request_fingerprint,
     )
     if audit:
         try:

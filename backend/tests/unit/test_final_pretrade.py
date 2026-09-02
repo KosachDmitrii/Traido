@@ -93,7 +93,7 @@ def _quote(bid: float, ask: float, *, age_sec: float = 0.0) -> Quote:
 
 def _run(cand: TradeCandidate, quote: Quote, **kwargs):
     now = datetime.now(UTC)
-    return final_pretrade_validation(
+    admission, _inp = final_pretrade_validation(
         cand,
         quote=quote,
         bars_count=60,
@@ -102,6 +102,7 @@ def _run(cand: TradeCandidate, quote: Quote, **kwargs):
         exec_snap=_snap(close=float(quote.ask)),
         **kwargs,
     )
+    return admission
 
 
 def test_price_moved_after_buy_allowed_blocks() -> None:

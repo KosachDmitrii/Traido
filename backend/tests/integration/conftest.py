@@ -522,13 +522,89 @@ def isolated_order_intents() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
-def isolated_ledger() -> Iterator[None]:
+def isolated_admission_and_watches(
+    isolated_desk_stores: None, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Bind ApprovalAdmission to the same throwaway journal as opportunities/intents.
+
+    Overrides the unit-suite fixture that used a private StaticPool engine —
+    FKs and authority loads require one database. Depends on desk_stores so
+    OPPORTUNITIES/INTENTS and ADMISSION_RECORDS share one engine binding.
+    """
+    from sqlalchemy import text
+
+    from database.session import get_sync_engine, session_factory
+    from trading import admission_records as adm_mod
+    from trading import shadow_outcomes as shadow_mod
+    from trading.entry_watch_persistence import (
+        configure_entry_watch_persistence,
+        persistence_enabled,
+    )
+    from trading.entry_watches import ENTRY_WATCHES
+    from trading.opportunities import OPPORTUNITIES
+
+    engine = OPPORTUNITIES._engine or get_sync_engine()
+    store = adm_mod.AdmissionRecordStore(engine=engine)
+    shadow = shadow_mod.ShadowOutcomeStore(engine=engine)
+    monkeypatch.setattr(adm_mod, "ADMISSION_RECORDS", store)
+    monkeypatch.setattr(shadow_mod, "SHADOW_OUTCOMES", shadow)
+
+    SessionLocal = session_factory(engine)
+    with SessionLocal() as session:
+        session.execute(text("DELETE FROM admission_records"))
+        session.execute(text("DELETE FROM shadow_outcomes"))
+        session.commit()
+
+    prev_persistence = persistence_enabled()
+    configure_entry_watch_persistence(enabled=False)
+    ENTRY_WATCHES.clear()
+    yield
+    ENTRY_WATCHES.clear()
+    configure_entry_watch_persistence(enabled=prev_persistence)
+
+
+@pytest.fixture(autouse=True)
+def isolated_default_journal(
+    isolated_database: None,
+) -> Iterator[None]:
+    """Suppress the unit suite's separate unit_journal.db.
+
+    Root `isolated_default_journal` otherwise races this conftest and can
+    re-point `get_sync_engine()` at unit_journal after admission was bound to
+    integration.db — leaving ApprovalAdmission FKs unreadable at place_order.
+    """
+    yield
+
+
+@pytest.fixture(autouse=True)
+def isolated_ledger(isolated_database: None) -> Iterator[None]:
     """Override the unit suite's separate in-memory ledger engine.
 
     Same reason: the integration suite wants one coherent database holding
     opportunities, exits, intents, positions and audit together, because
     reconciliation reads across all of them.
     """
+    yield
+
+
+@pytest.fixture(autouse=True)
+def isolated_desk_stores(
+    isolated_database: None, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Point OPPORTUNITIES/EXITS/INTENTS at the same throwaway journal file."""
+    from database.session import get_sync_engine, init_db
+    from trading.exits import EXITS
+    from trading.intents import INTENTS
+    from trading.ledger import LEDGER
+    from trading.opportunities import OPPORTUNITIES
+
+    get_sync_engine.cache_clear()
+    engine = get_sync_engine()
+    init_db(engine)
+    monkeypatch.setattr(EXITS, "_engine", engine)
+    monkeypatch.setattr(OPPORTUNITIES, "_engine", engine)
+    monkeypatch.setattr(INTENTS, "_engine", engine)
+    monkeypatch.setattr(LEDGER, "_engine", engine)
     yield
 
 
@@ -541,10 +617,12 @@ def isolated_database(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Non
     would not see what the intent store wrote.
     """
     from database import session as session_mod
+    from database.session import get_sync_engine, init_db
 
     url = f"sqlite:///{tmp_path / 'integration.db'}"
     monkeypatch.setenv("TRAIDO_JOURNAL_DATABASE_URL", url)
     session_mod.get_sync_engine.cache_clear()
+    init_db(get_sync_engine())
     yield
     session_mod.get_sync_engine.cache_clear()
 

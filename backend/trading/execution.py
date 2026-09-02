@@ -363,18 +363,10 @@ class ExecutionService:
         # gate order is again whatever decide() happens to call.
         assert NEW_EXPOSURE_GATE_ORDER, "decision pipeline gate order is empty"
 
-        claimed = self.store.claim(
-            opportunity_id,
-            from_status=OpportunityStatus.AWAITING_CONFIRMATION,
-            to_status=OpportunityStatus.APPROVING,
-        )
-        if claimed is None:
-            current = self.store.get(opportunity_id)
-            if current and current.status == OpportunityStatus.EXECUTED:
-                return current
-            raise ValueError(f"invalid_status:{current.status.value if current else 'missing'}")
-        opp = claimed
-
+        # Prechecks run while still AWAITING. The durable CAS into APPROVING
+        # happens inside approval_commit together with Admission + Entry intent
+        # so a crash cannot leave a linked admission without an intent (or the
+        # reverse). Concurrent approvers both evaluate; exactly one wins the txn.
         portfolio = await self.broker.get_portfolio()
         portfolio = portfolio.model_copy(update={"kill_switch": is_kill_switch_on()})
         context, context_notes = await self._risk_context(opp.candidate)
@@ -386,10 +378,6 @@ class ExecutionService:
             context=context,
         )
         if risk.verdict.value != "pass" or not risk.sized_qty:
-            failed = opp.model_copy(
-                update={"status": OpportunityStatus.AWAITING_CONFIRMATION, "risk": risk}
-            )
-            self.store.update(failed)
             await self.audit.append(
                 "RiskRejectOnApprove",
                 "risk_engine",
@@ -400,7 +388,6 @@ class ExecutionService:
 
         gate, bars = await self._pre_trade_gates(opp)
         if gate is not None:
-            self._release_opportunity(opp, risk)
             await self.audit.append(
                 "RTHGateRejected" if gate.gate == "rth" else "LiquidityGateRejected",
                 "execution",
@@ -417,7 +404,6 @@ class ExecutionService:
         quote, spread = await self._top_of_book(opp.candidate.symbol)
         priced, pricing = self._priced_for_execution(opp.candidate, quote, spread)
         if priced is None:
-            self._release_opportunity(opp, risk)
             await self.audit.append(
                 "LiquidityGateRejected",
                 "execution",
@@ -429,12 +415,7 @@ class ExecutionService:
         from trading.final_admission import build_and_evaluate_final_admission
         from trading.final_pretrade import PretradeRejection
 
-        # Legacy cards may be shown, but execution still requires a fresh full
-        # approval admission below — that IS the required re-check. Do not refuse
-        # before final admission solely for missing creation_admission_record_id.
-
         if quote is None:
-            self._release_opportunity(opp, risk)
             await self.audit.append(
                 "PretradeValidationRejected",
                 "execution",
@@ -448,7 +429,6 @@ class ExecutionService:
             raise RuntimeError("BUY_REJECTED_STALE_DATA:QUOTE_REQUIRED")
 
         if self.market_data is None:
-            self._release_opportunity(opp, risk)
             raise RuntimeError("LIQUIDITY_GATE_REJECTED:MARKET_DATA_NOT_CONFIGURED")
 
         evaluated_at = self._clock()
@@ -465,10 +445,12 @@ class ExecutionService:
                 sector_label=fresh_market.sector_label,
                 sector_tradable=fresh_market.sector_tradable,
                 require_sector=True,
+                opportunity_id=opp.id,
+                decision_version=opp.decision_version,
             )
             approval_admission = final_eval.admission
+            admission_input = final_eval.admission_input
         except PretradeRejection as exc:
-            self._release_opportunity(opp, risk)
             await self.audit.append(
                 "PretradeValidationRejected",
                 "execution",
@@ -483,34 +465,8 @@ class ExecutionService:
             )
             raise RuntimeError(f"{exc.code}:{exc.detail}") from exc
 
-        from trading.admission_records import persist_admission
-
-        approval_record = persist_admission(
-            symbol=priced.symbol,
-            admission=approval_admission,
-            opportunity_id=opp.id,
-            pipeline_run_id=opp.candidate.pipeline_run_id,
-            context={
-                "source": "approval",
-                "phase": "approval",
-                "evaluated_at": evaluated_at.isoformat(),
-                "effective_rr": approval_admission.effective_rr,
-                "spread_bps": final_eval.market_gate.model_dump(mode="json")
-                if final_eval.market_gate
-                else None,
-            },
-            geometry_hash=final_eval.geometry_hash,
-            quote_ts=quote.ts,
-            market_gate_ts=final_eval.market_gate.regime_ts,
-            phase="approval",
-        )
-        opp = opp.model_copy(
-            update={
-                "approval_admission_record_id": approval_record.id,
-                "geometry_hash": final_eval.geometry_hash or opp.geometry_hash,
-            }
-        )
-        self.store.update(opp)
+        if not final_eval.geometry_hash:
+            raise RuntimeError("ADMISSION_REQUIRED:geometry_hash_required")
 
         # Sizing is re-derived at the price we will actually pay. Crossing the
         # spread shortens the distance to the stop, so the same dollar limit
@@ -519,7 +475,6 @@ class ExecutionService:
         # scan approved, which is the one direction a re-check may never move.
         risk = self.risk.evaluate(priced, portfolio, candidate_id=opp.id, context=context)
         if risk.verdict.value != "pass" or not risk.sized_qty:
-            self._release_opportunity(opp, risk)
             await self.audit.append(
                 "RiskRejectOnApprove",
                 "risk_engine",
@@ -536,13 +491,8 @@ class ExecutionService:
         if qty is None:
             order_qty = max_qty
         else:
-            # Operator may take less risk than the engine sized, never more.
-            # Rounding down matches whole-share entries; a request above the
-            # live max is refused rather than silently clipped — clipping would
-            # make APPROVE mean something the operator did not press.
             order_qty = round_order_qty(qty)
             if order_qty < 1:
-                self._release_opportunity(opp, risk)
                 await self.audit.append(
                     "OperatorQtyInvalid",
                     "execution",
@@ -555,7 +505,6 @@ class ExecutionService:
                 )
                 raise RuntimeError("OPERATOR_QTY_INVALID")
             if order_qty > max_qty:
-                self._release_opportunity(opp, risk)
                 await self.audit.append(
                     "OperatorQtyAboveRisk",
                     "execution",
@@ -572,17 +521,7 @@ class ExecutionService:
         limit_px = round_equity_price(priced.entry)
         stop_px = round_equity_price(priced.stop)
 
-        # F3 attribution: approval-time price is the live limit, not the card.
-        opp = opp.model_copy(
-            update={
-                "approved_at": datetime.now(UTC),
-                "approval_price": limit_px,
-            }
-        )
-        self.store.update(opp)
-
         if order_qty <= 0:
-            self._release_opportunity(opp, risk)
             await self.audit.append(
                 "EntrySizeBelowOneShare",
                 "execution",
@@ -598,7 +537,6 @@ class ExecutionService:
         qty = order_qty
         liquidity = self._liquidity_gate(opp, bars, qty=qty, price=limit_px, spread=spread)
         if liquidity is not None:
-            self._release_opportunity(opp, risk)
             await self.audit.append(
                 "LiquidityGateRejected",
                 "execution",
@@ -609,7 +547,6 @@ class ExecutionService:
 
         blocker = self._unresolved_blocker(opp.candidate.symbol, opportunity_id=opp.id)
         if blocker is not None:
-            self._release_opportunity(opp, risk)
             await self.audit.append(
                 "EntryBlockedByUnresolvedState",
                 "execution",
@@ -626,7 +563,6 @@ class ExecutionService:
         from trading.external_positions import EXTERNAL_POSITIONS
 
         if opp.candidate.symbol.upper() in EXTERNAL_POSITIONS.blocking_symbols():
-            self._release_opportunity(opp, risk)
             await self.audit.append(
                 "EntryBlockedByExternalPosition",
                 "execution",
@@ -640,11 +576,6 @@ class ExecutionService:
 
         held = self._open_position_for(opp.candidate.symbol)
         if held is not None:
-            # V1 holds one position per symbol. A second entry would leave the
-            # book unable to agree with a broker that reports a single net
-            # position, and each row would carry its own stop for shares the
-            # other row also claims. Refused here, before any capital moves.
-            self._release_opportunity(opp, risk)
             await self.audit.append(
                 "EntryBlockedByOpenPosition",
                 "execution",
@@ -658,10 +589,71 @@ class ExecutionService:
             )
             raise RuntimeError(f"POSITION_ALREADY_OPEN:{opp.candidate.symbol.upper()}")
 
-        intent = await self._entry_intent(opp, risk, qty=qty, limit_px=limit_px, stop_px=stop_px)
+        from trading.admission_authority import AdmissionAuthorityError
+        from trading.admission_records import StaleDecisionError
+        from trading.approval_commit import commit_approval_bundle
 
         try:
-            entry_submitted = await self._place_entry(intent, opp)
+            bundle = commit_approval_bundle(
+                opportunity_id=opp.id,
+                admission=approval_admission,
+                admission_input=admission_input,
+                geometry_hash=final_eval.geometry_hash,
+                quote_ts=quote.ts,
+                market_gate_ts=final_eval.market_gate.regime_ts,
+                pipeline_run_id=opp.candidate.pipeline_run_id,
+                broker_name=self.broker_name,
+                qty=qty,
+                limit_px=limit_px,
+                stop_px=stop_px,
+                risk_snapshot=risk.model_dump(mode="json"),
+                strategy_version=opp.candidate.strategy_version,
+                symbol=priced.symbol,
+                opportunity_store=self.store,
+                intent_store=self.intents,
+                decision_version=opp.decision_version,
+            )
+        except StaleDecisionError:
+            raise
+        except AdmissionAuthorityError:
+            raise
+        except ValueError:
+            current = self.store.get(opportunity_id)
+            if current and current.status == OpportunityStatus.EXECUTED:
+                return current
+            raise
+
+        opp = bundle.opportunity
+        intent = bundle.intent
+        if bundle.created_intent:
+            await self.audit.append(
+                "OrderIntentCreated",
+                "execution",
+                {
+                    "intent_id": str(intent.id),
+                    "idempotency_key": intent.idempotency_key,
+                    "symbol": intent.symbol,
+                    "requested_qty": str(intent.requested_qty),
+                    "limit_price": str(limit_px),
+                    "opportunity_id": str(opp.id),
+                    "approval_admission_record_id": str(bundle.admission_record.id),
+                },
+                pipeline_run_id=opp.candidate.pipeline_run_id,
+                entity_type="order_intent",
+                entity_id=str(intent.id),
+            )
+
+        try:
+            entry_submitted, we_submitted = await self._place_entry(intent, opp)
+            if not we_submitted:
+                # Lost CREATED→SUBMITTING or resumed an intent another worker
+                # already sent. Do not run fill → stop → ledger a second time —
+                # that is how concurrent approvals left a BUY with no position
+                # (or two stops) when both continued past recover.
+                current = self.store.get(opportunity_id)
+                if current and current.status == OpportunityStatus.EXECUTED:
+                    return current
+                raise ValueError("invalid_status:entry_in_flight")
             opp = opp.model_copy(
                 update={
                     "submitted_at": datetime.now(UTC),
@@ -678,6 +670,11 @@ class ExecutionService:
                 pipeline_run_id=opp.candidate.pipeline_run_id,
             )
             raise RuntimeError(f"ENTRY_ORDER_REJECTED:{exc}") from exc
+        except ValueError:
+            current = self.store.get(opportunity_id)
+            if current and current.status == OpportunityStatus.EXECUTED:
+                return current
+            raise
         except Exception as exc:
             # Ambiguous failure: the order may be live at the broker. The
             # opportunity stays claimed so nothing re-enters this symbol until
@@ -1215,8 +1212,14 @@ class ExecutionService:
             )
         return intent
 
-    async def _place_entry(self, intent: OrderIntent, opp: TradeOpportunity) -> OrderRecord:
-        """Submit the entry, or recover the one a previous attempt already sent."""
+    async def _place_entry(
+        self, intent: OrderIntent, opp: TradeOpportunity
+    ) -> tuple[OrderRecord, bool]:
+        """Submit the entry, or recover the one a previous attempt already sent.
+
+        Returns `(record, submitted_by_caller)`. Only the caller that won
+        CREATED→SUBMITTING and transmitted may drive fill settlement.
+        """
         from trading.admission_authority import assert_entry_intent_has_admission
 
         # ApprovalAdmission is the sole authority — EntryDecision / Risk PASS /
@@ -1224,7 +1227,12 @@ class ExecutionService:
         assert_entry_intent_has_admission(intent, opp)
 
         if not intent.may_resubmit:
-            return await self._recover_entry(intent, opp)
+            # UNKNOWN after a lost reply: this process must adopt broker truth
+            # and finish protection/ledger. SUBMITTING/SUBMITTED means another
+            # worker still owns settle — refuse rather than double-open.
+            if intent.status is IntentStatus.UNKNOWN:
+                return await self._recover_entry(intent, opp), True
+            raise ValueError("invalid_status:entry_in_flight")
 
         client_id = f"traido-e-{intent.id.hex[:16]}"
         request = OrderRequest(
@@ -1241,7 +1249,8 @@ class ExecutionService:
         # Persist the client id *before* transmitting: it is the handle that
         # lets recovery find the order if this process never sees the reply.
         # Compare-and-swap: only the worker that wins CREATED→SUBMITTING may
-        # call place_order. The loser adopts whatever the winner already sent.
+        # call place_order. The loser must not recover-and-settle in the same
+        # request — the winner still owns fill → ledger.
         claimed = self.intents.transition_from(
             intent.id,
             from_status=IntentStatus.CREATED,
@@ -1249,10 +1258,7 @@ class ExecutionService:
             client_order_id=client_id,
         )
         if claimed is None:
-            refreshed = self.intents.get(intent.id)
-            if refreshed is None:
-                raise RuntimeError(f"order_intent_vanished:{intent.id}")
-            return await self._recover_entry(refreshed, opp)
+            raise ValueError("invalid_status:entry_in_flight")
         intent = claimed
         await self.audit.append(
             "OrderSubmitStarted",
@@ -1315,7 +1321,7 @@ class ExecutionService:
                 entity_type="order",
                 entity_id=record.broker_order_id,
             )
-        return record
+        return record, True
 
     async def _recover_entry(self, intent: OrderIntent, opp: TradeOpportunity) -> OrderRecord:
         """Adopt an order a previous attempt may already have placed.

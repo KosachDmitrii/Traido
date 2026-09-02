@@ -3,7 +3,9 @@ from database.models.desk import (
     AuditEventRow,
     EntryWatchRow,
     ExitOpportunityRow,
+    ExternalPositionIncidentRow,
     OpportunityRow,
+    OrderIntentRow,
     ShadowOutcomeRow,
 )
 from database.models.journal import BacktestRunRow, TradeJournalRow
@@ -15,8 +17,10 @@ __all__ = [
     "BacktestRunRow",
     "EntryWatchRow",
     "ExitOpportunityRow",
+    "ExternalPositionIncidentRow",
     "OpenPositionRow",
     "OpportunityRow",
+    "OrderIntentRow",
     "ShadowOutcomeRow",
     "TradeJournalRow",
 ]

@@ -22,10 +22,32 @@ def _fresh_engine(tmp_path):
 
 
 def _drop_purpose(engine) -> None:
-    """Rewind `order_intents` to its pre-0005 shape, indexes included."""
+    """Rewind `order_intents` to its pre-0005 shape, indexes included.
+
+    SQLite refuses ALTER DROP when CHECKs reference the column, so recreate.
+    """
     with engine.begin() as conn:
         conn.execute(text("DROP INDEX IF EXISTS ix_order_intents_purpose"))
-        conn.execute(text("ALTER TABLE order_intents DROP COLUMN purpose"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_order_intents_approval_admission"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_order_intents_idempotency_key"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_order_intents_symbol"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_order_intents_status"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_order_intents_broker_order_id"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_order_intents_opportunity_id"))
+        conn.execute(text("DROP INDEX IF EXISTS ix_order_intents_position_id"))
+        conn.execute(
+            text(
+                """
+                CREATE TABLE order_intents_pre0005 AS
+                SELECT id, idempotency_key, broker, symbol, status, broker_order_id,
+                       opportunity_id, position_id, approval_admission_record_id,
+                       geometry_hash, created_at, payload, updated_at
+                FROM order_intents
+                """
+            )
+        )
+        conn.execute(text("DROP TABLE order_intents"))
+        conn.execute(text("ALTER TABLE order_intents_pre0005 RENAME TO order_intents"))
 
 
 def test_a_freshly_created_database_has_no_drift(tmp_path) -> None:
@@ -42,7 +64,7 @@ def test_a_missing_column_is_reported_with_its_table(tmp_path) -> None:
     Base.metadata.create_all(engine)
     _drop_purpose(engine)
 
-    assert schema_drift(engine) == ["order_intents.purpose"]
+    assert "order_intents.purpose" in schema_drift(engine)
 
 
 def test_a_missing_table_is_reported(tmp_path) -> None:

@@ -382,13 +382,39 @@ def test_9_an_unknown_intent_blocks_a_conflicting_entry(desk) -> None:
     from decimal import Decimal
     from uuid import uuid4
 
-    from core.enums import IntentStatus, OrderSide, OrderType
+    from core.enums import AdmissionDecision, IntentStatus, OrderSide, OrderType, SetupType
+    from core.schemas import TradeAdmissionResult
+    from trading.admission_records import ADMISSION_RECORDS
     from trading.intents import INTENTS
     from trading.order_intent import OrderIntent
+    from trading.trade_admission import ADMISSION_VERSION
 
+    ghost_opp = uuid4()
+    admission = ADMISSION_RECORDS.record(
+        symbol="AAPL",
+        admission=TradeAdmissionResult(
+            decision=AdmissionDecision.BUY_ALLOWED,
+            admitted=True,
+            setup_type=SetupType.PULLBACK_CONTINUATION,
+            setup_quality=80,
+            entry_quality=80,
+            effective_rr=2.0,
+            chase_score=10,
+            structure_valid=True,
+            stop_valid=True,
+            target_valid=True,
+            reason_codes=["BUY_ALLOWED"],
+            admission_version=ADMISSION_VERSION,
+        ),
+        opportunity_id=ghost_opp,
+        geometry_hash="ghost-aapl",
+        phase="approval",
+        decision_version=0,
+        request_fingerprint="ghost-aapl-fp",
+    )
     INTENTS.create_or_get(
         OrderIntent(
-            idempotency_key=f"entry:{uuid4()}:0",
+            idempotency_key=f"entry:{ghost_opp}:0",
             broker="AlpacaPaperBroker",
             broker_account_id=None,
             symbol="AAPL",
@@ -397,6 +423,8 @@ def test_9_an_unknown_intent_blocks_a_conflicting_entry(desk) -> None:
             order_type=OrderType.LIMIT,
             limit_price=Decimal(100),
             status=IntentStatus.UNKNOWN,
+            approval_admission_record_id=admission.id,
+            geometry_hash="ghost-aapl",
         )
     )
     opp = desk.offer("AAPL")
@@ -412,13 +440,39 @@ def test_9b_an_unknown_intent_does_not_block_a_different_symbol(desk) -> None:
     from decimal import Decimal
     from uuid import uuid4
 
-    from core.enums import IntentStatus, OrderSide, OrderType
+    from core.enums import AdmissionDecision, IntentStatus, OrderSide, OrderType, SetupType
+    from core.schemas import TradeAdmissionResult
+    from trading.admission_records import ADMISSION_RECORDS
     from trading.intents import INTENTS
     from trading.order_intent import OrderIntent
+    from trading.trade_admission import ADMISSION_VERSION
 
+    ghost_opp = uuid4()
+    admission = ADMISSION_RECORDS.record(
+        symbol="TSLA",
+        admission=TradeAdmissionResult(
+            decision=AdmissionDecision.BUY_ALLOWED,
+            admitted=True,
+            setup_type=SetupType.PULLBACK_CONTINUATION,
+            setup_quality=80,
+            entry_quality=80,
+            effective_rr=2.0,
+            chase_score=10,
+            structure_valid=True,
+            stop_valid=True,
+            target_valid=True,
+            reason_codes=["BUY_ALLOWED"],
+            admission_version=ADMISSION_VERSION,
+        ),
+        opportunity_id=ghost_opp,
+        geometry_hash="ghost-tsla",
+        phase="approval",
+        decision_version=0,
+        request_fingerprint="ghost-tsla-fp",
+    )
     INTENTS.create_or_get(
         OrderIntent(
-            idempotency_key=f"entry:{uuid4()}:0",
+            idempotency_key=f"entry:{ghost_opp}:0",
             broker="AlpacaPaperBroker",
             broker_account_id=None,
             symbol="TSLA",
@@ -427,6 +481,8 @@ def test_9b_an_unknown_intent_does_not_block_a_different_symbol(desk) -> None:
             order_type=OrderType.LIMIT,
             limit_price=Decimal(100),
             status=IntentStatus.UNKNOWN,
+            approval_admission_record_id=admission.id,
+            geometry_hash="ghost-tsla",
         )
     )
     opp = desk.offer("AAPL")

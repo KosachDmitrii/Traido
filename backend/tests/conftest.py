@@ -219,27 +219,29 @@ def keyless_earnings_calendar(
 
 @pytest.fixture(autouse=True)
 def isolated_admission_and_watches(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Keep admission records, watches, and shadow outcomes out of the journal DB."""
-    from sqlalchemy import create_engine
-    from sqlalchemy.pool import StaticPool
+    """Admission lives on the journal engine — FKs from opportunities/intents require it.
 
-    from database import models as _models  # noqa: F401
-    from database.base import Base
+    Rows are wiped per test so evaluations do not leak across cases. Watches stay
+    in-memory (persistence disabled) as before.
+    """
+    from sqlalchemy import text
+
+    from database.session import get_sync_engine, session_factory
     from trading import admission_records as adm_mod
     from trading import shadow_outcomes as shadow_mod
     from trading.entry_watches import ENTRY_WATCHES
 
-    engine = create_engine(
-        "sqlite://",
-        future=True,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
-    Base.metadata.create_all(engine)
+    engine = get_sync_engine()
     store = adm_mod.AdmissionRecordStore(engine=engine)
     shadow = shadow_mod.ShadowOutcomeStore(engine=engine)
     monkeypatch.setattr(adm_mod, "ADMISSION_RECORDS", store)
     monkeypatch.setattr(shadow_mod, "SHADOW_OUTCOMES", shadow)
+
+    SessionLocal = session_factory(engine)
+    with SessionLocal() as session:
+        session.execute(text("DELETE FROM admission_records"))
+        session.execute(text("DELETE FROM shadow_outcomes"))
+        session.commit()
 
     from trading.entry_watch_persistence import (
         configure_entry_watch_persistence,
@@ -252,6 +254,10 @@ def isolated_admission_and_watches(monkeypatch: pytest.MonkeyPatch) -> Iterator[
     yield
     ENTRY_WATCHES.clear()
     configure_entry_watch_persistence(enabled=prev_persistence)
+    with SessionLocal() as session:
+        session.execute(text("DELETE FROM admission_records"))
+        session.execute(text("DELETE FROM shadow_outcomes"))
+        session.commit()
 
 
 @pytest.fixture(autouse=True)

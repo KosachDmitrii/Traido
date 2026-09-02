@@ -1,4 +1,4 @@
-"""Market / regime Agent — FRED when available, else neutral stub."""
+"""Market / regime Agent — FRED when available, else fail-closed stub."""
 
 from __future__ import annotations
 
@@ -10,6 +10,26 @@ from core.enums import AssessmentKind, MarketRegimeLabel
 from core.schemas import MarketAssessment
 
 PROMPT_VERSION = "market@0.1.0"
+
+
+def _blocked(
+    *,
+    reasons: list[str],
+    notes: list[str] | None = None,
+) -> MarketAssessment:
+    """Untrusted / incomplete FRED — never tradable, never stamped."""
+    return MarketAssessment(
+        kind=AssessmentKind.MARKET,
+        regime=MarketRegimeLabel.NEUTRAL,
+        score=0,
+        risk_posture="unknown",
+        reasons=reasons,
+        macro_notes=list(notes or []),
+        evaluated_at=None,
+        benchmark=None,
+        sector_label=None,
+        sector_tradable=None,
+    )
 
 
 async def assess_market(
@@ -24,62 +44,56 @@ async def assess_market(
         evaluated_at = evaluated_at.astimezone(UTC)
 
     if not fred_api_key:
-        # Fail closed: missing FRED is not a tradable NEUTRAL. Capital-path
-        # market_gate rejects assessments without a trustworthy timestamp.
-        return MarketAssessment(
-            kind=AssessmentKind.MARKET,
-            regime=MarketRegimeLabel.NEUTRAL,
-            score=0,
-            risk_posture="unknown",
-            reasons=["FRED_NOT_CONFIGURED", "DATA_BLOCKED"],
-            macro_notes=[],
-            evaluated_at=None,
-            benchmark=None,
-            sector_label=None,
-            sector_tradable=None,
-        )
+        return _blocked(reasons=["FRED_NOT_CONFIGURED", "DATA_BLOCKED"])
 
-    # 10Y yield (DGS10) and unemployment (UNRATE) — simple regime proxy
     async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
         dgs = await _fred_latest(client, fred_api_key, "DGS10")
         unrate = await _fred_latest(client, fred_api_key, "UNRATE")
 
-    notes: list[str] = []
+    if dgs is None or unrate is None:
+        missing = []
+        if dgs is None:
+            missing.append("DGS10")
+        if unrate is None:
+            missing.append("UNRATE")
+        return _blocked(
+            reasons=["FRED_SERIES_EMPTY", "DATA_BLOCKED", *[f"MISSING_{s}" for s in missing]],
+        )
+
+    notes: list[str] = [f"DGS10={dgs:.2f}", f"UNRATE={unrate:.2f}"]
     score = 55
     regime = MarketRegimeLabel.NEUTRAL
     posture = "neutral"
 
-    if dgs is not None:
-        notes.append(f"DGS10={dgs:.2f}")
-        if dgs >= 4.5:
-            score -= 10
-            posture = "risk_off"
-            regime = MarketRegimeLabel.RISK_OFF
-            notes.append("Elevated yields — caution")
-        elif dgs <= 3.0:
-            score += 8
-            posture = "risk_on"
-            regime = MarketRegimeLabel.RISK_ON
+    if dgs >= 4.5:
+        score -= 10
+        posture = "risk_off"
+        regime = MarketRegimeLabel.RISK_OFF
+        notes.append("Elevated yields — caution")
+    elif dgs <= 3.0:
+        score += 8
+        posture = "risk_on"
+        regime = MarketRegimeLabel.RISK_ON
 
-    if unrate is not None:
-        notes.append(f"UNRATE={unrate:.2f}")
-        if unrate >= 5.0:
-            score -= 8
-            posture = "risk_off"
-            regime = MarketRegimeLabel.RISK_OFF
+    if unrate >= 5.0:
+        score -= 8
+        posture = "risk_off"
+        regime = MarketRegimeLabel.RISK_OFF
 
     score = max(0, min(100, score))
+    # FRED series alone are not a sector assessment. Never invent
+    # sector_label="unknown" with sector_tradable=True.
     return MarketAssessment(
         kind=AssessmentKind.MARKET,
         regime=regime,
         score=score,
         risk_posture=posture,
-        reasons=["FRED macro snapshot"] + notes,
+        reasons=["FRED macro snapshot", "SECTOR_ASSESSMENT_REQUIRED"] + notes,
         macro_notes=notes,
         evaluated_at=evaluated_at,
         benchmark="FRED:DGS10+UNRATE",
-        sector_label="unknown",
-        sector_tradable=True,
+        sector_label=None,
+        sector_tradable=None,
     )
 
 

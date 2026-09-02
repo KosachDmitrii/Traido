@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from core.enums import (
     AdmissionDecision,
@@ -17,23 +18,30 @@ from core.enums import (
     TargetReachabilityClass,
 )
 from core.schemas import (
+    AdmissionInput,
     AdmissionSnapshot,
     EntryDecisionBundle,
     EntryQualityBreakdown,
     FeatureSnapshot,
+    MarketAssessment,
     Quote,
     SetupQualityBreakdown,
+    StopPlan,
     TargetPlan,
     TradeAdmissionResult,
     TradeCandidate,
 )
 from trading.chase_facts import HARD_CHASE_LIMIT, compute_chase_facts
 from trading.data_integrity import check_data_integrity
+from trading.entry_policy import get_entry_thresholds
 from trading.entry_timing import evaluate_timing
+from trading.geometry_hash import geometry_hash_from_candidate
 from trading.market_gate import MarketGateResult
 from trading.trade_admission import (
+    ADMISSION_VERSION,
+    POLICY_VERSION,
     entry_allowed_for_setup_type,
-    evaluate_trade_admission,
+    evaluate_from_admission_input,
 )
 
 # Approval drift from last admission/revalidation anchor — not from signal price.
@@ -140,10 +148,18 @@ def final_pretrade_validation(
     now: datetime | None = None,
     exec_snap: FeatureSnapshot | None = None,
     market_gate: MarketGateResult | None = None,
-) -> TradeAdmissionResult:
+    market: MarketAssessment | None = None,
+    sector_label: str | None = None,
+    sector_tradable: bool | None = None,
+    bar_timeframe: str = "1Hour",
+    geometry_hash: str | None = None,
+    opportunity_id: UUID | None = None,
+    decision_version: int = 0,
+) -> tuple[TradeAdmissionResult, AdmissionInput]:
     """Re-run admission-side gates with live quote before Risk Engine.
 
-    ``now`` is decision_time / evaluated_at. Never replaced by quote.ts.
+    Builds an immutable AdmissionInput and evaluates only through
+    ``evaluate_from_admission_input``. ``now`` is decision_time / evaluated_at.
     """
     evaluated_at = now or datetime.now(UTC)
     if evaluated_at.tzinfo is None:
@@ -247,8 +263,6 @@ def final_pretrade_validation(
 
     target_plan = _require_target_plan(candidate)
     if target_plan.reachability is TargetReachabilityClass.UNREALISTIC:
-        # Fail closed before admission so callers see an explicit code; admission
-        # would also veto — this makes the approve path reason unambiguous.
         raise PretradeRejection("NO_TRADE/TARGET_UNREALISTIC", "TARGET_UNREALISTIC")
 
     breakdown, setup_breakdown = _require_breakdown(candidate)
@@ -261,8 +275,6 @@ def final_pretrade_validation(
         planned_target=float(candidate.target),
     )
     facts = facts.model_copy(update={"current_price": mid})
-    # Do NOT substitute planned stop as nearest_support — that invented
-    # structural basis and let ATR-only stops pass approval.
 
     chase = compute_chase_facts(facts, zone_high=zone_high)
     if chase.score >= HARD_CHASE_LIMIT:
@@ -281,23 +293,62 @@ def final_pretrade_validation(
         stop_price=candidate.stop,
         target=target_plan,
     )
-    admission = evaluate_trade_admission(
+    stop_plan = StopPlan(
+        price=candidate.stop,
+        model=(snap.stop_model if snap and snap.stop_model else "structure"),
+        basis_level=snap.structural_level if snap else None,
+        reason_codes=[snap.structural_source] if snap and snap.structural_source else [],
+    )
+    th = get_entry_thresholds()
+    gh = geometry_hash or geometry_hash_from_candidate(candidate)
+    if not gh:
+        raise PretradeRejection("ADMISSION_REQUIRED", "geometry_hash_required")
+
+    admission_input = AdmissionInput(
         bundle=bundle,
-        candidate=candidate,
+        setup_type=setup_type,
+        setup_quality=int(setup_q),
+        entry_zone_low=candidate.entry_zone_low,
+        entry_zone_high=candidate.entry_zone_high,
+        stop_plan=stop_plan,
+        target_plan=target_plan,
         quote=quote,
         bars_count=bars_count,
+        bar_timeframe=bar_timeframe,
         last_bar_ts=last_bar_ts,
+        market=market,
+        sector_label=sector_label
+        if sector_label is not None
+        else (market.sector_label if market else None),
+        sector_tradable=(
+            sector_tradable
+            if sector_tradable is not None
+            else (market.sector_tradable if market else None)
+        ),
+        news_status=None,
+        earnings_status=None,
+        portfolio_snapshot={},
+        risk_snapshot={},
+        strategy_version=candidate.strategy_version,
+        decision_version=decision_version,
+        admission_version=candidate.admission_version or ADMISSION_VERSION,
+        policy_version=POLICY_VERSION,
+        aggressiveness=th.aggressiveness,
+        opportunity_id=opportunity_id,
+        watch_id=None,
+        trigger_version=None,
+        geometry_hash=gh,
+        evaluated_at=evaluated_at,
         require_bars=True,
+    )
+
+    admission = evaluate_from_admission_input(
+        admission_input,
+        candidate=candidate,
         entry=Decimal(str(round(ask, 4))),
         stop=candidate.stop,
         target=candidate.target,
-        target_plan=target_plan,
-        now=evaluated_at,
-        stop_plan_model=snap.stop_model if snap else None,
-        stop_structural_source=snap.structural_source if snap else None,
-        stop_structural_level=snap.structural_level if snap else None,
     )
-    # Stamp decision-time facts onto snapshot for the approval record.
     if admission.snapshot is not None:
         admission = admission.model_copy(
             update={
@@ -311,4 +362,4 @@ def final_pretrade_validation(
                 )
             }
         )
-    return require_final_admission(admission)
+    return require_final_admission(admission), admission_input
