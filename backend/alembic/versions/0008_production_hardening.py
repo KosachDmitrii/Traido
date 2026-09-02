@@ -97,7 +97,7 @@ def upgrade() -> None:
         batch.add_column(sa.Column("geometry_hash", sa.String(64), nullable=True))
         batch.add_column(sa.Column("policy_version", sa.String(64), nullable=True))
         batch.add_column(
-            sa.Column("legacy", sa.Boolean(), nullable=False, server_default=sa.text("1"))
+            sa.Column("legacy", sa.Boolean(), nullable=False, server_default=sa.text("true"))
         )
         batch.add_column(sa.Column("approved_at", sa.DateTime(timezone=True), nullable=True))
         batch.add_column(
