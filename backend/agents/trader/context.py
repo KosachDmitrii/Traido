@@ -11,6 +11,7 @@ from agents.trader.types import StepResult, TraderBundle, TraderStep
 from core.enums import AssessmentKind, MarketRegimeLabel, Timeframe
 from core.ports import MarketDataPort
 from core.schemas import MarketAssessment
+from core.vendor_http import describe_http_error
 from quant.engine import compute_features
 
 PROMPT_VERSION = "trader.context@1.0.0"
@@ -27,7 +28,7 @@ async def run_context(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
             step=TraderStep.CONTEXT,
             ok=False,
             detail="Alpaca benchmark failed",
-            reasons=["CONTEXT_ALPACA_ERROR", str(exc)[:120]],
+            reasons=["CONTEXT_ALPACA_ERROR", describe_http_error(exc)],
             score=0,
         )
         bundle.record(result)

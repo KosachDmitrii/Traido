@@ -165,46 +165,46 @@ def _band(a: int, v0: float, v50: float, v100: float) -> float:
 def thresholds_for(aggressiveness: int) -> EntryThresholds:
     """Map aggressiveness onto chase floors across the five production steps.
 
-    a=0 / a=50 match the historical F3→medium curve. a=75 / a=100 soften further
-    without the old experimental extremes (VWAP 8%, EMA 18%, 5 ATR).
+    a=0 matches main/historical F3 strong floors — do not soften the default.
+    a=50 is the medium desk step; a=75 / a=100 soften further (Weak zone
+    geometry is touchable) without the old experimental extremes.
     """
     a = clamp_aggressiveness(aggressiveness)
     return EntryThresholds(
         aggressiveness=a,
-        vwap_ext_pct=_band(a, 1.2, 3.8, 5.0),
-        ema_ext_pct=_band(a, 2.8, 7.5, 9.5),
-        atr_ext_max=_band(a, 1.6, 2.7, 3.2),
-        impulse_atr_max=_band(a, 2.2, 3.2, 3.7),
-        drift_high_pct=_band(a, 0.45, 1.1, 1.35),
-        min_buy_quality=round(_band(a, 52, 48, 45)),
-        # Weak pulls the zone toward price so WAIT plans are touchable same-session
-        # without allowing BUY at the extension print (high still ≤ price).
-        zone_gap_frac=_band(a, 0.05, 0.50, 0.82),
+        vwap_ext_pct=_band(a, 1.0, 3.5, 5.0),
+        ema_ext_pct=_band(a, 2.5, 7.0, 9.5),
+        atr_ext_max=_band(a, 1.5, 2.5, 3.2),
+        impulse_atr_max=_band(a, 2.0, 3.0, 3.7),
+        drift_high_pct=_band(a, 0.40, 1.0, 1.35),
+        min_buy_quality=round(_band(a, 55, 50, 45)),
+        # Strong: zone under VWAP. Weak: pull high toward price + width cap so
+        # WAIT plans are touchable same-session (high still ≤ price).
+        zone_gap_frac=_band(a, 0.0, 0.45, 0.82),
         zone_atr_undercut=_band(a, 0.5, 0.40, 0.45),
-        zone_atr_buffer=_band(a, 0.22, 0.32, 0.55),
+        zone_atr_buffer=_band(a, 0.20, 0.30, 0.55),
         zone_max_width_atr=_band(a, 3.5, 3.0, 2.5),
-        allow_soft_chase_buy=a >= 25,
+        allow_soft_chase_buy=a >= _MEDIUM_AGGRESSIVENESS,
         wait_ttl_minutes=round(_band(a, 390, 180, 150)),
-        retrace_deep_pct=_band(a, 0.80, 0.86, 0.90),
-        retrace_shallow_pct=_band(a, 0.18, 0.11, 0.09),
-        retrace_shallow_vwap_pct=_band(a, 0.35, 0.58, 0.68),
-        pullback_vol_max=_band(a, 1.05, 1.18, 1.30),
+        retrace_deep_pct=_band(a, 0.786, 0.85, 0.90),
+        retrace_shallow_pct=_band(a, 0.20, 0.12, 0.09),
+        retrace_shallow_vwap_pct=_band(a, 0.30, 0.55, 0.68),
+        pullback_vol_max=_band(a, 1.0, 1.15, 1.30),
         pullback_index_max=round(_band(a, 3, 4, 5)),
-        flag_impulse_weak=a < 25,
-        vwap_hold_min_pct=_band(a, -0.40, -0.58, -0.70),
-        vwap_anchor_hold_frac=_band(a, 0.995, 0.991, 0.988),
-        pullback_vol_digest_max=_band(a, 1.08, 1.18, 1.28),
-        resistance_close_pct=_band(a, 0.35, 0.28, 0.22),
-        reward_consumed_frac=_band(a, 0.55, 0.62, 0.68),
-        atr_extension_min_quality=round(_band(a, 65, 58, 52)),
-        chase_wait_quality_buffer=round(_band(a, 12, 8, 6)),
-        # Deep pullback → WAIT from medium up; only strong/firmer force NO_TRADE.
-        pullback_deep_no_trade=a < 25,
-        max_spread_bps=_band(a, 32.0, 38.0, 42.0),
-        min_setup_quality=round(_band(a, 55, 50, 48)),
-        min_entry_quality=round(_band(a, 50, 46, 44)),
-        min_zone_arrival_quality=round(_band(a, 55, 50, 42)),
-        allow_fast_pullback=a >= 25,
+        flag_impulse_weak=a < _MEDIUM_AGGRESSIVENESS,
+        vwap_hold_min_pct=_band(a, -0.35, -0.55, -0.70),
+        vwap_anchor_hold_frac=_band(a, 0.996, 0.992, 0.988),
+        pullback_vol_digest_max=_band(a, 1.05, 1.15, 1.28),
+        resistance_close_pct=_band(a, 0.40, 0.30, 0.22),
+        reward_consumed_frac=_band(a, 0.50, 0.60, 0.68),
+        atr_extension_min_quality=round(_band(a, 70, 60, 52)),
+        chase_wait_quality_buffer=round(_band(a, 15, 10, 6)),
+        pullback_deep_no_trade=a < _MEDIUM_AGGRESSIVENESS,
+        max_spread_bps=_band(a, 30.0, 35.0, 42.0),
+        min_setup_quality=round(_band(a, 60, 55, 48)),
+        min_entry_quality=round(_band(a, 55, 50, 44)),
+        min_zone_arrival_quality=round(_band(a, 60, 55, 42)),
+        allow_fast_pullback=a >= _MEDIUM_AGGRESSIVENESS,
         # Strong: must already turn up. Weak: allow flat/slightly negative tape.
         momentum_min_pct=_band(a, 0.0, -0.02, -0.15),
         require_momentum_flip=a < 100,

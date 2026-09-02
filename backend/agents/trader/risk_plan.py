@@ -22,7 +22,7 @@ def run_risk_plan(bundle: TraderBundle) -> StepResult:
     exec_tf = Timeframe.H1 if Timeframe.H1 in bundle.features else Timeframe.D1
     snap = bundle.features.get(exec_tf)
     if planned is None or snap is None:
-        # fallback from close / ATR
+        # Fallback only from real close + ATR — never invent ATR as 2% of price.
         close = snap.indicators.get("close") if snap else None
         atr = snap.indicators.get("atr_14") if snap else None
         if not isinstance(close, (int, float)) or close <= 0:
@@ -35,7 +35,17 @@ def run_risk_plan(bundle: TraderBundle) -> StepResult:
             )
             bundle.record(result)
             return result
-        atr_f = float(atr) if isinstance(atr, (int, float)) and atr > 0 else float(close) * 0.02
+        if not isinstance(atr, (int, float)) or atr <= 0:
+            result = StepResult(
+                step=TraderStep.RISK_PLAN,
+                ok=False,
+                detail="ATR missing",
+                reasons=["RISK_PLAN_NO_ATR"],
+                score=0,
+            )
+            bundle.record(result)
+            return result
+        atr_f = float(atr)
         planned = (float(close), float(close) - 1.5 * atr_f, float(close) + 3.0 * atr_f)
 
     entry_f, stop_f, target_f = planned

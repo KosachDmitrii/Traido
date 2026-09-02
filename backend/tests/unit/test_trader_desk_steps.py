@@ -144,6 +144,16 @@ def test_setup_accepts_pullback() -> None:
     assert step.ok is True
 
 
+def test_setup_rejects_missing_sma20() -> None:
+    bundle = TraderBundle(symbol="AAPL")
+    snap = _snap(close=100.5, sma20=100.0, rsi=48.0)
+    snap.indicators.pop("sma_20", None)
+    bundle.features[Timeframe.D1] = snap
+    step = run_setup(bundle)
+    assert step.ok is False
+    assert "SETUP_NO_SMA20" in step.reasons
+
+
 @pytest.mark.asyncio
 async def test_context_allows_neutral_spy() -> None:
     """Range / mixed SPY must not freeze the desk — only hostile regimes block."""

@@ -123,7 +123,7 @@ async def run_checklist(
                 step=TraderStep.CHECKLIST,
                 ok=False,
                 detail="Quote failed",
-                reasons=["CHECKLIST_QUOTE_ERROR", str(exc)[:80]],
+                reasons=["CHECKLIST_QUOTE_ERROR", describe_http_error(exc)],
                 score=0,
             )
             bundle.record(result)

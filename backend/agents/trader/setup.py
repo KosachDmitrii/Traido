@@ -86,7 +86,15 @@ def run_setup(bundle: TraderBundle) -> StepResult:
             bundle.record(result)
             return result
     else:
-        reasons.append("SMA20 missing — soft pass on close only")
+        result = StepResult(
+            step=TraderStep.SETUP,
+            ok=False,
+            detail="SMA20 missing",
+            reasons=[*reasons, "SETUP_NO_SMA20"],
+            score=0,
+        )
+        bundle.record(result)
+        return result
 
     if rsi_v is not None:
         if rsi_v >= policy.rsi_overbought:

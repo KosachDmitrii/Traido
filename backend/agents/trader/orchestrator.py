@@ -28,9 +28,38 @@ from core.activity import BOARD
 from core.config import Settings, get_settings
 from core.enums import AssessmentKind, InstrumentThesis, NewsCheck, SetupType, TradeAction
 from core.ports import AuditPort, MarketDataPort
+from core.redaction import redact_secrets
 from core.schemas import NewsAssessment, PipelineResult, TradeCandidate
 
 DESK_VERSION = "trader_desk@1.1.0"
+
+# Vendor / data integrity failures — not a market "no setup" decision.
+_DATA_FAIL_CODES = frozenset(
+    {
+        "CONTEXT_ALPACA_ERROR",
+        "CONTEXT_INSUFFICIENT_BARS",
+        "UNIVERSE_ALPACA_ERROR",
+        "UNIVERSE_THIN_HISTORY",
+        "STALE_BARS",
+        "CHECKLIST_QUOTE_ERROR",
+        "CHECKLIST_NO_QUOTE",
+        "CHECKLIST_BAD_MID",
+        "CHECKLIST_QUOTE_STALE",
+        "CHECKLIST_NEWS",
+        "ALPACA_KEYS_MISSING",
+        "ALPACA_NEWS_ERROR",
+        "ALPACA_NEWS_BAD_SHAPE",
+        "ENTRY_NO_FEATURES",
+        "ENTRY_NO_PRICE",
+        "ENTRY_NO_ATR",
+        "SETUP_NO_FEATURES",
+        "SETUP_NO_CLOSE",
+        "SETUP_NO_SMA20",
+        "STRUCTURE_NO_D1",
+        "RISK_PLAN_NO_PRICE",
+        "RISK_PLAN_NO_ATR",
+    }
+)
 
 
 _BOARD_IDS = {
@@ -141,7 +170,7 @@ async def run_trader_desk(
         score=step.score,
     )
     if not step.ok:
-        return _fail(run_id, symbol, bundle, prompt_versions, status="no_trade")
+        return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_trade")
 
     # 2 Universe
     _mark(TraderStep.UNIVERSE, status="working", detail="Liquidity / price", symbol=symbol)
@@ -154,7 +183,7 @@ async def run_trader_desk(
         score=step.score,
     )
     if not step.ok:
-        return _fail(run_id, symbol, bundle, prompt_versions, status="no_candidate")
+        return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_candidate")
 
     # 3 Structure
     _mark(TraderStep.STRUCTURE, status="working", detail="D1 structure", symbol=symbol)
@@ -167,7 +196,7 @@ async def run_trader_desk(
         score=step.score,
     )
     if not step.ok:
-        return _fail(run_id, symbol, bundle, prompt_versions, status="no_candidate")
+        return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_candidate")
 
     # 4 Setup
     _mark(TraderStep.SETUP, status="working", detail="Pullback setup", symbol=symbol)
@@ -180,7 +209,7 @@ async def run_trader_desk(
         score=step.score,
     )
     if not step.ok:
-        return _fail(run_id, symbol, bundle, prompt_versions, status="no_candidate")
+        return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_candidate")
 
     # 5 Entry
     _mark(TraderStep.ENTRY, status="working", detail="Entry timing", symbol=symbol)
@@ -194,7 +223,7 @@ async def run_trader_desk(
         score=step.score,
     )
     if not step.ok:
-        return _fail(run_id, symbol, bundle, prompt_versions, status="no_trade")
+        return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_trade")
 
     # 6 Risk plan (geometry for BUY card and WAIT watch alike)
     _mark(TraderStep.RISK_PLAN, status="working", detail="Stop / target / R:R", symbol=symbol)
@@ -207,7 +236,7 @@ async def run_trader_desk(
         score=step.score,
     )
     if not step.ok:
-        return _fail(run_id, symbol, bundle, prompt_versions, status="no_candidate")
+        return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_candidate")
 
     if wait_path:
         # WAIT plans do not need a live BUY checklist; news is re-checked on trigger.
@@ -295,7 +324,7 @@ async def run_trader_desk(
         score=step.score,
     )
     if not step.ok:
-        return _fail(run_id, symbol, bundle, prompt_versions, status="no_trade")
+        return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_trade")
 
     candidate = _build_candidate(bundle, run_id=run_id)
     entry_bundle = getattr(bundle, "_entry_decision", None)
@@ -334,17 +363,18 @@ def _fail(
     bundle: TraderBundle,
     prompt_versions: dict[str, str],
     *,
-    status: str,
+    default_status: str,
 ) -> PipelineResult:
     failed = bundle.failed
     # WAIT used to be recorded as a failed step; ignore ok steps when looking for errors.
     errors: list[str] = []
     for s in reversed(bundle.steps):
         if not s.ok:
-            errors = list(s.reasons)
+            errors = [redact_secrets(r) for r in s.reasons]
             break
     if not errors:
-        errors = list(failed.reasons) if failed else ["TRADER_DESK_FAIL"]
+        errors = [redact_secrets(r) for r in (failed.reasons if failed else ["TRADER_DESK_FAIL"])]
+    status = "failed" if any(code in _DATA_FAIL_CODES for code in errors) else default_status
     return PipelineResult(
         pipeline_run_id=run_id,
         symbol=symbol,

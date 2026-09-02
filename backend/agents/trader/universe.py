@@ -8,7 +8,9 @@ from decimal import Decimal
 from agents.trader.types import StepResult, TraderBundle, TraderStep
 from core.enums import Timeframe
 from core.ports import MarketDataPort
+from core.vendor_http import describe_http_error
 from quant.engine import compute_features
+from trading.gates import check_bar_freshness
 
 PROMPT_VERSION = "trader.universe@1.0.0"
 
@@ -16,6 +18,25 @@ MIN_PRICE = Decimal(5)
 MAX_PRICE = Decimal(2000)
 MIN_ADV_USD = 20_000_000.0
 MIN_BARS = 60
+MIN_H1_BARS = 40
+
+
+def _stale_result(
+    bundle: TraderBundle, *, timeframe: Timeframe, newest: object
+) -> StepResult:
+    """Refuse the desk when a series used for structure/entry has stopped."""
+    result = StepResult(
+        step=TraderStep.UNIVERSE,
+        ok=False,
+        detail=f"Stale {timeframe.value} bars",
+        reasons=[
+            "STALE_BARS",
+            f"{timeframe.value}:newest={newest}",
+        ],
+        score=0,
+    )
+    bundle.record(result)
+    return result
 
 
 async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
@@ -31,7 +52,7 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
             step=TraderStep.UNIVERSE,
             ok=False,
             detail="Alpaca bars failed",
-            reasons=["UNIVERSE_ALPACA_ERROR", str(exc)[:120]],
+            reasons=["UNIVERSE_ALPACA_ERROR", describe_http_error(exc)],
             score=0,
         )
         bundle.record(result)
@@ -47,6 +68,13 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
         )
         bundle.record(result)
         return result
+
+    # Daily freshness first — ADV/price from a stopped D1 feed is not a pass.
+    d1_fresh = check_bar_freshness(symbol, bars, now=end)
+    if not d1_fresh.passed:
+        return _stale_result(
+            bundle, timeframe=Timeframe.D1, newest=d1_fresh.measured.get("newest_bar")
+        )
 
     d1 = compute_features(symbol, Timeframe.D1, bars)
     bundle.features[Timeframe.D1] = d1
@@ -80,12 +108,21 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
         bundle.record(result)
         return result
 
-    # Optional H1 for later steps — fail soft if missing (illiquid hours).
+    # H1 is optional when missing/thin. When present it drives setup/entry
+    # snapshots — a weeks-behind page must fail the desk, not quietly fall
+    # through to D1 (that substitution is how July ATR priced August cards).
     try:
         h1_bars = await md.get_bars(symbol, Timeframe.H1, end - timedelta(days=60), end)
-        if len(h1_bars) >= 40:
+        if len(h1_bars) >= MIN_H1_BARS:
+            h1_fresh = check_bar_freshness(symbol, h1_bars, now=end)
+            if not h1_fresh.passed:
+                return _stale_result(
+                    bundle,
+                    timeframe=Timeframe.H1,
+                    newest=h1_fresh.measured.get("newest_bar"),
+                )
             bundle.features[Timeframe.H1] = compute_features(symbol, Timeframe.H1, h1_bars)
-    except Exception:  # noqa: BLE001, S110 — H1 is optional enrichment
+    except Exception:  # noqa: BLE001, S110 — H1 is optional enrichment when absent
         pass
 
     score = 70 if adv_f >= MIN_ADV_USD * 2 else 55

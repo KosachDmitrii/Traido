@@ -19,10 +19,13 @@ from trading.entry_timing import detect_chasing, evaluate_timing, zone_from_fact
 def test_zero_matches_shipped_f3_floors() -> None:
     th = thresholds_for(0)
     assert th.aggressiveness == 0
-    assert th.ema_ext_pct == pytest.approx(2.8)
-    assert th.vwap_ext_pct == pytest.approx(1.2)
-    assert th.min_buy_quality == 52
-    assert th.zone_gap_frac == pytest.approx(0.05)
+    assert th.ema_ext_pct == pytest.approx(2.5)
+    assert th.vwap_ext_pct == pytest.approx(1.0)
+    assert th.min_buy_quality == 55
+    assert th.min_setup_quality == 60
+    assert th.min_entry_quality == 55
+    assert th.max_spread_bps == pytest.approx(30.0)
+    assert th.zone_gap_frac == pytest.approx(0.0)
     assert th.allow_soft_chase_buy is False
     assert th.wait_ttl_minutes == 390
     assert th.flag_impulse_weak is True
@@ -54,8 +57,8 @@ def test_medium_matches_historical_production_soft_end() -> None:
     """a=50 stays the middle desk step with soft chase / fast pullback on."""
     th = thresholds_for(50)
     assert th.aggressiveness == 50
-    assert th.vwap_ext_pct == pytest.approx(3.8)
-    assert th.ema_ext_pct == pytest.approx(7.5)
+    assert th.vwap_ext_pct == pytest.approx(3.5)
+    assert th.ema_ext_pct == pytest.approx(7.0)
     assert th.wait_ttl_minutes == 180
     assert th.allow_soft_chase_buy is True
     assert th.allow_fast_pullback is True

@@ -1,15 +1,12 @@
 """The series a decision is drawn from has an age limit too.
 
-`check_bar_freshness` was wired into the entry gates, where it guards the daily
-bars the liquidity verdict is computed from. Nothing guarded the intraday series
-the strategy prices from — and on 2026-08-31 that is exactly where the staleness
-was: the daily bars were correct all along, the hourly ones were seven weeks
-behind, and the gate written for this failure had nothing to report because it
-was looking at the wrong series.
+`check_bar_freshness` guards the daily bars behind liquidity. Nothing used to
+guard the intraday series the desk prices from — and on 2026-08-31 that is
+exactly where the staleness was: daily bars were current, hourly ones were
+seven weeks behind (Alpaca's oldest page when `next_page_token` was ignored).
 
-A stale timeframe raises rather than being skipped. Skipping it silently changes
-which timeframe the strategy takes its execution snapshot from, which is the
-same quiet substitution in a different costume.
+Trader desk loads H1 in universe. A stale H1 must fail the step — not be
+dropped so setup/entry quietly substitute D1.
 """
 
 from __future__ import annotations
@@ -19,27 +16,32 @@ from decimal import Decimal
 
 import pytest
 
-from agents.supervisor.agent import Supervisor
-from core.audit import InMemoryAudit
-from core.config import Settings
+from agents.trader.types import TraderBundle
+from agents.trader.universe import run_universe
 from core.enums import Timeframe
 from core.schemas import Bar
 
-NOW = datetime(2026, 8, 31, 14, 0, tzinfo=UTC)
 
-
-def _series(newest: datetime, timeframe: Timeframe, count: int = 60) -> list[Bar]:
+def _series(
+    newest: datetime,
+    timeframe: Timeframe,
+    *,
+    symbol: str = "AAPL",
+    count: int = 80,
+    close: float = 100.0,
+    volume: float = 500_000,
+) -> list[Bar]:
     step = timedelta(days=1) if timeframe is Timeframe.D1 else timedelta(hours=1)
     return [
         Bar(
-            symbol="AAPL",
+            symbol=symbol,
             timeframe=timeframe,
             ts=newest - step * (count - 1 - i),
-            open=Decimal(100),
-            high=Decimal(101),
-            low=Decimal(99),
-            close=Decimal(100),
-            volume=Decimal(1_000_000),
+            open=Decimal(str(close)),
+            high=Decimal(str(close + 1)),
+            low=Decimal(str(close - 1)),
+            close=Decimal(str(close)),
+            volume=Decimal(str(volume)),
             source="synthetic",
         )
         for i in range(count)
@@ -47,66 +49,54 @@ def _series(newest: datetime, timeframe: Timeframe, count: int = 60) -> list[Bar
 
 
 class _Feed:
-    """Fresh daily bars, and an hourly series stuck in the past."""
+    """Fresh daily bars, and an hourly series whose newest bar is controlled."""
 
-    def __init__(self, *, hourly_newest: datetime) -> None:
+    def __init__(self, *, hourly_newest: datetime, now: datetime) -> None:
         self.hourly_newest = hourly_newest
+        self.now = now
 
     async def get_bars(
         self, symbol: str, timeframe: Timeframe, start: datetime, end: datetime
     ) -> list[Bar]:
         if timeframe is Timeframe.D1:
-            return _series(NOW, Timeframe.D1)
-        return _series(self.hourly_newest, timeframe)
-
-    async def get_quote(self, symbol: str) -> None:
-        return None
-
-    async def get_last_price(self, symbol: str) -> float:
-        return 100.0
-
-
-def _supervisor(feed: _Feed) -> Supervisor:
-    return Supervisor(
-        market_data=feed,  # type: ignore[arg-type]
-        audit=InMemoryAudit(),
-        settings=Settings(
-            alpaca_api_key=None,
-            alpaca_api_secret=None,
-            finnhub_api_key=None,
-            fred_api_key=None,
-        ),
-        clock=lambda: NOW,
-    )
+            return _series(self.now, Timeframe.D1, symbol=symbol)
+        return _series(self.hourly_newest, timeframe, symbol=symbol, count=60)
 
 
 @pytest.mark.asyncio
 async def test_an_hourly_series_weeks_behind_fails_the_scan() -> None:
     """The shape of the live defect: daily current, hourly seven weeks old."""
-    supervisor = _supervisor(_Feed(hourly_newest=NOW - timedelta(weeks=7)))
+    now = datetime.now(UTC)
+    bundle = TraderBundle(symbol="AAPL")
+    step = await run_universe(
+        bundle, _Feed(hourly_newest=now - timedelta(weeks=7), now=now)  # type: ignore[arg-type]
+    )
 
-    result = await supervisor.scan_symbol("AAPL", timeframes=(Timeframe.D1, Timeframe.H1))
-
-    assert result.status == "failed"
-    assert any("STALE_BARS" in e for e in result.errors)
-    assert result.candidate is None, "a card was drawn from a series seven weeks old"
+    assert step.ok is False
+    assert "STALE_BARS" in step.reasons
+    assert Timeframe.H1 not in bundle.features, "stale H1 must not attach"
 
 
 @pytest.mark.asyncio
 async def test_a_current_hourly_series_is_not_refused() -> None:
     """The gate has to survive the ordinary case or it will be switched off."""
-    supervisor = _supervisor(_Feed(hourly_newest=NOW))
+    now = datetime.now(UTC)
+    bundle = TraderBundle(symbol="AAPL")
+    step = await run_universe(
+        bundle, _Feed(hourly_newest=now, now=now)  # type: ignore[arg-type]
+    )
 
-    result = await supervisor.scan_symbol("AAPL", timeframes=(Timeframe.D1, Timeframe.H1))
-
-    assert result.status != "failed", result.errors
+    assert step.ok is True, step.reasons
+    assert Timeframe.H1 in bundle.features
 
 
 @pytest.mark.asyncio
 async def test_a_weekend_gap_is_not_staleness() -> None:
     """Friday's close to Tuesday's open is an ordinary gap, not a stopped feed."""
-    supervisor = _supervisor(_Feed(hourly_newest=NOW - timedelta(days=3)))
+    now = datetime.now(UTC)
+    bundle = TraderBundle(symbol="AAPL")
+    step = await run_universe(
+        bundle, _Feed(hourly_newest=now - timedelta(days=3), now=now)  # type: ignore[arg-type]
+    )
 
-    result = await supervisor.scan_symbol("AAPL", timeframes=(Timeframe.D1, Timeframe.H1))
-
-    assert result.status != "failed", result.errors
+    assert step.ok is True, step.reasons

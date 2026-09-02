@@ -39,7 +39,17 @@ def run_entry(bundle: TraderBundle) -> StepResult:
         return result
 
     atr = exec_snap.indicators.get("atr_14")
-    atr_f = float(atr) if isinstance(atr, (int, float)) and atr > 0 else float(close) * 0.02
+    if not isinstance(atr, (int, float)) or atr <= 0:
+        result = StepResult(
+            step=TraderStep.ENTRY,
+            ok=False,
+            detail="ATR missing",
+            reasons=["ENTRY_NO_ATR"],
+            score=0,
+        )
+        bundle.record(result)
+        return result
+    atr_f = float(atr)
     sma20 = exec_snap.indicators.get("sma_20")
     if isinstance(sma20, (int, float)) and 0 < sma20 <= close:
         planned_entry = float(sma20)
