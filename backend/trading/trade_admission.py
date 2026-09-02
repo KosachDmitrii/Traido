@@ -1,6 +1,7 @@
 """Trade Admission — sole authority for BUY_ALLOWED.
 
 Facts and evaluations arrive as inputs; this module applies gates only.
+Missing stop/target/setup/zone never invents geometry — it fails closed.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from decimal import Decimal
 
 from core.enums import AdmissionDecision, DataHealthStatus, InstrumentThesis, SetupType
 from core.schemas import (
+    AdmissionInput,
     AdmissionSnapshot,
     EntryDecisionBundle,
     EntryTimingFacts,
@@ -81,16 +83,52 @@ def entry_allowed_for_setup_type(
     atr: float | None,
 ) -> tuple[bool, list[str]]:
     if setup_type is SetupType.UNKNOWN:
-        if zone_low is None and zone_high is None:
-            return True, []
         return False, ["SETUP_TYPE_UNKNOWN"]
     if setup_type is SetupType.PULLBACK_CONTINUATION:
-        if zone_high is None:
+        if zone_low is None or zone_high is None:
             return False, ["MISSING_ENTRY_ZONE"]
         buffer = (atr or price * 0.01) * ZONE_ABOVE_BUFFER_ATR
         if price > zone_high + buffer:
             return False, ["ENTRY_OUTSIDE_ALLOWED_ZONE"]
     return True, []
+
+
+def evaluate_from_admission_input(
+    admission_input: AdmissionInput,
+    *,
+    candidate: TradeCandidate | None = None,
+    zone_arrival: ZoneArrivalFacts | None = None,
+    entry: Decimal | float | None = None,
+    stop: Decimal | float | None = None,
+    target: Decimal | float | None = None,
+) -> TradeAdmissionResult:
+    """Evaluate admission from an immutable AdmissionInput — preferred capital path."""
+    return evaluate_trade_admission(
+        bundle=admission_input.bundle,
+        candidate=candidate,
+        setup_type=admission_input.setup_type,
+        quote=admission_input.quote,
+        bars_count=admission_input.bars_count,
+        last_bar_ts=admission_input.last_bar_ts,
+        require_bars=admission_input.require_bars,
+        entry=entry or admission_input.bundle.facts.current_price,
+        stop=stop
+        or (admission_input.stop_plan.price if admission_input.stop_plan else None)
+        or admission_input.bundle.stop_price,
+        target=target or admission_input.target_plan.price,
+        target_plan=admission_input.target_plan,
+        zone_arrival=zone_arrival,
+        now=admission_input.evaluated_at,
+        stop_plan_model=admission_input.stop_plan.model if admission_input.stop_plan else None,
+        stop_structural_source=(
+            admission_input.stop_plan.reason_codes[0]
+            if admission_input.stop_plan and admission_input.stop_plan.reason_codes
+            else None
+        ),
+        stop_structural_level=(
+            admission_input.stop_plan.basis_level if admission_input.stop_plan else None
+        ),
+    )
 
 
 def evaluate_trade_admission(
@@ -108,6 +146,9 @@ def evaluate_trade_admission(
     target_plan: TargetPlan | None = None,
     zone_arrival: ZoneArrivalFacts | None = None,
     now: datetime | None = None,
+    stop_plan_model: str | None = None,
+    stop_structural_source: str | None = None,
+    stop_structural_level: float | None = None,
 ) -> TradeAdmissionResult:
     """Apply all trading gates. Does not re-run quant indicators."""
     th = get_entry_thresholds()
@@ -121,11 +162,23 @@ def evaluate_trade_admission(
     warnings: list[str] = []
     reason_codes: list[str] = []
 
-    ent = entry or (candidate.entry if candidate else facts.current_price)
-    stp = stop or bundle.stop_price or (candidate.stop if candidate else None)
-    tgt = target or (
-        bundle.target.price if bundle.target else (candidate.target if candidate else None)
-    )
+    ent = entry if entry is not None else (candidate.entry if candidate else facts.current_price)
+    if stop is not None:
+        stp = stop
+    elif bundle.stop_price is not None:
+        stp = bundle.stop_price
+    elif candidate is not None:
+        stp = candidate.stop
+    else:
+        stp = None
+    if target is not None:
+        tgt = target
+    elif bundle.target is not None:
+        tgt = bundle.target.price
+    elif candidate is not None:
+        tgt = candidate.target
+    else:
+        tgt = None
     tp = target_plan or bundle.target
 
     zone_low = float(bundle.entry_zone_low) if bundle.entry_zone_low else None
@@ -152,6 +205,19 @@ def evaluate_trade_admission(
             data_status=data.status,
             vetoes=vetoes_from_codes(data.reason_codes),
             reason_codes=[*data.reason_codes, "DATA_BLOCKED"],
+            admission_version=ADMISSION_VERSION,
+        )
+
+    if quote is None or quote.bid is None or quote.ask is None or quote.ts is None:
+        return TradeAdmissionResult(
+            decision=AdmissionDecision.DATA_BLOCKED,
+            admitted=False,
+            setup_type=st,
+            setup_quality=setup_q,
+            entry_quality=entry_q,
+            data_status=DataHealthStatus.UNHEALTHY,
+            vetoes=["STALE_DATA"],
+            reason_codes=["QUOTE_INCOMPLETE", "DATA_BLOCKED"],
             admission_version=ADMISSION_VERSION,
         )
 
@@ -189,18 +255,44 @@ def evaluate_trade_admission(
         vetoes.append("STRUCTURAL_DAMAGE")
         reason_codes.extend(structure.reason_codes)
 
-    stop_valid = True
-    target_valid = True
+    stop_valid = False
+    target_valid = False
     effective_rr_val: float | None = None
 
-    if stp is not None and ent is not None:
-        stop_res = validate_stop(entry=ent, stop=stp, facts=facts)
+    if stp is None or ent is None:
+        vetoes.append("MISSING_STOP")
+        reason_codes.append("MISSING_STOP")
+        stop_valid = False
+    else:
+        snap_model = stop_plan_model
+        snap_source = stop_structural_source
+        snap_level = stop_structural_level
+        if candidate and candidate.admission_snapshot:
+            snap = candidate.admission_snapshot
+            if isinstance(snap, dict):
+                snap_model = snap_model or snap.get("stop_model")
+                snap_source = snap_source or snap.get("structural_source")
+                level = snap.get("structural_level")
+                if snap_level is None and level is not None:
+                    snap_level = float(level)
+        stop_res = validate_stop(
+            entry=ent,
+            stop=stp,
+            facts=facts,
+            stop_model=snap_model,
+            structural_source=snap_source,
+            structural_level=snap_level,
+        )
         stop_valid = stop_res.valid
         if not stop_valid:
             vetoes.extend(vetoes_from_codes(stop_res.reason_codes))
             reason_codes.extend(stop_res.reason_codes)
 
-    if tgt is not None and ent is not None and stp is not None:
+    if tgt is None or ent is None or stp is None:
+        vetoes.append("MISSING_TARGET")
+        reason_codes.append("MISSING_TARGET")
+        target_valid = False
+    else:
         target_res = validate_target(entry=ent, target=tgt, target_plan=tp)
         target_valid = target_res.valid
         if not target_valid:
@@ -220,15 +312,14 @@ def evaluate_trade_admission(
             vetoes.append("INSUFFICIENT_EFFECTIVE_RR")
             reason_codes.append(f"INSUFFICIENT_EFFECTIVE_RR:{effective_rr_val:.2f}<{req_rr:.2f}")
 
-    if quote is not None:
-        bid = float(quote.bid or 0)
-        ask = float(quote.ask or 0)
-        if bid > 0 and ask >= bid:
-            mid = (bid + ask) / 2
-            spread_bps = (ask - bid) / mid * 10000
-            if spread_bps > th.max_spread_bps * 2:
-                vetoes.append("EXTREME_SPREAD")
-                reason_codes.append("EXTREME_SPREAD")
+    bid = float(quote.bid or 0)
+    ask = float(quote.ask or 0)
+    if bid > 0 and ask >= bid:
+        mid = (bid + ask) / 2
+        spread_bps = (ask - bid) / mid * 10000
+        if spread_bps > th.max_spread_bps * 2:
+            vetoes.append("EXTREME_SPREAD")
+            reason_codes.append("EXTREME_SPREAD")
 
     if zone_arrival_required(st) and zone_arrival is not None:
         if zone_arrival.crash_velocity:
@@ -263,8 +354,13 @@ def evaluate_trade_admission(
                     "STRUCTURAL_DAMAGE",
                     "INSUFFICIENT_EFFECTIVE_RR",
                     "MISSING_TARGET",
+                    "MISSING_STOP",
+                    "MISSING_ENTRY_ZONE",
+                    "SETUP_TYPE_UNKNOWN",
                     "INVALID_STOP",
                     "TARGET_UNREALISTIC",
+                    "TARGET_PLAN_MISMATCH",
+                    "TARGET_NO_BASIS",
                 )
             )
             else AdmissionDecision.WAIT
@@ -375,14 +471,16 @@ def evaluate_trade_admission(
     if data.status is DataHealthStatus.DEGRADED:
         warnings.append("DATA_DEGRADED")
 
+    # BUY_ALLOWED requires real stop and target — never synthesize ±5%.
+    assert stp is not None and tgt is not None and ent is not None
     snapshot = build_admission_snapshot(
         facts=facts,
         setup_type=st,
         setup_quality=setup_q,
         entry_quality=entry_q,
         entry=ent,
-        stop=stp or facts.current_price * 0.95,
-        target=tgt or facts.current_price * 1.05,
+        stop=stp,
+        target=tgt,
         zone_low=zone_low,
         zone_high=zone_high,
         effective_rr=effective_rr_val,

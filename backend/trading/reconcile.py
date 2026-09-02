@@ -20,7 +20,7 @@ from typing import Any, Protocol
 from core.activity import BOARD
 from core.enums import IntentStatus, OpportunityStatus, OrderSide, OrderType
 from core.ports import AuditPort, BrokerPort
-from core.schemas import OrderRecord
+from core.schemas import ExternalPositionIncident, OrderRecord
 from trading.intents import INTENTS, OrderIntentStorePort, apply_exit_to_ledger
 from trading.ledger import LEDGER, PositionLedger
 from trading.order_intent import OrderIntent, intent_status_for, locate_broker_order
@@ -208,6 +208,7 @@ async def reconcile_positions(
                 qty=Decimal(str(pos.qty)),
                 reason="broker position with no ledger row",
                 audit=audit,
+                avg_entry=Decimal(str(pos.avg_entry)) if pos.avg_entry is not None else None,
             )
             if audit:
                 await audit.append(
@@ -535,7 +536,7 @@ def _exit_fills_for(
 
 # ── Orphan positions ─────────────────────────────────────────────────────────
 
-_ORPHAN_PREFIX = "orphan:"
+_ORPHAN_PREFIX = "orphan:"  # legacy prefix — cleared on sight; new path uses ExternalPositionIncident
 
 
 async def block_symbol_as_unknown(
@@ -545,43 +546,54 @@ async def block_symbol_as_unknown(
     qty: Decimal,
     reason: str,
     audit: AuditPort | None = None,
-) -> OrderIntent:
-    """Record an UNKNOWN intent so the symbol is barred from new entries.
+    avg_entry: Decimal | None = None,
+    broker: str = "unknown",
+) -> ExternalPositionIncident:
+    """Record an ExternalPositionIncident so the symbol is barred from new entries.
 
-    Reusing the intent store here means orphan positions block through exactly
-    the same mechanism as ambiguous orders, rather than a second parallel one.
+    Never creates an OrderIntent or AdmissionRecord — unattributed venue exposure
+    is not a Traido-admitted trade.
     """
-    from core.enums import OrderSide as _Side
-    from core.enums import OrderType as _Type
+    from trading.external_positions import (
+        EXTERNAL_POSITIONS,
+        invalidate_symbol_for_orphan,
+    )
 
     ticker = symbol.upper()
-    prefix = f"{_ORPHAN_PREFIX}{ticker}:"
-    existing = intents.list_by_key_prefix(prefix)
-    live = next((i for i in existing if i.is_unresolved), None)
-    if live is not None:
-        return live
-
-    intent, created = intents.create_or_get(
-        OrderIntent(
-            idempotency_key=f"{prefix}{len(existing)}",
-            broker="unknown",
-            symbol=ticker,
-            side=_Side.BUY,
-            requested_qty=qty,
-            order_type=_Type.MARKET,
-            status=IntentStatus.UNKNOWN,
-            last_error=reason,
-        )
+    incident = EXTERNAL_POSITIONS.upsert_orphan(
+        symbol=ticker,
+        qty=qty,
+        broker=broker,
+        avg_entry=avg_entry,
+        notes=[reason],
     )
-    if created and audit:
+    invalidate_symbol_for_orphan(ticker)
+
+    # Clear any legacy orphan:* fake intents from earlier builds.
+    for legacy in intents.list_by_key_prefix(f"{_ORPHAN_PREFIX}{ticker}:"):
+        if legacy.is_unresolved:
+            try:
+                intents.transition(
+                    legacy.id, IntentStatus.CANCELED, last_error="migrated_to_external_incident"
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+    if audit:
         await audit.append(
-            "EntryStateUnknown",
+            "ExternalPositionIncidentOpened",
             "reconcile",
-            {"symbol": ticker, "intent_id": str(intent.id), "note": reason},
-            entity_type="order_intent",
-            entity_id=str(intent.id),
+            {
+                "symbol": ticker,
+                "incident_id": str(incident.id),
+                "qty": str(qty),
+                "note": reason,
+                "correlation_status": incident.correlation_status,
+            },
+            entity_type="external_position_incident",
+            entity_id=str(incident.id),
         )
-    return intent
+    return incident
 
 
 async def clear_resolved_orphan_blocks(
@@ -591,11 +603,28 @@ async def clear_resolved_orphan_blocks(
     report: ReconciliationReport | None = None,
 ) -> int:
     """Release symbols whose orphan position is gone. Blocks must be able to lift."""
+    from trading.external_positions import EXTERNAL_POSITIONS
+
     cleared = 0
+    live = {s.upper() for s in live_symbols}
+
+    for incident in EXTERNAL_POSITIONS.list_open():
+        if incident.symbol.upper() in live:
+            continue
+        EXTERNAL_POSITIONS.resolve(
+            incident.id,
+            resolution="cleared",
+            operator_action="orphan position gone at broker",
+        )
+        cleared += 1
+        if report is not None:
+            report.changed.append(f"orphan_block:{incident.symbol}:cleared")
+
+    # Legacy orphan:* intents
     for intent in intents.list_unresolved():
         if not intent.idempotency_key.startswith(_ORPHAN_PREFIX):
             continue
-        if intent.symbol.upper() in live_symbols:
+        if intent.symbol.upper() in live:
             continue
         intents.transition(intent.id, IntentStatus.CANCELED, last_error="orphan position gone")
         cleared += 1

@@ -151,11 +151,16 @@ def revalidate_triggered_watch_full(
         zone_arrival_type = arrival_facts.arrival_type.value
 
     candidate = watch.candidate
+    from trading.data_integrity import last_bar_timestamp
+
     admission = evaluate_trade_admission(
         bundle=bundle,
         candidate=candidate,
         setup_type=setup_type,
         quote=quote,
+        bars_count=len(bars) if bars else 0,
+        last_bar_ts=last_bar_timestamp(bars) if bars else None,
+        require_bars=True,
         entry=watch.planned_entry,
         stop=watch.planned_stop,
         target=target.price if target else watch.planned_target,

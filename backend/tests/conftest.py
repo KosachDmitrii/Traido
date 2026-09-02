@@ -340,11 +340,22 @@ def isolated_audit_jsonl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Ite
 
 
 @pytest.fixture(autouse=True)
-def admission_ready_on_store_create(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Ensure bare test candidates carry admission metadata at store.create.
+def isolated_external_positions(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Per-test memory store for orphan/external incidents."""
+    from trading import external_positions as ep
+    from trading.external_positions import MemoryExternalPositionStore
 
-    Does not monkeypatch ExecutionService.decide or invent RR on the capital
-    path — tests still form geometry; we only attach required admission facts.
+    store = MemoryExternalPositionStore()
+    monkeypatch.setattr(ep, "EXTERNAL_POSITIONS", store)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def admission_metadata_on_store_create(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Attach fail-closed admission metadata at store.create.
+
+    Does not invent R:R, REALISTIC reachability, or lift targets. Only fills
+    missing thesis/breakdown/target_model required by the capital path.
     """
     from tests.support import ensure_admission_ready
     from trading.opportunities import MemoryOpportunityStore, OpportunityStore
@@ -353,10 +364,38 @@ def admission_ready_on_store_create(monkeypatch: pytest.MonkeyPatch) -> Iterator
         orig = cls.create
 
         def create(self, candidate, risk, mode, *args, **kwargs):
-            return orig(self, ensure_admission_ready(candidate), risk, mode, *args, **kwargs)
+            from tests.support import ensure_admission_ready as _ready
+
+            return orig(self, _ready(candidate), risk, mode, *args, **kwargs)
 
         monkeypatch.setattr(cls, "create", create)
 
     _wrap(MemoryOpportunityStore)
     _wrap(OpportunityStore)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def cleared_market_for_capital_path(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Capital-path tests need a real MarketAssessment — missing FRED is not NEUTRAL."""
+    from datetime import UTC, datetime
+
+    from core.enums import AssessmentKind, MarketRegimeLabel
+    from core.schemas import MarketAssessment
+
+    async def _assess(fred_api_key=None, *, now=None):
+        evaluated_at = now or datetime.now(UTC)
+        return MarketAssessment(
+            kind=AssessmentKind.MARKET,
+            regime=MarketRegimeLabel.RISK_ON,
+            score=70,
+            risk_posture="risk_on",
+            reasons=["test_cleared_market"],
+            evaluated_at=evaluated_at,
+            benchmark="SPY",
+            sector_label="technology",
+            sector_tradable=True,
+        )
+
+    monkeypatch.setattr("agents.market.agent.assess_market", _assess)
     yield

@@ -623,6 +623,21 @@ class ExecutionService:
             )
             raise RuntimeError(f"UNRESOLVED_BROKER_STATE:{blocker.status.value}")
 
+        from trading.external_positions import EXTERNAL_POSITIONS
+
+        if opp.candidate.symbol.upper() in EXTERNAL_POSITIONS.blocking_symbols():
+            self._release_opportunity(opp, risk)
+            await self.audit.append(
+                "EntryBlockedByExternalPosition",
+                "execution",
+                {
+                    "opportunity_id": str(opp.id),
+                    "symbol": opp.candidate.symbol,
+                },
+                pipeline_run_id=opp.candidate.pipeline_run_id,
+            )
+            raise RuntimeError(f"EXTERNAL_POSITION_BLOCK:{opp.candidate.symbol.upper()}")
+
         held = self._open_position_for(opp.candidate.symbol)
         if held is not None:
             # V1 holds one position per symbol. A second entry would leave the
@@ -1131,7 +1146,7 @@ class ExecutionService:
 
         Intents belonging to the same opportunity are excluded: those are the
         caller's own earlier attempt, which the idempotency path resumes rather
-        than competes with.
+        than competes with. External/orphan incidents are checked separately.
         """
         ticker = symbol.upper()
         for candidate in self.intents.list_unresolved():
@@ -1170,7 +1185,17 @@ class ExecutionService:
             strategy_version=opp.candidate.strategy_version,
             opportunity_id=opp.id,
             risk_snapshot=risk.model_dump(mode="json"),
+            approval_admission_record_id=opp.approval_admission_record_id,
+            geometry_hash=opp.geometry_hash,
         )
+        if candidate.approval_admission_record_id is None:
+            from core.metrics import METRICS
+
+            METRICS.counter(
+                "entry_intent_without_admission",
+                help_text="Refused entry intent: Opportunity has no ApprovalAdmission FK",
+            )
+            raise RuntimeError("ADMISSION_REQUIRED:opportunity_missing_approval_admission")
         intent, created = self.intents.create_or_get(candidate)
         if created:
             await self.audit.append(
@@ -1192,6 +1217,12 @@ class ExecutionService:
 
     async def _place_entry(self, intent: OrderIntent, opp: TradeOpportunity) -> OrderRecord:
         """Submit the entry, or recover the one a previous attempt already sent."""
+        from trading.admission_authority import assert_entry_intent_has_admission
+
+        # ApprovalAdmission is the sole authority — EntryDecision / Risk PASS /
+        # TRIGGERED / Opportunity presence never authorize broker contact.
+        assert_entry_intent_has_admission(intent, opp)
+
         if not intent.may_resubmit:
             return await self._recover_entry(intent, opp)
 

@@ -431,7 +431,9 @@ async def test_an_unexplained_size_gap_blocks_the_symbol(ledger: PositionLedger)
 
     assert Decimal(str(ledger.get(position_id).qty)) == Decimal(100), "never invent a number"
     assert report.severity == "critical"
-    assert "AAPL" in intents.unresolved_symbols()
+    from trading import external_positions as ep
+
+    assert "AAPL" in ep.EXTERNAL_POSITIONS.blocking_symbols()
     mismatch = next(e for e in audit.events if e["event_type"] == "PositionQuantityMismatch")
     assert mismatch["payload"]["severity"] == "critical"
 

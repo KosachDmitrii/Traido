@@ -28,10 +28,20 @@ HARD_VETO_REGISTRY: dict[str, VetoCategory] = {
     "CRASH_VELOCITY": VetoCategory.ARRIVAL,
     "EXTREME_SELL_VOLUME": VetoCategory.ARRIVAL,
     "INVALID_STOP": VetoCategory.SETUP,
+    "MISSING_STOP": VetoCategory.SETUP,
     "MISSING_TARGET": VetoCategory.SETUP,
+    "MISSING_ENTRY_ZONE": VetoCategory.ENTRY,
     "TARGET_UNREALISTIC": VetoCategory.SETUP,
+    "TARGET_PLAN_MISMATCH": VetoCategory.SETUP,
+    "TARGET_NO_BASIS": VetoCategory.SETUP,
     "INSUFFICIENT_EFFECTIVE_RR": VetoCategory.EXECUTION,
     "EXTREME_SPREAD": VetoCategory.EXECUTION,
+    "GEOMETRY_MISMATCH": VetoCategory.EXECUTION,
+    "REGIME_MISSING": VetoCategory.DATA,
+    "REGIME_STALE": VetoCategory.DATA,
+    "REGIME_UNKNOWN": VetoCategory.DATA,
+    "SECTOR_GATE_MISSING": VetoCategory.DATA,
+    "SECTOR_BLOCKED": VetoCategory.SETUP,
 }
 
 HARD_VETO_CODES = frozenset(HARD_VETO_REGISTRY)

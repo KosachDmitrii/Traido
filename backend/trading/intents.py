@@ -73,10 +73,32 @@ def _session_factory(engine: Engine | None = None) -> sessionmaker[Session]:
 
 
 def _from_row(row: OrderIntentRow) -> OrderIntent:
-    return OrderIntent.model_validate(row.payload)
+    intent = OrderIntent.model_validate(row.payload)
+    # Dedicated columns are canonical when present — heal payload drift.
+    updates: dict[str, Any] = {}
+    if row.approval_admission_record_id is not None:
+        updates["approval_admission_record_id"] = row.approval_admission_record_id
+    if getattr(row, "geometry_hash", None):
+        updates["geometry_hash"] = row.geometry_hash
+    return intent.model_copy(update=updates) if updates else intent
 
 
 def _write(session: Session, intent: OrderIntent) -> None:
+    from core.enums import IntentPurpose, IntentStatus
+
+    if (
+        intent.purpose is IntentPurpose.ENTRY
+        and intent.approval_admission_record_id is None
+        and intent.status is IntentStatus.CREATED
+    ):
+        from core.metrics import METRICS
+
+        METRICS.counter(
+            "entry_intent_without_admission",
+            help_text="Entry OrderIntent created without ApprovalAdmission FK",
+        )
+        raise ValueError("entry_intent_requires_approval_admission")
+
     row = session.get(OrderIntentRow, intent.id)
     data = intent.model_dump(mode="json")
     if row is None:
@@ -91,6 +113,8 @@ def _write(session: Session, intent: OrderIntent) -> None:
                 broker_order_id=intent.broker_order_id,
                 opportunity_id=intent.opportunity_id,
                 position_id=intent.position_id,
+                approval_admission_record_id=intent.approval_admission_record_id,
+                geometry_hash=intent.geometry_hash,
                 created_at=intent.created_at,
                 payload=data,
             )
@@ -101,6 +125,9 @@ def _write(session: Session, intent: OrderIntent) -> None:
         row.symbol = intent.symbol
         row.purpose = intent.purpose.value
         row.position_id = intent.position_id
+        row.approval_admission_record_id = intent.approval_admission_record_id
+        if hasattr(row, "geometry_hash"):
+            row.geometry_hash = intent.geometry_hash
         row.payload = data
 
 
@@ -288,6 +315,20 @@ class MemoryOrderIntentStore:
         self._keys: dict[str, UUID] = {}
 
     def create_or_get(self, intent: OrderIntent) -> tuple[OrderIntent, bool]:
+        from core.enums import IntentPurpose, IntentStatus
+
+        if (
+            intent.purpose is IntentPurpose.ENTRY
+            and intent.approval_admission_record_id is None
+            and intent.status is IntentStatus.CREATED
+        ):
+            from core.metrics import METRICS
+
+            METRICS.counter(
+                "entry_intent_without_admission",
+                help_text="Entry OrderIntent created without ApprovalAdmission FK",
+            )
+            raise ValueError("entry_intent_requires_approval_admission")
         with self._lock:
             existing_id = self._keys.get(intent.idempotency_key)
             if existing_id is not None:

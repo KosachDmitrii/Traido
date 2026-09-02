@@ -57,6 +57,8 @@ def _intent(
             status=status,
             broker_order_id=broker_order_id,
             client_order_id="traido-e-recon",
+            approval_admission_record_id=uuid4() if status is IntentStatus.CREATED else None,
+            geometry_hash="recon-test",
         )
     )
     return intent
@@ -151,6 +153,8 @@ async def test_an_intent_that_never_reached_the_broker_is_retired_not_flagged() 
             side=OrderSide.BUY,
             requested_qty=Decimal(10),
             order_type=OrderType.LIMIT,
+            approval_admission_record_id=uuid4(),
+            geometry_hash="recon-never",
         )
     )
 
@@ -294,6 +298,7 @@ async def test_a_stop_that_cannot_be_reinstalled_is_reported_unresolved() -> Non
 
 
 async def test_an_orphan_broker_position_blocks_the_symbol() -> None:
+    from trading import external_positions as ep
     from trading.reconcile import block_symbol_as_unknown, clear_resolved_orphan_blocks
 
     intents = MemoryOrderIntentStore()
@@ -303,20 +308,21 @@ async def test_an_orphan_broker_position_blocks_the_symbol() -> None:
         intents, symbol="NVDA", qty=Decimal(5), reason="no ledger row", audit=audit
     )
 
-    assert "NVDA" in intents.unresolved_symbols()
-    assert any(e["event_type"] == "EntryStateUnknown" for e in audit.events)
+    assert "NVDA" in ep.EXTERNAL_POSITIONS.blocking_symbols()
+    assert any(e["event_type"] == "ExternalPositionIncidentOpened" for e in audit.events)
 
-    # Blocking the same orphan twice must not pile up intents.
+    # Blocking the same orphan twice must not pile up incidents.
     await block_symbol_as_unknown(intents, symbol="NVDA", qty=Decimal(5), reason="again")
-    assert len(intents.list_by_key_prefix("orphan:NVDA:")) == 1
+    assert len(ep.EXTERNAL_POSITIONS.list_open()) == 1
 
     # And the block lifts once the orphan is gone.
     cleared = await clear_resolved_orphan_blocks(intents, live_symbols=set())
-    assert cleared == 1
-    assert "NVDA" not in intents.unresolved_symbols()
+    assert cleared >= 1
+    assert "NVDA" not in ep.EXTERNAL_POSITIONS.blocking_symbols()
 
 
 async def test_full_reconcile_reports_an_orphan_as_critical() -> None:
+    from trading import external_positions as ep
     from trading.reconcile import reconcile_positions
 
     broker = MockPaperBroker()
@@ -339,5 +345,5 @@ async def test_full_reconcile_reports_an_orphan_as_critical() -> None:
 
     assert "NVDA" in result["orphans"]
     assert result["severity"] == SEVERITY_CRITICAL
-    assert "NVDA" in intents.unresolved_symbols()
+    assert "NVDA" in ep.EXTERNAL_POSITIONS.blocking_symbols()
     assert any(e["event_type"] == "ReconciliationUnresolved" for e in audit.events)

@@ -42,6 +42,8 @@ def _intent(**overrides: Any) -> OrderIntent:
         "order_type": OrderType.LIMIT,
         "limit_price": Decimal("100.50"),
         "opportunity_id": uuid4(),
+        "approval_admission_record_id": uuid4(),
+        "geometry_hash": "intent-store-test",
     }
     base.update(overrides)
     return OrderIntent(**base)

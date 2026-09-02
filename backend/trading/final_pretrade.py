@@ -1,15 +1,30 @@
-"""Final pretrade validation — re-check entry gates at human approve time."""
+"""Final pretrade validation — re-check entry gates at human approve time.
+
+Never invents BUY_NOW, BULLISH, component scores of 50, REALISTIC reachability,
+or nearest_support from the planned stop. Missing facts fail closed.
+"""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from core.enums import AdmissionDecision, DataHealthStatus, SetupType
+from core.enums import (
+    AdmissionDecision,
+    DataHealthStatus,
+    EntryDecision,
+    InstrumentThesis,
+    SetupType,
+    TargetReachabilityClass,
+)
 from core.schemas import (
     AdmissionSnapshot,
+    EntryDecisionBundle,
+    EntryQualityBreakdown,
     FeatureSnapshot,
     Quote,
+    SetupQualityBreakdown,
+    TargetPlan,
     TradeAdmissionResult,
     TradeCandidate,
 )
@@ -36,6 +51,10 @@ class PretradeRejection(Exception):
 def map_admission_rejection(admission: TradeAdmissionResult) -> str:
     if admission.decision is AdmissionDecision.DATA_BLOCKED:
         return "BUY_REJECTED_STALE_DATA"
+    if "TARGET_UNREALISTIC" in admission.vetoes or any(
+        "TARGET_UNREALISTIC" in r for r in admission.reason_codes
+    ):
+        return "NO_TRADE/TARGET_UNREALISTIC"
     if "INSUFFICIENT_EFFECTIVE_RR" in admission.vetoes or any(
         "INSUFFICIENT_EFFECTIVE_RR" in r for r in admission.reason_codes
     ):
@@ -58,6 +77,56 @@ def require_final_admission(admission: TradeAdmissionResult) -> TradeAdmissionRe
     code = map_admission_rejection(admission)
     detail = ",".join(admission.reason_codes[:8]) or admission.decision.value
     raise PretradeRejection(code, detail)
+
+
+def _require_target_plan(candidate: TradeCandidate) -> TargetPlan:
+    """Propagate original reachability — never force REALISTIC."""
+    reachability = candidate.target_reachability
+    model = candidate.target_model
+    if reachability is None or model is None:
+        raise PretradeRejection(
+            "BUY_REJECTED_ADMISSION",
+            "TARGET_PLAN_REQUIRED",
+        )
+    return TargetPlan(
+        price=candidate.target,
+        model=model,
+        reachability=reachability,
+    )
+
+
+def _require_breakdown(
+    candidate: TradeCandidate,
+) -> tuple[EntryQualityBreakdown, SetupQualityBreakdown | None]:
+    """Refuse invented component scores of 50."""
+    raw = candidate.entry_quality_breakdown or {}
+    required = (
+        "price_location",
+        "vwap_location",
+        "atr_extension",
+        "pullback_quality",
+        "remaining_reward",
+        "support_structure",
+        "resistance_structure",
+        "short_term_momentum",
+        "volume_confirmation",
+        "market_alignment",
+        "signal_drift",
+    )
+    missing = [k for k in required if k not in raw]
+    if missing:
+        raise PretradeRejection(
+            "BUY_REJECTED_STALE_DATA",
+            f"ENTRY_QUALITY_BREAKDOWN_REQUIRED:{','.join(missing[:4])}",
+        )
+    breakdown = EntryQualityBreakdown(**{k: int(raw[k]) for k in EntryQualityBreakdown.model_fields if k in raw})
+    setup_bd = None
+    setup_raw = candidate.setup_quality_breakdown or {}
+    if setup_raw:
+        setup_bd = SetupQualityBreakdown(
+            **{k: int(setup_raw[k]) for k in SetupQualityBreakdown.model_fields if k in setup_raw}
+        )
+    return breakdown, setup_bd
 
 
 def final_pretrade_validation(
@@ -121,6 +190,9 @@ def final_pretrade_validation(
         raise PretradeRejection("BUY_REJECTED_STALE_DATA", "FEATURE_SNAPSHOT_REQUIRED")
 
     setup_type = candidate.setup_type
+    if setup_type is SetupType.UNKNOWN:
+        raise PretradeRejection("BUY_REJECTED_ADMISSION", "SETUP_TYPE_UNKNOWN")
+
     zone_low = (
         snap.entry_zone_low
         if snap
@@ -134,7 +206,7 @@ def final_pretrade_validation(
     atr = snap.atr_at_creation if snap else None
 
     allowed, zone_reasons = entry_allowed_for_setup_type(setup_type, mid, zone_low, zone_high, atr)
-    if not allowed and setup_type is not SetupType.UNKNOWN:
+    if not allowed:
         raise PretradeRejection("PRICE_OUTSIDE_ENTRY_POLICY", ",".join(zone_reasons))
 
     ref_price = snap.price_at_creation if snap else float(candidate.entry)
@@ -163,6 +235,23 @@ def final_pretrade_validation(
     if setup_q is None or entry_q is None:
         raise PretradeRejection("BUY_REJECTED_STALE_DATA", "QUALITY_SCORES_REQUIRED")
 
+    if candidate.thesis is None:
+        raise PretradeRejection("BUY_REJECTED_ADMISSION", "THESIS_REQUIRED")
+    if candidate.thesis is not InstrumentThesis.BULLISH:
+        raise PretradeRejection("BUY_REJECTED_ADMISSION", "THESIS_NOT_BULLISH")
+
+    entry_decision = candidate.entry_decision
+    if entry_decision is None:
+        raise PretradeRejection("BUY_REJECTED_ADMISSION", "ENTRY_DECISION_REQUIRED")
+
+    target_plan = _require_target_plan(candidate)
+    if target_plan.reachability is TargetReachabilityClass.UNREALISTIC:
+        # Fail closed before admission so callers see an explicit code; admission
+        # would also veto — this makes the approve path reason unambiguous.
+        raise PretradeRejection("NO_TRADE/TARGET_UNREALISTIC", "TARGET_UNREALISTIC")
+
+    breakdown, setup_breakdown = _require_breakdown(candidate)
+
     facts = evaluate_timing(
         exec_snap,
         signal_price=float(candidate.signal_price or candidate.entry),
@@ -171,47 +260,20 @@ def final_pretrade_validation(
         planned_target=float(candidate.target),
     )
     facts = facts.model_copy(update={"current_price": mid})
-    # Preserve structural stop basis from the admission snapshot when features
-    # did not re-derive nearest support (flat synthetic series in tests, etc.).
-    if facts.nearest_support is None and snap and snap.stop_at_creation is not None:
-        facts = facts.model_copy(update={"nearest_support": float(snap.stop_at_creation)})
+    # Do NOT substitute planned stop as nearest_support — that invented
+    # structural basis and let ATR-only stops pass approval.
+
     chase = compute_chase_facts(facts, zone_high=zone_high)
     if chase.score >= HARD_CHASE_LIMIT:
         raise PretradeRejection("BUY_REJECTED_CHASE", f"chase={chase.score}")
 
-    from core.enums import EntryDecision, InstrumentThesis, TargetReachabilityClass
-    from core.schemas import (
-        EntryDecisionBundle,
-        EntryQualityBreakdown,
-        SetupQualityBreakdown,
-        TargetPlan,
-    )
-
-    # Prefer candidate's target plan metadata when present; never invent 2R structure.
-    target_plan = TargetPlan(
-        price=candidate.target,
-        model=getattr(candidate, "target_model", None) or "structure",
-        reachability=TargetReachabilityClass.REALISTIC,
-    )
     bundle = EntryDecisionBundle(
-        thesis=candidate.thesis or InstrumentThesis.BULLISH,
-        entry_decision=EntryDecision.BUY_NOW,
+        thesis=candidate.thesis,
+        entry_decision=entry_decision,
         entry_quality=entry_q,
         setup_quality=setup_q,
-        setup_breakdown=SetupQualityBreakdown(),
-        breakdown=EntryQualityBreakdown(
-            price_location=50,
-            vwap_location=50,
-            atr_extension=50,
-            pullback_quality=50,
-            remaining_reward=50,
-            support_structure=50,
-            resistance_structure=50,
-            short_term_momentum=50,
-            volume_confirmation=50,
-            market_alignment=50,
-            signal_drift=50,
-        ),
+        setup_breakdown=setup_breakdown,
+        breakdown=breakdown,
         facts=facts,
         entry_zone_low=candidate.entry_zone_low,
         entry_zone_high=candidate.entry_zone_high,
@@ -230,6 +292,9 @@ def final_pretrade_validation(
         target=candidate.target,
         target_plan=target_plan,
         now=evaluated_at,
+        stop_plan_model=snap.stop_model if snap else None,
+        stop_structural_source=snap.structural_source if snap else None,
+        stop_structural_level=snap.structural_level if snap else None,
     )
     # Stamp decision-time facts onto snapshot for the approval record.
     if admission.snapshot is not None:

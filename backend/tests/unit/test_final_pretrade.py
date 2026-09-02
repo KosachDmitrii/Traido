@@ -28,6 +28,8 @@ def _snap(symbol: str = "NEM", close: float = 112.0, atr: float = 2.0) -> Featur
 def _candidate(
     *, entry: float = 112.0, stop: float = 108.0, target: float = 120.0
 ) -> TradeCandidate:
+    from core.enums import EntryDecision, TargetReachabilityClass
+
     return TradeCandidate(
         symbol="NEM",
         action=TradeAction.BUY,
@@ -39,9 +41,25 @@ def _candidate(
         reasons=["test"],
         strategy_version="test@1",
         thesis=InstrumentThesis.BULLISH,
+        entry_decision=EntryDecision.BUY_NOW,
         setup_type=SetupType.PULLBACK_CONTINUATION,
         setup_quality=85,
         entry_quality=78,
+        entry_quality_breakdown={
+            "price_location": 75,
+            "vwap_location": 70,
+            "atr_extension": 72,
+            "pullback_quality": 74,
+            "remaining_reward": 76,
+            "support_structure": 78,
+            "resistance_structure": 70,
+            "short_term_momentum": 68,
+            "volume_confirmation": 71,
+            "market_alignment": 73,
+            "signal_drift": 80,
+        },
+        target_model="structure",
+        target_reachability=TargetReachabilityClass.REALISTIC,
         entry_zone_low=Decimal("111.8"),
         entry_zone_high=Decimal("113.2"),
         admission_version="admission@1.1.0",
@@ -56,6 +74,9 @@ def _candidate(
             stop_at_creation=108.0,
             target_at_creation=120.0,
             effective_rr_at_creation=2.0,
+            stop_model="structure",
+            structural_source="nearest_support",
+            structural_level=108.0,
         ).model_dump(mode="json"),
     )
 
@@ -91,6 +112,8 @@ def test_price_moved_after_buy_allowed_blocks() -> None:
 
 
 def test_rr_dropped_blocks() -> None:
+    from core.enums import EntryDecision, TargetReachabilityClass
+
     snap = AdmissionSnapshot(
         price_at_creation=1168.47,
         atr_at_creation=8.0,
@@ -101,6 +124,9 @@ def test_rr_dropped_blocks() -> None:
         entry_quality_at_creation=81,
         stop_at_creation=1153.26,
         target_at_creation=1193.77,
+        stop_model="structure",
+        structural_source="nearest_support",
+        structural_level=1153.26,
     )
     cand = TradeCandidate(
         symbol="LLY",
@@ -113,9 +139,25 @@ def test_rr_dropped_blocks() -> None:
         reasons=["test"],
         strategy_version="test@1",
         thesis=InstrumentThesis.BULLISH,
+        entry_decision=EntryDecision.BUY_NOW,
         setup_type=SetupType.PULLBACK_CONTINUATION,
         setup_quality=89,
         entry_quality=81,
+        entry_quality_breakdown={
+            "price_location": 75,
+            "vwap_location": 70,
+            "atr_extension": 72,
+            "pullback_quality": 74,
+            "remaining_reward": 76,
+            "support_structure": 78,
+            "resistance_structure": 70,
+            "short_term_momentum": 68,
+            "volume_confirmation": 71,
+            "market_alignment": 73,
+            "signal_drift": 80,
+        },
+        target_model="structure",
+        target_reachability=TargetReachabilityClass.REALISTIC,
         entry_zone_low=Decimal("1160.0"),
         entry_zone_high=Decimal("1170.0"),
         admission_version="admission@1.1.0",

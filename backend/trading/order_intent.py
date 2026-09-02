@@ -296,6 +296,9 @@ class OrderIntent(StrictModel):
     related_intent_id: UUID | None = None
     exit_reason: str | None = None
     risk_snapshot: dict[str, object] = Field(default_factory=dict)
+    # Entry-only: fail-closed link to ApprovalAdmission. Non-null for purpose=entry.
+    approval_admission_record_id: UUID | None = None
+    geometry_hash: str | None = None
 
     status: IntentStatus = IntentStatus.CREATED
     broker_order_id: str | None = None

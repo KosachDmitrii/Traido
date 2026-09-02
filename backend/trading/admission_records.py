@@ -119,6 +119,8 @@ class AdmissionRecordStore:
             market_gate_ts=market_gate_ts,
             expires_at=expires,
             source_version=ADMISSION_ORCHESTRATION_VERSION,
+            admission_input=ctx.get("admission_input"),
+            admission_snapshot=admission.snapshot,
         )
         data = record.model_dump(mode="json")
         canonical = _canonical_payload(data)

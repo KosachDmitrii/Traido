@@ -23,12 +23,41 @@ def _session_factory(engine: Engine | None = None) -> sessionmaker[Session]:
 
 
 def _from_row(row: OpportunityRow) -> TradeOpportunity:
-    return TradeOpportunity.model_validate(row.payload)
+    opp = TradeOpportunity.model_validate(row.payload)
+    # Dedicated columns are the persistence contract; overlay onto payload model.
+    updates: dict[str, Any] = {}
+    if row.creation_admission_record_id is not None:
+        updates["creation_admission_record_id"] = row.creation_admission_record_id
+    if row.creation_admission_version is not None:
+        updates["creation_admission_version"] = row.creation_admission_version
+    if row.approval_admission_record_id is not None:
+        updates["approval_admission_record_id"] = row.approval_admission_record_id
+    if row.geometry_hash is not None:
+        updates["geometry_hash"] = row.geometry_hash
+    if row.policy_version is not None:
+        updates["policy_version"] = row.policy_version
+    if hasattr(row, "legacy"):
+        updates["legacy"] = bool(row.legacy)
+    if hasattr(row, "decision_version"):
+        updates["decision_version"] = int(row.decision_version or 0)
+    return opp.model_copy(update=updates) if updates else opp
 
 
 def _write_payload(session: Session, opp: TradeOpportunity, **columns: Any) -> OpportunityRow:
     row = session.get(OpportunityRow, opp.id)
     data = opp.model_dump(mode="json")
+    # Always sync dedicated columns from the domain model unless explicitly overridden.
+    synced = {
+        "creation_admission_record_id": opp.creation_admission_record_id,
+        "creation_admission_version": opp.creation_admission_version,
+        "approval_admission_record_id": opp.approval_admission_record_id,
+        "geometry_hash": opp.geometry_hash,
+        "policy_version": opp.policy_version,
+        "legacy": opp.legacy,
+        "decision_version": opp.decision_version,
+        "approved_at": opp.approved_at,
+    }
+    synced.update(columns)
     if row is None:
         row = OpportunityRow(
             id=opp.id,
@@ -47,7 +76,7 @@ def _write_payload(session: Session, opp: TradeOpportunity, **columns: Any) -> O
         row.created_at = opp.created_at
         row.expires_at = opp.expires_at
         row.payload = data
-    for key, val in columns.items():
+    for key, val in synced.items():
         if hasattr(row, key):
             setattr(row, key, val)
     return row

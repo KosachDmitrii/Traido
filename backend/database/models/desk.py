@@ -77,6 +77,7 @@ class OrderIntentRow(Base):
     approval_admission_record_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType, nullable=True, index=True
     )
+    geometry_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
     updated_at: Mapped[datetime] = mapped_column(
@@ -153,6 +154,24 @@ class ShadowOutcomeRow(Base):
     )
     shadow_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     watch_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True, index=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ExternalPositionIncidentRow(Base):
+    """Orphan/external broker exposure — never an OrderIntent or admission."""
+
+    __tablename__ = "external_position_incidents"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUIDType, primary_key=True, default=uuid.uuid4)
+    symbol: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    broker: Mapped[str] = mapped_column(String(32), nullable=False)
+    qty: Mapped[str] = mapped_column(String(32), nullable=False)
+    resolution: Mapped[str] = mapped_column(String(32), nullable=False, index=True, default="open")
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False

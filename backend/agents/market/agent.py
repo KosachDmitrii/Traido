@@ -24,17 +24,19 @@ async def assess_market(
         evaluated_at = evaluated_at.astimezone(UTC)
 
     if not fred_api_key:
+        # Fail closed: missing FRED is not a tradable NEUTRAL. Capital-path
+        # market_gate rejects assessments without a trustworthy timestamp.
         return MarketAssessment(
             kind=AssessmentKind.MARKET,
             regime=MarketRegimeLabel.NEUTRAL,
-            score=50,
-            risk_posture="neutral",
-            reasons=["FRED key not configured — neutral stub"],
+            score=0,
+            risk_posture="unknown",
+            reasons=["FRED_NOT_CONFIGURED", "DATA_BLOCKED"],
             macro_notes=[],
-            evaluated_at=evaluated_at,
-            benchmark="SPY",
-            sector_label="unknown",
-            sector_tradable=True,
+            evaluated_at=None,
+            benchmark=None,
+            sector_label=None,
+            sector_tradable=None,
         )
 
     # 10Y yield (DGS10) and unemployment (UNRATE) — simple regime proxy

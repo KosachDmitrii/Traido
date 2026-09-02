@@ -737,6 +737,34 @@ class AdmissionRecord(StrictModel):
     market_gate_ts: datetime | None = None
     expires_at: datetime | None = None
     source_version: str | None = None
+    # Full fail-closed input + snapshot frozen with the decision.
+    admission_input: dict[str, Any] | None = None
+    admission_snapshot: AdmissionSnapshot | None = None
+
+
+class ExternalPositionIncident(StrictModel):
+    """Unattributed broker exposure — never a Traido-admitted trade."""
+
+    id: UUID
+    account_id: str | None = None
+    broker: str
+    symbol: str
+    qty: Decimal
+    avg_entry: Decimal | None = None
+    first_seen_at: datetime
+    last_seen_at: datetime
+    broker_order_id: str | None = None
+    broker_perm_id: str | None = None
+    client_order_id: str | None = None
+    correlation_status: str = "unattributed"
+    """unattributed | correlated | disputed"""
+    resolution: str = "open"
+    """open | flattened | adopted_after_correlation | cleared"""
+    operator_action: str | None = None
+    blocks_symbol: bool = True
+    notes: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
 
 
 class StopPlan(StrictModel):
@@ -750,6 +778,47 @@ class StopPlan(StrictModel):
     structure_distance: float | None = None
     reason_codes: list[str] = Field(default_factory=list)
     model_version: str = "stop@1"
+
+
+class AdmissionInput(StrictModel):
+    """Immutable fail-closed inputs for one admission evaluation.
+
+    No defaults that invent bullish thesis, BUY_NOW, component scores of 50,
+    or REALISTIC reachability. Missing facts must surface as DATA_BLOCKED /
+    NO_TRADE rather than being filled in by the caller.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, frozen=True)
+
+    bundle: EntryDecisionBundle
+    setup_type: SetupType
+    setup_quality: int = Field(ge=0, le=100)
+    entry_zone_low: Decimal | None = None
+    entry_zone_high: Decimal | None = None
+    stop_plan: StopPlan | None = None
+    target_plan: TargetPlan
+    quote: Quote
+    bars_count: int = Field(ge=0)
+    bar_timeframe: str
+    last_bar_ts: datetime | None = None
+    market: MarketAssessment | None = None
+    sector_label: str | None = None
+    sector_tradable: bool | None = None
+    news_status: NewsCheck | None = None
+    earnings_status: EarningsCheck | None = None
+    portfolio_snapshot: dict[str, Any] = Field(default_factory=dict)
+    risk_snapshot: dict[str, Any] = Field(default_factory=dict)
+    strategy_version: str
+    decision_version: int = 0
+    admission_version: str
+    policy_version: str
+    aggressiveness: int = Field(ge=0, le=100)
+    opportunity_id: UUID | None = None
+    watch_id: UUID | None = None
+    trigger_version: int | None = None
+    geometry_hash: str
+    evaluated_at: datetime
+    require_bars: bool = True
 
 
 class WatchRevalidationResult(StrictModel):

@@ -51,6 +51,8 @@ def test_intent_transition_from_is_compare_and_swap() -> None:
         side=OrderSide.BUY,
         requested_qty=__import__("decimal").Decimal(1),
         order_type=OrderType.LIMIT,
+        approval_admission_record_id=__import__("uuid").uuid4(),
+        geometry_hash="pipeline-guard",
     )
     store.create_or_get(intent)
     first = store.transition_from(

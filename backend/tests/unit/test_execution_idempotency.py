@@ -203,6 +203,7 @@ async def test_recovery_reaches_the_same_place_after_a_process_restart() -> None
 async def test_the_same_idempotency_key_yields_one_intent() -> None:
     intents = MemoryOrderIntentStore()
     opportunity = uuid4()
+    admission_id = uuid4()
 
     def _make() -> OrderIntent:
         return OrderIntent(
@@ -214,6 +215,8 @@ async def test_the_same_idempotency_key_yields_one_intent() -> None:
             order_type=OrderType.LIMIT,
             limit_price=Decimal(100),
             opportunity_id=opportunity,
+            approval_admission_record_id=admission_id,
+            geometry_hash="test-geometry",
         )
 
     first, created_first = intents.create_or_get(_make())
