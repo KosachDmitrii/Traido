@@ -327,7 +327,9 @@ class AdmissionRecordStore:
                 )
         req_col = None
         if request_id is not None:
-            req_col = request_id.hex if isinstance(request_id, UUID) else str(request_id).replace("-", "")
+            req_col = (
+                request_id.hex if isinstance(request_id, UUID) else str(request_id).replace("-", "")
+            )
             if len(req_col) > 32:
                 req_col = str(request_id)
         session.add(

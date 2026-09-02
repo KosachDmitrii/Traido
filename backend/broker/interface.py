@@ -65,4 +65,3 @@ def resolve_broker_identity(broker: object) -> tuple[str, str, str]:
     if not account_id:
         account_id = f"{name}:paper"
     return name, str(account_id), env_s
-

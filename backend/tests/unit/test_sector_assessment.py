@@ -125,7 +125,9 @@ async def test_nem_gdx_stale() -> None:
 async def test_lly_xlv_pass_fail_missing_stale() -> None:
     cls = classify_symbol("LLY")
     now = datetime.now(UTC)
-    ok = assess_from_benchmark_bars(cls, _bars("XLV", BENCHMARK_MIN_BARS + 10, trend=0.004), now=now)
+    ok = assess_from_benchmark_bars(
+        cls, _bars("XLV", BENCHMARK_MIN_BARS + 10, trend=0.004), now=now
+    )
     assert ok.tradable_long is True
     bad = assess_from_benchmark_bars(
         cls, _bars("XLV", BENCHMARK_MIN_BARS + 10, trend=-0.004), now=now

@@ -50,7 +50,12 @@ async def test_approve_opens_ledger_at_fill_price() -> None:
         store=store,
         exit_store=MemoryExitStore(),
     )
-    result = await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+    result = await service.decide(
+        opp.id,
+        UserDecision.APPROVE,
+        request_id=uuid4(),
+        expected_decision_version=opp.decision_version,
+    )
     assert result.status == OpportunityStatus.EXECUTED
     assert any(e["event_type"] == "FillReceived" for e in audit.events)
     assert any(e["event_type"] == "PositionOpened" for e in audit.events)
@@ -84,7 +89,12 @@ async def test_stop_failure_flattens_and_discards(monkeypatch) -> None:
         exit_store=MemoryExitStore(),
     )
     with pytest.raises(RuntimeError, match="STOP_FAILED_FLATTENED"):
-        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+        await service.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
     updated = store.get(opp.id)
     assert updated is not None
     assert updated.status == OpportunityStatus.DISCARDED
@@ -114,7 +124,12 @@ async def test_entry_order_reject_releases_to_awaiting(monkeypatch) -> None:
         exit_store=MemoryExitStore(),
     )
     with pytest.raises(RuntimeError, match="ENTRY_ORDER_REJECTED"):
-        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+        await service.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
     updated = store.get(opp.id)
     assert updated is not None
     assert updated.status == OpportunityStatus.AWAITING_CONFIRMATION
@@ -150,7 +165,12 @@ async def test_ambiguous_submit_failure_does_not_release_the_card(monkeypatch) -
     )
 
     with pytest.raises(RuntimeError, match="ENTRY_STATE_UNKNOWN"):
-        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+        await service.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
 
     updated = store.get(opp.id)
     assert updated is not None
@@ -228,7 +248,12 @@ async def test_entry_fill_timeout_releases_to_awaiting(monkeypatch) -> None:
 
     monkeypatch.setattr("trading.execution.wait_for_fill", _timeout)
     with pytest.raises(RuntimeError, match="ENTRY_FILL_FAILED"):
-        await _service(broker, store).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+        await _service(broker, store).decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
 
     updated = store.get(opp.id)
     assert updated is not None
@@ -253,7 +278,12 @@ async def test_partial_fill_on_timeout_is_protected_not_abandoned(monkeypatch) -
     audit = InMemoryAudit()
 
     monkeypatch.setattr("trading.execution.wait_for_fill", _timeout)
-    result = await _service(broker, store, audit).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+    result = await _service(broker, store, audit).decide(
+        opp.id,
+        UserDecision.APPROVE,
+        request_id=uuid4(),
+        expected_decision_version=opp.decision_version,
+    )
 
     assert result.status == OpportunityStatus.EXECUTED
     assert any(e["event_type"] == "EntryPartiallyFilled" for e in audit.events)
@@ -288,7 +318,12 @@ async def test_partial_fill_with_failing_stop_is_flattened(monkeypatch) -> None:
     monkeypatch.setattr(broker, "place_order", flaky)
 
     with pytest.raises(RuntimeError, match="STOP_FAILED_FLATTENED"):
-        await _service(broker, store).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+        await _service(broker, store).decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
 
     assert all(p.symbol != "AAPL" for p in broker.positions)
 
@@ -313,7 +348,12 @@ async def test_unreadable_entry_after_cancel_is_recorded(monkeypatch) -> None:
 
     service = _service(broker, store, audit)
     with pytest.raises(RuntimeError, match="ENTRY_STATE_UNKNOWN"):
-        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+        await service.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
 
     assert any(e["event_type"] == "EntryStateUnknown" for e in audit.events)
     # An unreadable entry may have filled, so the symbol stays barred.

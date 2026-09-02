@@ -20,6 +20,7 @@ from trading.opportunities import MemoryOpportunityStore
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
 
+
 def _candidate() -> TradeCandidate:
     return TradeCandidate(
         symbol="AAPL",
@@ -33,6 +34,7 @@ def _candidate() -> TradeCandidate:
         strategy_version="test@1",
         pipeline_run_id=uuid4(),
     )
+
 
 def _portfolio(**over):
     from core.schemas import PortfolioSnapshot
@@ -51,6 +53,7 @@ def _portfolio(**over):
     base.update(over)
     return PortfolioSnapshot(**base)
 
+
 def test_risk_rejects_daily_loss() -> None:
     eng = RiskEngine(RiskLimits(max_daily_loss_pct=2.0))
     decision = eng.evaluate(
@@ -60,6 +63,7 @@ def test_risk_rejects_daily_loss() -> None:
     assert decision.verdict == RiskVerdict.REJECT
     assert "MAX_DAILY_LOSS" in decision.reasons
 
+
 def test_risk_sizes_within_position_cap() -> None:
     eng = RiskEngine(RiskLimits(max_risk_per_trade_pct=1.0, max_position_pct=5.0))
     decision = eng.evaluate(_candidate(), _portfolio(), context=CLEARED_EARNINGS)
@@ -67,6 +71,7 @@ def test_risk_sizes_within_position_cap() -> None:
     assert decision.sized_qty is not None
     notional = decision.sized_qty * Decimal(100)
     assert notional <= Decimal(100000) * Decimal("0.05") + Decimal("0.01")
+
 
 @pytest.mark.asyncio
 async def test_approve_places_entry_and_stop_on_mock() -> None:
@@ -82,12 +87,18 @@ async def test_approve_places_entry_and_stop_on_mock() -> None:
     service = ExecutionService(
         market_data=liquid_market_data(), broker=broker, audit=audit, store=store
     )
-    result = await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+    result = await service.decide(
+        opp.id,
+        UserDecision.APPROVE,
+        request_id=uuid4(),
+        expected_decision_version=opp.decision_version,
+    )
     assert result.status == OpportunityStatus.EXECUTED
     assert len(broker.orders) >= 2
     sides = {o.side.value for o in broker.orders}
     assert "buy" in sides and "sell" in sides
     assert any(e["event_type"] == "OrderSubmitted" for e in audit.events)
+
 
 @pytest.mark.asyncio
 async def test_skip_does_not_place_orders() -> None:
@@ -109,6 +120,7 @@ async def test_skip_does_not_place_orders() -> None:
     assert result.status == OpportunityStatus.SKIPPED
     assert broker.orders == []
 
+
 @pytest.mark.asyncio
 async def test_kill_switch_blocks_approve() -> None:
     set_kill_switch(True)
@@ -128,9 +140,15 @@ async def test_kill_switch_blocks_approve() -> None:
             market_data=liquid_market_data(), broker=broker, audit=InMemoryAudit(), store=store
         )
         with pytest.raises(RuntimeError, match="KILL_SWITCH"):
-            await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+            await service.decide(
+                opp.id,
+                UserDecision.APPROVE,
+                request_id=uuid4(),
+                expected_decision_version=opp.decision_version,
+            )
     finally:
         set_kill_switch(False)
+
 
 @pytest.mark.asyncio
 async def test_approve_is_idempotent() -> None:
@@ -144,12 +162,23 @@ async def test_approve_is_idempotent() -> None:
     service = ExecutionService(
         market_data=liquid_market_data(), broker=broker, audit=InMemoryAudit(), store=store
     )
-    first = await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+    first = await service.decide(
+        opp.id,
+        UserDecision.APPROVE,
+        request_id=uuid4(),
+        expected_decision_version=opp.decision_version,
+    )
     n_orders = len(broker.orders)
-    second = await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+    second = await service.decide(
+        opp.id,
+        UserDecision.APPROVE,
+        request_id=uuid4(),
+        expected_decision_version=opp.decision_version,
+    )
     assert first.status == OpportunityStatus.EXECUTED
     assert second.status == OpportunityStatus.EXECUTED
     assert len(broker.orders) == n_orders
+
 
 @pytest.mark.asyncio
 async def test_trading_api_decide_skip() -> None:

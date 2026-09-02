@@ -38,6 +38,7 @@ from trading.opportunities import MemoryOpportunityStore
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
 
+
 def _breakdown() -> EntryQualityBreakdown:
     return EntryQualityBreakdown(
         price_location=80,
@@ -52,6 +53,7 @@ def _breakdown() -> EntryQualityBreakdown:
         market_alignment=80,
         signal_drift=80,
     )
+
 
 def _minimal_input(**overrides) -> AdmissionInput:
     facts = EntryTimingFacts(current_price=100.0, atr=2.0, stop_distance_atr=2.0)
@@ -99,6 +101,7 @@ def _minimal_input(**overrides) -> AdmissionInput:
     base.update(overrides)
     return AdmissionInput(**base)
 
+
 def test_fingerprint_includes_sector_and_quote_ts() -> None:
     a = _minimal_input(sector_label="technology")
     b = _minimal_input(sector_label="energy")
@@ -119,6 +122,7 @@ def test_fingerprint_includes_sector_and_quote_ts() -> None:
     assert build_request_fingerprint(
         a, geometry_hash="geo1", decision_version=0, request_id=rid
     ) != build_request_fingerprint(q2, geometry_hash="geo1", decision_version=0, request_id=rid)
+
 
 @pytest.mark.asyncio
 async def test_same_geometry_different_sector_idempotency_conflict() -> None:
@@ -216,6 +220,7 @@ async def test_same_geometry_different_sector_idempotency_conflict() -> None:
             request_fingerprint=fp2,
             broker_account_id="MockPaperBroker:paper",
         )
+
 
 @pytest.mark.asyncio
 async def test_stale_decision_version_rejected() -> None:

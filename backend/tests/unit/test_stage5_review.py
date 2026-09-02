@@ -24,6 +24,7 @@ from trading.opportunities import MemoryOpportunityStore
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
 
+
 def _candidate() -> TradeCandidate:
     return TradeCandidate(
         symbol="AAPL",
@@ -37,6 +38,7 @@ def _candidate() -> TradeCandidate:
         strategy_version="strategy_blend@0.1.0",
         pipeline_run_id=uuid4(),
     )
+
 
 @pytest.mark.asyncio
 async def test_approve_opens_ledger_and_exit_journals(tmp_path) -> None:
@@ -65,7 +67,12 @@ async def test_approve_opens_ledger_and_exit_journals(tmp_path) -> None:
             store=store,
             exit_store=exits,
         )
-        result = await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+        result = await service.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
         assert result.status == OpportunityStatus.EXECUTED
         open_rows = ledger.get_open("AAPL")
         assert len(open_rows) == 1
@@ -96,6 +103,7 @@ async def test_approve_opens_ledger_and_exit_journals(tmp_path) -> None:
     finally:
         ledger_mod.LEDGER = original
 
+
 def test_review_empty_journal(tmp_path) -> None:
     from agents.review.agent import build_review
 
@@ -104,6 +112,7 @@ def test_review_empty_journal(tmp_path) -> None:
     report = build_review(live_only=True, engine=eng)
     assert report.trade_count == 0
     assert report.notes
+
 
 @pytest.mark.asyncio
 async def test_review_api(monkeypatch) -> None:

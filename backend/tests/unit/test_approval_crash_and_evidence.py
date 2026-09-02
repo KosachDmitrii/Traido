@@ -43,6 +43,7 @@ from trading.opportunities import MemoryOpportunityStore
 
 pytestmark = pytest.mark.usefixtures("capital_path_ready")
 
+
 def _breakdown() -> EntryQualityBreakdown:
     return EntryQualityBreakdown(
         price_location=80,
@@ -57,6 +58,7 @@ def _breakdown() -> EntryQualityBreakdown:
         market_alignment=80,
         signal_drift=80,
     )
+
 
 def _input(**overrides) -> AdmissionInput:
     from core.enums import EarningsCheck, NewsCheck
@@ -135,6 +137,7 @@ def _input(**overrides) -> AdmissionInput:
     base.update(overrides)
     return AdmissionInput(**base)
 
+
 def test_sealed_evidence_refuses_authority_model_copy(monkeypatch: pytest.MonkeyPatch) -> None:
     from core.enums import DataHealthStatus
     from trading.trade_admission import evaluate_from_admission_input
@@ -185,6 +188,7 @@ def test_sealed_evidence_refuses_authority_model_copy(monkeypatch: pytest.Monkey
     assert result.evidence.request_fingerprint == result.fingerprint
     assert len(result.fingerprint) == 32
 
+
 @pytest.mark.asyncio
 async def test_hundred_distinct_request_ids_second_blocked_while_in_flight() -> None:
     """100 different request_ids → ≤1 BUY; losers ENTRY_IN_FLIGHT or idempotent EXECUTED."""
@@ -226,6 +230,7 @@ async def test_hundred_distinct_request_ids_second_blocked_while_in_flight() -> 
     # race losers must not mint a second intent/order.
     assert set(outcomes) <= {"executed", "in_flight", "ValueError", "RuntimeError"}
     assert outcomes.count("executed") >= 1
+
 
 @pytest.mark.asyncio
 async def test_sql_commit_rollback_leaves_no_partial_bundle(monkeypatch) -> None:

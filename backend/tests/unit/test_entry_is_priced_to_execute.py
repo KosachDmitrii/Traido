@@ -38,6 +38,7 @@ CARD_ENTRY = Decimal("66.47")
 CARD_STOP = Decimal("65.9364")
 CARD_TARGET = Decimal("67.5372")
 
+
 def _card() -> TradeCandidate:
     return TradeCandidate(
         symbol="MO",
@@ -52,6 +53,7 @@ def _card() -> TradeCandidate:
         pipeline_run_id=uuid4(),
     )
 
+
 async def _approve(broker: MockPaperBroker, *, market_price: float):
     store = MemoryOpportunityStore()
     card = _card()
@@ -64,15 +66,23 @@ async def _approve(broker: MockPaperBroker, *, market_price: float):
         store=store,
         exit_store=MemoryExitStore(),
     )
-    return risk, await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+    return risk, await service.decide(
+        opp.id,
+        UserDecision.APPROVE,
+        request_id=uuid4(),
+        expected_decision_version=opp.decision_version,
+    )
+
 
 def _entry_order(broker: MockPaperBroker):
     return next(o for o in broker.orders if o.order_type is OrderType.LIMIT)
+
 
 def _ask(market_price: float) -> Decimal:
     """`liquid_market_data` quotes one basis point either side of the mid."""
     price = Decimal(str(market_price))
     return price + price * Decimal("0.0001")
+
 
 @pytest.mark.asyncio
 async def test_the_entry_crosses_the_offer_rather_than_resting_below_it() -> None:
@@ -86,6 +96,7 @@ async def test_the_entry_crosses_the_offer_rather_than_resting_below_it() -> Non
     assert entry.limit_price >= _ask(66.47), "the limit does not reach the offer"
     assert entry.limit_price > CARD_ENTRY, "the order still rests at the card's pullback level"
 
+
 @pytest.mark.asyncio
 async def test_the_buffer_above_the_offer_is_bounded() -> None:
     """The reason this is a limit and not a market order."""
@@ -98,6 +109,7 @@ async def test_the_buffer_above_the_offer_is_bounded() -> None:
     entry = _entry_order(broker)
     assert entry.limit_price is not None
     assert entry.limit_price <= ceiling.quantize(Decimal("0.01")) + Decimal("0.01")
+
 
 @pytest.mark.asyncio
 async def test_paying_up_buys_fewer_shares() -> None:
@@ -122,6 +134,7 @@ async def test_paying_up_buys_fewer_shares() -> None:
         f"but still bought {entry.qty} shares"
     )
 
+
 @pytest.mark.asyncio
 async def test_the_stop_does_not_move_with_the_entry() -> None:
     set_kill_switch(False)
@@ -131,6 +144,7 @@ async def test_the_stop_does_not_move_with_the_entry() -> None:
 
     stop = next(o for o in broker.orders if o.order_type is OrderType.STOP)
     assert stop.stop_price == CARD_STOP.quantize(Decimal("0.01"))
+
 
 @pytest.mark.asyncio
 async def test_a_market_that_ran_past_the_target_is_refused() -> None:

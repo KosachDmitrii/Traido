@@ -24,7 +24,6 @@ import pytest
 
 from core.audit import InMemoryAudit
 from core.enums import (
-
     EarningsCheck,
     NewsCheck,
     OpportunityStatus,
@@ -47,6 +46,7 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")
 
 _NOW = datetime(2026, 3, 10, 15, 0, tzinfo=UTC)
 
+
 def _candidate(symbol: str = "AAPL") -> TradeCandidate:
     return TradeCandidate(
         symbol=symbol,
@@ -61,6 +61,7 @@ def _candidate(symbol: str = "AAPL") -> TradeCandidate:
         pipeline_run_id=uuid4(),
     )
 
+
 def _portfolio() -> PortfolioSnapshot:
     return PortfolioSnapshot(
         equity=Decimal(100000),
@@ -74,7 +75,9 @@ def _portfolio() -> PortfolioSnapshot:
         kill_switch=False,
     )
 
+
 # ── The gate ─────────────────────────────────────────────────────────────────
+
 
 @pytest.mark.parametrize(
     ("status", "reason"),
@@ -106,6 +109,7 @@ def test_an_unread_calendar_refuses_the_entry_and_names_the_cause(
     assert decision.verdict is RiskVerdict.REJECT
     assert reason in decision.reasons
 
+
 def test_a_calendar_that_answered_with_no_print_is_not_the_same_as_no_calendar() -> None:
     """The distinction the whole change exists to make.
 
@@ -134,6 +138,7 @@ def test_a_calendar_that_answered_with_no_print_is_not_the_same_as_no_calendar()
         engine.evaluate(_candidate(), _portfolio(), context=unchecked).verdict is RiskVerdict.REJECT
     )
 
+
 def test_a_read_calendar_still_blocks_a_print_inside_the_window() -> None:
     """The requirement must not have replaced the check it protects."""
     ctx = RiskContext(
@@ -150,7 +155,9 @@ def test_a_read_calendar_still_blocks_a_print_inside_the_window() -> None:
     assert "EARNINGS_IMMINENT" in decision.reasons
     assert "EARNINGS_UNVERIFIED" not in decision.reasons
 
+
 # ── The escape hatch, and its receipt ────────────────────────────────────────
+
 
 def test_running_without_a_calendar_is_possible_but_recorded() -> None:
     """Backtests and research need this. So the trade has to carry the receipt.
@@ -174,11 +181,14 @@ def test_running_without_a_calendar_is_possible_but_recorded() -> None:
     assert decision.limits_applied.require_earnings_check is False
     assert decision.earnings_check is EarningsCheck.NOT_CONFIGURED
 
+
 def test_the_strict_default_survives_a_config_that_says_nothing_about_it() -> None:
     """The locked config predates the field. Silence must not mean "off"."""
     assert RiskLimits().require_earnings_check is True
 
+
 # ── Carried to the click ─────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_a_proposal_that_cleared_the_calendar_is_not_refused_at_the_click() -> None:
@@ -209,8 +219,14 @@ async def test_a_proposal_that_cleared_the_calendar_is_not_refused_at_the_click(
         market_data=liquid_market_data(),
     )
 
-    result = await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+    result = await service.decide(
+        opp.id,
+        UserDecision.APPROVE,
+        request_id=uuid4(),
+        expected_decision_version=opp.decision_version,
+    )
     assert result.status == OpportunityStatus.EXECUTED
+
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("keyless_earnings_calendar")
@@ -247,8 +263,14 @@ async def test_a_calendar_that_cannot_be_read_at_the_click_stops_the_order() -> 
     )
 
     with pytest.raises(RuntimeError, match="EARNINGS_CALENDAR_NOT_CONFIGURED"):
-        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+        await service.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
     assert broker.orders == []
+
 
 @pytest.mark.asyncio
 async def test_a_print_that_appears_while_the_card_waits_stops_the_approval(
@@ -292,8 +314,14 @@ async def test_a_print_that_appears_while_the_card_waits_stops_the_approval(
     )
 
     with pytest.raises(RuntimeError, match="EARNINGS_IMMINENT"):
-        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+        await service.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
     assert broker.orders == []
+
 
 @pytest.mark.asyncio
 async def test_a_context_that_cannot_be_built_refuses_rather_than_waves_through(
@@ -327,10 +355,17 @@ async def test_a_context_that_cannot_be_built_refuses_rather_than_waves_through(
     )
 
     with pytest.raises(RuntimeError, match="RISK_REJECT"):
-        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
+        await service.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
     assert broker.orders == []
 
+
 # ── What the provider reports ────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_no_api_key_reports_not_configured_rather_than_a_clear_calendar() -> None:
@@ -339,6 +374,7 @@ async def test_no_api_key_reports_not_configured_rather_than_a_clear_calendar() 
     assert info.status is EarningsCheck.NOT_CONFIGURED
     assert info.available is False
     assert info.next_date is None
+
 
 @pytest.mark.asyncio
 async def test_a_missing_key_is_explained_once_but_enforced_every_time() -> None:
@@ -356,6 +392,7 @@ async def test_a_missing_key_is_explained_once_but_enforced_every_time() -> None
     assert [i.note for i in rest] == ["", "", ""]
     assert all(i.status is EarningsCheck.NOT_CONFIGURED for i in [first, *rest])
 
+
 def test_an_empty_window_from_the_vendor_is_a_cleared_check() -> None:
     """Finnhub answering "nothing scheduled" is real information, not a gap."""
     info = parse_earnings_payload("AAPL", {"earningsCalendar": []}, date(2026, 3, 10))
@@ -363,10 +400,12 @@ def test_an_empty_window_from_the_vendor_is_a_cleared_check() -> None:
     assert info.status is EarningsCheck.CHECKED
     assert info.available is True
 
+
 def test_a_malformed_payload_is_unavailable_not_clear() -> None:
     info = parse_earnings_payload("AAPL", {"unexpected": 1}, date(2026, 3, 10))
 
     assert info.status is EarningsCheck.UNAVAILABLE
+
 
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("keyless_earnings_calendar")
