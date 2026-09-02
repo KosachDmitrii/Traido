@@ -165,7 +165,7 @@ def test_21a_an_unexplained_shrink_blocks_the_symbol_rather_than_adjusting(desk)
     and blocks the symbol when it cannot.
     """
     from tests.integration.test_execution_lifecycle_end_to_end import _audit_event_types
-    from trading.intents import INTENTS
+    from trading import external_positions as ep
 
     opp = desk.offer("AAPL")
     desk.approve(opp.id)
@@ -179,7 +179,7 @@ def test_21a_an_unexplained_shrink_blocks_the_symbol_rather_than_adjusting(desk)
     assert "PositionQuantityMismatch" in _audit_event_types(), (
         "an unexplained disagreement with the venue must be named, not absorbed"
     )
-    assert "AAPL" in INTENTS.unresolved_symbols(), (
+    assert "AAPL" in ep.EXTERNAL_POSITIONS.blocking_symbols(), (
         "and the symbol must be blocked until a human resolves it"
     )
     assert Decimal(str(_open_positions()[0].qty)) == held_before, (

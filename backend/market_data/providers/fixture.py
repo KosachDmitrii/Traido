@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
 from core.enums import Timeframe
-from core.schemas import Bar
+from core.schemas import Bar, Quote
 from quant.aggregate import aggregate_bars
 
 FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "bars"
@@ -62,7 +62,7 @@ class FixtureMarketData:
         return out
 
     async def get_last_price(self, symbol: str) -> float:
-        from datetime import UTC, timedelta
+        from datetime import timedelta
 
         end = datetime.now(UTC)
         start = end - timedelta(days=3650)
@@ -70,3 +70,24 @@ class FixtureMarketData:
         if not bars:
             raise ValueError(f"no fixture bars for {symbol}")
         return float(bars[-1].close)
+
+    async def get_quote(self, symbol: str) -> Quote | None:
+        """Top of book from the last fixture close — arms the spread check offline.
+
+        Without this, `build_execution_service` leaves `quotes=None` whenever
+        Alpaca keys are absent, and the desk's liquidity gate cannot measure.
+        A missing fixture symbol still returns None so the gate fails closed.
+        """
+        try:
+            price = await self.get_last_price(symbol)
+        except (FileNotFoundError, ValueError, OSError):
+            return None
+        px = Decimal(str(price))
+        half = px * Decimal("0.0001")
+        return Quote(
+            symbol=symbol.upper(),
+            bid=px - half,
+            ask=px + half,
+            ts=datetime.now(UTC),
+            source=self.source,
+        )

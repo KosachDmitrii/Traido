@@ -16,6 +16,7 @@ from core.enums import UserDecision
 from core.schemas import PortfolioSnapshot, TradeAdmissionExplain, TradeOpportunity
 from notifications.telegram import get_notifier
 from risk.kill_switch import get_kill_switch_state, is_kill_switch_on, set_kill_switch
+from trading.admission_records import AdmissionIdempotencyConflict
 from trading.opportunities import OPPORTUNITIES
 
 router = APIRouter(prefix="/api/v1", tags=["trading"])
@@ -85,7 +86,7 @@ async def decide_opportunity(opportunity_id: UUID, body: DecisionBody) -> TradeO
         result = await service.decide(opportunity_id, body.decision, qty=body.qty)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
+    except (RuntimeError, AdmissionIdempotencyConflict) as exc:
         DESK_BUS.bump_desk(kind="decide_failed", opportunity_id=str(opportunity_id))
         DESK_BUS.bump_broker(kind="decide_failed")
         raise HTTPException(status_code=409, detail=str(exc)) from exc

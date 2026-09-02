@@ -40,12 +40,48 @@ class AdmissionIdempotencyConflict(Exception):
         super().__init__(f"admission_idempotency_conflict:{evaluation_key}")
 
 
+# Identity / wall-clock stamps that change on every persist of the same decision.
+_CANONICAL_DROP_KEYS = frozenset({"id", "recorded_at", "expires_at"})
+_SNAPSHOT_DROP_KEYS = frozenset(
+    {
+        "created_at",
+        "evaluated_at",
+        "quote_ts",
+        "last_bar_ts",
+        "market_gate_ts",
+        "structural_source_ts",
+    }
+)
+_CONTEXT_DROP_KEYS = frozenset({"evaluated_at"})
+
+
+def _scrub_for_canonical(value: Any) -> Any:
+    """Drop stamps that are not part of the admission decision itself.
+
+    Retries after a lost broker reply re-evaluate and re-persist under the same
+    evaluation_key. `build_admission_snapshot` always stamps `created_at=now`,
+    so comparing the raw payload would treat every honest retry as a conflict.
+    """
+    if isinstance(value, dict):
+        return {k: _scrub_for_canonical(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_scrub_for_canonical(v) for v in value]
+    return value
+
+
 def _canonical_payload(data: dict[str, Any]) -> str:
     import json
 
-    # Exclude volatile identity fields from equality.
-    scrubbed = {k: v for k, v in data.items() if k not in {"id", "recorded_at", "expires_at"}}
-    return json.dumps(scrubbed, sort_keys=True, default=str)
+    scrubbed = {k: v for k, v in data.items() if k not in _CANONICAL_DROP_KEYS}
+    snap = scrubbed.get("admission_snapshot")
+    if isinstance(snap, dict):
+        scrubbed["admission_snapshot"] = {
+            k: v for k, v in snap.items() if k not in _SNAPSHOT_DROP_KEYS
+        }
+    ctx = scrubbed.get("context")
+    if isinstance(ctx, dict):
+        scrubbed["context"] = {k: v for k, v in ctx.items() if k not in _CONTEXT_DROP_KEYS}
+    return json.dumps(_scrub_for_canonical(scrubbed), sort_keys=True, default=str)
 
 
 class AdmissionRecordStore:
