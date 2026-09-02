@@ -504,6 +504,30 @@ h1, h2, h3, p {
   align-items: stretch;
 }
 
+/* Desk agents + activity: row height follows the agent list; feed scrolls inside. */
+.agents-panel > .card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.agents-panel > .card .agent-list {
+  flex: 0 0 auto;
+}
+
+/* Do not let the feed's content size the grid row — stretch to the agents card. */
+.agents-panel > .card:has(.activity-feed) {
+  height: 0;
+  min-height: 100%;
+}
+
+.agents-panel > .card .activity-feed {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+}
+
 .card {
   background: var(--td-surface);
   border-radius: var(--td-radius-lg);
@@ -943,7 +967,6 @@ h1, h2, h3, p {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* max-height: 494px; */
   overflow: auto;
   margin-top: 4px;
   font-family: var(--td-font-mono);

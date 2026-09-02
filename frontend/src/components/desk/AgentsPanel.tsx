@@ -23,7 +23,7 @@ function formatScore(agent: AgentState, t: ReturnType<typeof useT>) {
 export function AgentsPanel({ desk }: { desk: DeskResponse | null }) {
   const t = useT();
   const agents = desk?.activity?.agents ?? [];
-  const events = [...(desk?.activity?.events ?? [])].reverse().slice(0, 18);
+  const events = [...(desk?.activity?.events ?? [])].reverse().slice(0, 40);
   // The raw status names the stage the pass is on this instant, which is the
   // more useful headline. Fall back to any live agent so the subtitle cannot say
   // "last pass" while the rows below it are animating.
@@ -32,7 +32,7 @@ export function AgentsPanel({ desk }: { desk: DeskResponse | null }) {
     agents.find((a) => agentDisplayStatus(a) === "working");
 
   return (
-    <section className="grid-2">
+    <section className="grid-2 agents-panel">
       <div className="card">
         <div className="card-head">
           <div>
