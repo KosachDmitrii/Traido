@@ -119,7 +119,9 @@ def _require_breakdown(
             "BUY_REJECTED_STALE_DATA",
             f"ENTRY_QUALITY_BREAKDOWN_REQUIRED:{','.join(missing[:4])}",
         )
-    breakdown = EntryQualityBreakdown(**{k: int(raw[k]) for k in EntryQualityBreakdown.model_fields if k in raw})
+    breakdown = EntryQualityBreakdown(
+        **{k: int(raw[k]) for k in EntryQualityBreakdown.model_fields if k in raw}
+    )
     setup_bd = None
     setup_raw = candidate.setup_quality_breakdown or {}
     if setup_raw:

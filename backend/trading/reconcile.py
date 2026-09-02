@@ -536,7 +536,9 @@ def _exit_fills_for(
 
 # ── Orphan positions ─────────────────────────────────────────────────────────
 
-_ORPHAN_PREFIX = "orphan:"  # legacy prefix — cleared on sight; new path uses ExternalPositionIncident
+_ORPHAN_PREFIX = (
+    "orphan:"  # legacy prefix — cleared on sight; new path uses ExternalPositionIncident
+)
 
 
 async def block_symbol_as_unknown(
