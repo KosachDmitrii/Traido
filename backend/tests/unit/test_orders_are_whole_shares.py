@@ -1,5 +1,7 @@
 """Every order we originate is a whole number of shares.
 
+pytestmark = pytest.mark.usefixtures("capital_path_ready")
+
 Sizing is a division, so it produces a fraction — 5% of a $100k book at $66.47
 is 75.2219 shares. Alpaca accepts a fractional quantity only with
 `time_in_force=day`, and a protective stop is sent GTC because it has to outlive
@@ -30,6 +32,7 @@ from trading.execution import ExecutionService
 from trading.exits import MemoryExitStore
 from trading.opportunities import MemoryOpportunityStore
 
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
 
 def _fractionally_sized_candidate() -> TradeCandidate:
     """Priced so the position cap divides into a fraction, as MO did live."""
@@ -45,7 +48,6 @@ def _fractionally_sized_candidate() -> TradeCandidate:
         strategy_version="strategy_confluence@0.2.0",
         pipeline_run_id=uuid4(),
     )
-
 
 async def _approve(broker: MockPaperBroker, candidate: TradeCandidate, *, price: float = 66.47):
     """Approve at a live book quoted around `price`.
@@ -64,8 +66,7 @@ async def _approve(broker: MockPaperBroker, candidate: TradeCandidate, *, price:
         store=store,
         exit_store=MemoryExitStore(),
     )
-    return risk, await service.decide(opp.id, UserDecision.APPROVE)
-
+    return risk, await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
 @pytest.mark.asyncio
 async def test_sizing_produces_a_fraction_that_never_reaches_the_broker() -> None:
@@ -87,7 +88,6 @@ async def test_sizing_produces_a_fraction_that_never_reaches_the_broker() -> Non
             "a GTC stop of that size is refused by the venue"
         )
 
-
 @pytest.mark.asyncio
 async def test_the_protective_stop_is_whole_shares_too() -> None:
     set_kill_switch(False)
@@ -99,7 +99,6 @@ async def test_the_protective_stop_is_whole_shares_too() -> None:
     assert stops, "the position was left without a protective stop"
     for stop in stops:
         assert stop.qty == stop.qty.to_integral_value()
-
 
 @pytest.mark.asyncio
 async def test_a_position_under_one_share_is_refused_not_sent_as_zero() -> None:

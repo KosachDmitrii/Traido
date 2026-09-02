@@ -82,6 +82,8 @@ async def test_adopt_orphan_writes_ledger_from_broker_and_card(monkeypatch, tmp_
         OrderIntent(
             idempotency_key=f"entry:{opp_id}:0",
             broker="AlpacaPaperBroker",
+            broker_account_id="paper-acct",
+            broker_environment="paper",
             symbol="LLY",
             side=OrderSide.BUY,
             requested_qty=Decimal(4),
@@ -92,6 +94,8 @@ async def test_adopt_orphan_writes_ledger_from_broker_and_card(monkeypatch, tmp_
             opportunity_id=opp_id,
             approval_admission_record_id=admission_id,
             geometry_hash="adopt-test-geo",
+            request_id=uuid4(),
+            request_fingerprint="b" * 32,
             filled_qty=Decimal(4),
             created_at=datetime.now(UTC),
         )

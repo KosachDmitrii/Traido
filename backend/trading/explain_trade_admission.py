@@ -123,6 +123,54 @@ def explain_from_admission(
         ]
     )
 
+    if isinstance(admission, AdmissionRecord):
+        ctx = admission.context or {}
+        if ctx.get("request_fingerprint"):
+            fields.append(
+                AdmissionExplainField(
+                    label="Evidence fingerprint",
+                    value=str(ctx["request_fingerprint"])[:16] + "…",
+                    status="info",
+                )
+            )
+        if admission.geometry_hash:
+            fields.append(
+                AdmissionExplainField(
+                    label="Geometry hash",
+                    value=str(admission.geometry_hash)[:16] + "…",
+                    status="info",
+                )
+            )
+        ai = ctx.get("admission_input") if isinstance(ctx.get("admission_input"), dict) else {}
+        if ai.get("sector_benchmark") or ai.get("sector_tradable") is not None:
+            fields.append(
+                AdmissionExplainField(
+                    label="Sector",
+                    value=(
+                        f"{ai.get('sector_benchmark') or ai.get('sector_label') or '?'} "
+                        f"tradable={ai.get('sector_tradable')}"
+                    ),
+                    status="pass" if ai.get("sector_tradable") is True else "fail",
+                )
+            )
+        if ai.get("market") and isinstance(ai["market"], dict):
+            fields.append(
+                AdmissionExplainField(
+                    label="Market",
+                    value=str(ai["market"].get("regime") or ai["market"].get("risk_posture")),
+                    status="info",
+                )
+            )
+        for key, label in (
+            ("broker", "Broker"),
+            ("broker_account_id", "Broker account"),
+            ("broker_environment", "Environment"),
+        ):
+            if ctx.get(key):
+                fields.append(
+                    AdmissionExplainField(label=label, value=str(ctx[key]), status="info")
+                )
+
     return TradeAdmissionExplain(
         entity_type=entity_type,
         entity_id=entity_id,

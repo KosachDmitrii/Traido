@@ -18,6 +18,8 @@ from trading.execution import ExecutionService
 from trading.opportunities import MemoryOpportunityStore
 from trading.pricing import round_order_qty
 
+pytestmark = pytest.mark.usefixtures("capital_path_ready")
+
 
 def _candidate() -> TradeCandidate:
     return TradeCandidate(
@@ -53,7 +55,7 @@ async def test_operator_may_buy_fewer_shares_than_risk_max() -> None:
         audit=InMemoryAudit(),
         store=store,
     )
-    result = await service.decide(opp.id, UserDecision.APPROVE, qty=Decimal(1))
+    result = await service.decide(opp.id, UserDecision.APPROVE, qty=Decimal(1), request_id=uuid4(), expected_decision_version=opp.decision_version)
     assert result.status == OpportunityStatus.EXECUTED
     assert result.approved_qty == Decimal(1)
     buys = [o for o in broker.orders if o.side.value == "buy"]
@@ -78,7 +80,7 @@ async def test_operator_qty_above_risk_max_is_refused() -> None:
         store=store,
     )
     with pytest.raises(RuntimeError, match="OPERATOR_QTY_ABOVE_RISK"):
-        await service.decide(opp.id, UserDecision.APPROVE, qty=max_qty + 1)
+        await service.decide(opp.id, UserDecision.APPROVE, qty=max_qty + 1, request_id=uuid4(), expected_decision_version=opp.decision_version)
     assert broker.orders == []
     current = store.get(opp.id)
     assert current is not None
@@ -101,7 +103,7 @@ async def test_omitted_qty_still_uses_full_risk_size() -> None:
         audit=InMemoryAudit(),
         store=store,
     )
-    result = await service.decide(opp.id, UserDecision.APPROVE)
+    result = await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
     assert result.status == OpportunityStatus.EXECUTED
     buys = [o for o in broker.orders if o.side.value == "buy"]
     assert buys and result.approved_qty == buys[0].qty

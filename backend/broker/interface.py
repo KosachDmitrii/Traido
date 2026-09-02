@@ -46,3 +46,23 @@ def assert_paper_only(environment: str) -> None:
             "Traido V1 refuses non-paper broker environments. "
             "Live trading is disabled until Stage 7 gate."
         )
+
+
+def resolve_broker_identity(broker: object) -> tuple[str, str, str]:
+    """Return (broker_name, account_id, environment). Fail closed if unknown."""
+    name = type(broker).__name__
+    env: object = getattr(broker, "environment", None)
+    if callable(env):
+        env = env()
+    if env is not None and hasattr(env, "value"):
+        env = env.value
+    env_s = str(env or "").strip().lower()
+    if env_s != BrokerEnvironment.PAPER.value:
+        raise RuntimeError("BROKER_ENVIRONMENT_BLOCKED")
+    account_id: object = getattr(broker, "account_id", None)
+    if callable(account_id):
+        account_id = account_id()
+    if not account_id:
+        account_id = f"{name}:paper"
+    return name, str(account_id), env_s
+

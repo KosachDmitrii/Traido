@@ -281,10 +281,14 @@ class AdmissionRecordStore:
         phase: str | None = None,
         decision_version: int | None = None,
         request_fingerprint: str | None = None,
+        request_id: UUID | str | None = None,
         now: datetime | None = None,
     ) -> AdmissionRecord:
         """Persist inside a caller-owned transaction (no commit)."""
         now = now or datetime.now(UTC)
+        ctx = dict(context or {})
+        if request_id is not None:
+            ctx.setdefault("request_id", str(request_id))
         record, eval_key = self._build_record(
             symbol=symbol,
             admission=admission,
@@ -294,7 +298,7 @@ class AdmissionRecordStore:
             trigger_version=trigger_version,
             zone_arrival_quality=zone_arrival_quality,
             zone_arrival_type=zone_arrival_type,
-            context=dict(context or {}),
+            context=ctx,
             geometry_hash=geometry_hash,
             quote_ts=quote_ts,
             market_gate_ts=market_gate_ts,
@@ -321,6 +325,11 @@ class AdmissionRecordStore:
                     canonical=canonical,
                     now=now,
                 )
+        req_col = None
+        if request_id is not None:
+            req_col = request_id.hex if isinstance(request_id, UUID) else str(request_id).replace("-", "")
+            if len(req_col) > 32:
+                req_col = str(request_id)
         session.add(
             AdmissionRecordRow(
                 id=record.id,
@@ -339,6 +348,7 @@ class AdmissionRecordStore:
                 expires_at=record.expires_at,
                 source_version=ADMISSION_ORCHESTRATION_VERSION,
                 request_fingerprint=request_fingerprint,
+                request_id=req_col,
             )
         )
         session.flush()
@@ -362,6 +372,7 @@ class AdmissionRecordStore:
         phase: str | None = None,
         decision_version: int | None = None,
         request_fingerprint: str | None = None,
+        request_id: UUID | str | None = None,
     ) -> AdmissionRecord:
         now = datetime.now(UTC)
         with self._lock:
@@ -385,6 +396,7 @@ class AdmissionRecordStore:
                         phase=phase,
                         decision_version=decision_version,
                         request_fingerprint=request_fingerprint,
+                        request_id=request_id,
                         now=now,
                     )
                     session.commit()

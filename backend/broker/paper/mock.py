@@ -20,6 +20,7 @@ class MockPaperBroker:
         self.orders: list[OrderRecord] = []
         self.positions: list[Position] = []
         self.marks: dict[str, Decimal] = {}  # optional mark prices for market fills
+        self.account_id: str = "mock-paper-account"
         assert_paper_only(self.environment)
 
     @property

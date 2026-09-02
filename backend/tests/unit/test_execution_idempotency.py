@@ -37,7 +37,7 @@ from trading.intents import MemoryOrderIntentStore
 from trading.opportunities import MemoryOpportunityStore
 from trading.order_intent import OrderIntent
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
 
 
 def _candidate(symbol: str = "AAPL") -> TradeCandidate:
@@ -137,7 +137,7 @@ async def test_the_intent_is_persisted_before_the_broker_is_contacted() -> None:
     opp = await _approved_opportunity(broker, store)
 
     with pytest.raises(RuntimeError, match="ENTRY_STATE_UNKNOWN"):
-        await _service(broker, store, intents).decide(opp.id, UserDecision.APPROVE)
+        await _service(broker, store, intents).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     # The reply was lost, yet we still know what we sent and how to find it.
     recorded = intents.list_by_key_prefix(f"entry:{opp.id}:")
@@ -277,7 +277,7 @@ async def test_an_unknown_intent_blocks_a_new_entry_in_the_same_symbol() -> None
 
     opp = await _approved_opportunity(broker, store)
     with pytest.raises(RuntimeError, match="UNRESOLVED_BROKER_STATE"):
-        await _service(broker, store, intents, audit).decide(opp.id, UserDecision.APPROVE)
+        await _service(broker, store, intents, audit).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert broker.positions == []
     assert any(e["event_type"] == "EntryBlockedByUnresolvedState" for e in audit.events)
@@ -307,7 +307,7 @@ async def test_an_unknown_intent_does_not_block_a_different_symbol() -> None:
         _candidate("AAPL"), await broker.get_portfolio(), context=CLEARED_EARNINGS
     )
     opp = store.create(_candidate("AAPL"), risk, TradingMode.CONFIRMATION)
-    result = await _service(broker, store, intents).decide(opp.id, UserDecision.APPROVE)
+    result = await _service(broker, store, intents).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert result.status is OpportunityStatus.EXECUTED
 
@@ -332,7 +332,7 @@ async def test_a_resolved_intent_stops_blocking() -> None:
     intents.transition(stuck.id, IntentStatus.CANCELED)
 
     opp = await _approved_opportunity(broker, store)
-    result = await _service(broker, store, intents).decide(opp.id, UserDecision.APPROVE)
+    result = await _service(broker, store, intents).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert result.status is OpportunityStatus.EXECUTED
 

@@ -141,13 +141,14 @@ def evaluate_market_gate(
             benchmark=getattr(market, "benchmark", None),
         )
 
-    if require_sector and sector_tradable is None and sector_label is None:
+    # sector_label alone never compensates for missing sector_tradable.
+    if require_sector and sector_tradable is None:
         return _blocked(
             label=label,
-            reasons=["SECTOR_GATE_MISSING"],
+            reasons=["SECTOR_ASSESSMENT_MISSING"],
             now=now,
             sector_label=sector_label,
-            sector_tradable=sector_tradable,
+            sector_tradable=None,
             regime_ts=regime_ts,
             benchmark=getattr(market, "benchmark", None),
         )
@@ -179,7 +180,7 @@ def evaluate_market_gate(
         status=DataHealthStatus.HEALTHY,
         market_label=label,
         sector_label=sector_label,
-        sector_tradable=sector_tradable if sector_tradable is not None else True,
+        sector_tradable=sector_tradable,
         evaluated_at=now,
         regime_ts=regime_ts,
         reason_codes=[],

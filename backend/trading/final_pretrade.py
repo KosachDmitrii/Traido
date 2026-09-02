@@ -151,6 +151,9 @@ def final_pretrade_validation(
     market: MarketAssessment | None = None,
     sector_label: str | None = None,
     sector_tradable: bool | None = None,
+    sector_benchmark: str | None = None,
+    sector_provider: str | None = None,
+    sector_source_ts: datetime | None = None,
     bar_timeframe: str = "1Hour",
     geometry_hash: str | None = None,
     opportunity_id: UUID | None = None,
@@ -160,6 +163,7 @@ def final_pretrade_validation(
 
     Builds an immutable AdmissionInput and evaluates only through
     ``evaluate_from_admission_input``. ``now`` is decision_time / evaluated_at.
+    Never invents sector_tradable from FRED MarketAssessment.
     """
     evaluated_at = now or datetime.now(UTC)
     if evaluated_at.tzinfo is None:
@@ -317,14 +321,13 @@ def final_pretrade_validation(
         bar_timeframe=bar_timeframe,
         last_bar_ts=last_bar_ts,
         market=market,
-        sector_label=sector_label
-        if sector_label is not None
-        else (market.sector_label if market else None),
-        sector_tradable=(
-            sector_tradable
-            if sector_tradable is not None
-            else (market.sector_tradable if market else None)
-        ),
+        sector_label=sector_label,
+        sector_tradable=sector_tradable,
+        sector_benchmark=sector_benchmark
+        if sector_benchmark is not None
+        else (market_gate.benchmark if market_gate else None),
+        sector_provider=sector_provider,
+        sector_source_ts=sector_source_ts,
         news_status=None,
         earnings_status=None,
         portfolio_snapshot={},

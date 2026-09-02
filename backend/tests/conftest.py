@@ -362,12 +362,12 @@ def isolated_external_positions(monkeypatch: pytest.MonkeyPatch) -> Iterator[Non
     yield
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def admission_metadata_on_store_create(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Attach fail-closed admission metadata at store.create.
+    """Opt-in: attach fail-closed admission metadata at store.create.
 
-    Does not invent R:R, REALISTIC reachability, or lift targets. Only fills
-    missing thesis/breakdown/target_model required by the capital path.
+    Positive capital-path tests must request this fixture explicitly (or call
+    ensure_admission_ready themselves). Not autouse — avoids vacuous readiness.
     """
     from trading.opportunities import MemoryOpportunityStore, OpportunityStore
 
@@ -386,9 +386,9 @@ def admission_metadata_on_store_create(monkeypatch: pytest.MonkeyPatch) -> Itera
     yield
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def cleared_market_for_capital_path(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Capital-path tests need a real MarketAssessment — missing FRED is not NEUTRAL."""
+    """Opt-in: fresh FRED-like MarketAssessment without inventing sector_tradable."""
     from datetime import UTC, datetime
 
     from core.enums import AssessmentKind, MarketRegimeLabel
@@ -404,9 +404,69 @@ def cleared_market_for_capital_path(monkeypatch: pytest.MonkeyPatch) -> Iterator
             reasons=["test_cleared_market"],
             evaluated_at=evaluated_at,
             benchmark="SPY",
-            sector_label="technology",
-            sector_tradable=True,
+            sector_label=None,
+            sector_tradable=None,
         )
 
     monkeypatch.setattr("agents.market.agent.assess_market", _assess)
     yield
+
+
+@pytest.fixture
+def capital_path_ready(
+    admission_metadata_on_store_create: None,
+    cleared_market_for_capital_path: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[None]:
+    """Explicit bundle for positive capital-path scenarios.
+
+    Installs a sector assessment that is HEALTHY + tradable_long after real
+    classification (never grants tradable from the static map alone — the stub
+    still requires a known benchmark). Opt-in only; not autouse.
+    """
+    from datetime import UTC, datetime
+
+    from core.enums import DataHealthStatus, MarketRegimeLabel
+    from trading.sector_assessment import SectorMarketAssessment, set_sector_assessment_port
+    from trading.sector_classification import classify_symbol
+    from trading.sector_policy import SECTOR_ASSESSMENT_VERSION
+
+    class _CapitalPathSectorPort:
+        async def assess(self, symbol: str, *, market_data=None, symbol_bars=None, now=None):
+            evaluated_at = now or datetime.now(UTC)
+            if evaluated_at.tzinfo is None:
+                evaluated_at = evaluated_at.replace(tzinfo=UTC)
+            cls = classify_symbol(symbol)
+            if cls.benchmark is None:
+                return SectorMarketAssessment(
+                    symbol=cls.symbol,
+                    evaluated_at=evaluated_at,
+                    data_status=DataHealthStatus.UNHEALTHY,
+                    tradable_long=None,
+                    reason_codes=("SECTOR_METADATA_MISSING", "SECTOR_ASSESSMENT_MISSING"),
+                    assessment_version=SECTOR_ASSESSMENT_VERSION,
+                    classification_provider=cls.classification_provider,
+                    classification_version=cls.classification_version,
+                )
+            return SectorMarketAssessment(
+                symbol=cls.symbol,
+                sector=cls.sector,
+                industry=cls.industry,
+                benchmark=cls.benchmark,
+                benchmark_bars_count=120,
+                benchmark_last_bar_ts=evaluated_at,
+                evaluated_at=evaluated_at,
+                data_status=DataHealthStatus.HEALTHY,
+                sector_regime=MarketRegimeLabel.BULLISH,
+                tradable_long=True,
+                reason_codes=("SECTOR_BENCHMARK_OK", "SECTOR_TEST_FIXTURE"),
+                assessment_version=SECTOR_ASSESSMENT_VERSION,
+                classification_provider=cls.classification_provider,
+                classification_version=cls.classification_version,
+            )
+
+    set_sector_assessment_port(_CapitalPathSectorPort())
+    try:
+        yield
+    finally:
+        set_sector_assessment_port(None)

@@ -62,6 +62,8 @@ def commit_approval_bundle(
     decision_version: int = 0,
     request_id: UUID | None = None,
     request_fingerprint: str | None = None,
+    broker_account_id: str | None = None,
+    broker_environment: str = "paper",
 ) -> ApprovalBundle:
     """Persist claim + ApprovalAdmission + opp link + Entry intent before broker.
 
@@ -98,10 +100,12 @@ def commit_approval_bundle(
         "symbol": symbol,
         "opportunity_store": opportunity_store,
         "intent_store": intent_store,
-        "admission_store": adm,
         "decision_version": decision_version,
         "request_id": request_id,
         "request_fingerprint": fp,
+        "broker_account_id": broker_account_id,
+        "broker_environment": broker_environment,
+        "admission_store": adm,
     }
     if isinstance(opportunity_store, OpportunityStore) and isinstance(
         intent_store, OrderIntentStore
@@ -151,8 +155,18 @@ def _commit_sql(
     decision_version: int,
     request_id: UUID | None,
     request_fingerprint: str,
+    broker_account_id: str | None = None,
+    broker_environment: str = "paper",
 ) -> ApprovalBundle:
     fp = request_fingerprint
+    if broker_environment != "paper":
+        from trading.approval_errors import DataBlockedError
+
+        raise DataBlockedError("BROKER_ENVIRONMENT_BLOCKED")
+    if not broker_account_id:
+        from trading.approval_errors import DataBlockedError
+
+        raise DataBlockedError("BROKER_ACCOUNT_IDENTITY_REQUIRED")
     engine = opportunity_store._engine
     if engine is None:
         from database.session import get_sync_engine
@@ -314,6 +328,7 @@ def _commit_sql(
             phase="approval",
             decision_version=decision_version,
             request_fingerprint=fp,
+            request_id=request_id,
         )
         opp = opp.model_copy(
             update={
@@ -330,6 +345,8 @@ def _commit_sql(
             session,
             opportunity_id=opportunity_id,
             broker_name=broker_name,
+            broker_account_id=broker_account_id,
+            broker_environment=broker_environment,
             symbol=symbol,
             qty=qty,
             limit_px=limit_px,
@@ -356,6 +373,8 @@ def _intent_in_session(
     *,
     opportunity_id: UUID,
     broker_name: str,
+    broker_account_id: str,
+    broker_environment: str,
     symbol: str,
     qty: Decimal,
     limit_px: Decimal,
@@ -387,7 +406,8 @@ def _intent_in_session(
     candidate = OrderIntent(
         idempotency_key=key,
         broker=broker_name,
-        broker_account_id=None,
+        broker_account_id=broker_account_id,
+        broker_environment=broker_environment,
         symbol=symbol,
         side=OrderSide.BUY,
         requested_qty=round_equity_qty(qty),
@@ -431,8 +451,18 @@ def _commit_memory(
     decision_version: int,
     request_id: UUID | None,
     request_fingerprint: str,
+    broker_account_id: str | None = None,
+    broker_environment: str = "paper",
 ) -> ApprovalBundle:
     fp = request_fingerprint
+    if broker_environment != "paper":
+        from trading.approval_errors import DataBlockedError
+
+        raise DataBlockedError("BROKER_ENVIRONMENT_BLOCKED")
+    if not broker_account_id:
+        from trading.approval_errors import DataBlockedError
+
+        raise DataBlockedError("BROKER_ACCOUNT_IDENTITY_REQUIRED")
     with _MEMORY_BUNDLE_LOCK:
         opp = opportunity_store.get(opportunity_id)
         if opp is None:
@@ -549,6 +579,7 @@ def _commit_memory(
             phase="approval",
             decision_version=decision_version,
             request_fingerprint=fp,
+            request_id=request_id,
         )
         opp = opp.model_copy(
             update={
@@ -569,7 +600,8 @@ def _commit_memory(
         candidate = OrderIntent(
             idempotency_key=key,
             broker=broker_name,
-            broker_account_id=None,
+            broker_account_id=broker_account_id,
+            broker_environment=broker_environment,
             symbol=symbol,
             side=OrderSide.BUY,
             requested_qty=round_equity_qty(qty),

@@ -274,18 +274,33 @@ class ExecutionService:
 
         now = self._clock()
         market = await assess_market(get_settings().fred_api_key, now=now)
+        # FRED answers macro only — sector is a separate assessment.
         gate = evaluate_market_gate(
             market,
             now=now,
-            sector_label=market.sector_label,
-            sector_tradable=market.sector_tradable,
-            require_sector=True,
+            sector_label=None,
+            sector_tradable=None,
+            require_sector=False,
         )
         regime: bool | None
         if gate.status is DataHealthStatus.HEALTHY:
             regime = gate.tradable_long
         else:
             regime = None
+
+        from trading.sector_assessment import get_sector_assessment_port
+
+        sector = await get_sector_assessment_port().assess(
+            candidate.symbol,
+            market_data=self.market_data,
+            now=now,
+        )
+        # Same SectorMarketAssessment feeds risk + final admission. Missing →
+        # fail-closed regime_tradable for new exposure; False blocks longs.
+        if sector.tradable_long is None:
+            regime = None
+        elif sector.tradable_long is False:
+            regime = False
         try:
             built = await build_risk_context(
                 candidate.symbol.upper(),
@@ -324,16 +339,16 @@ class ExecutionService:
             raise ValueError(f"invalid_status:{opp.status.value}")
 
         if decision == UserDecision.APPROVE:
-            from uuid import uuid4
-
             from trading.approval_errors import StaleDecisionError
 
-            # API refuses missing fields; direct service callers (tests / internal)
-            # may omit them — synthesize a fresh request_id and bind the card version.
-            if request_id is None:
-                request_id = uuid4()
-            if expected_decision_version is None:
-                expected_decision_version = opp.decision_version
+            if request_id is None or expected_decision_version is None:
+                from core.metrics import METRICS
+
+                METRICS.counter(
+                    "stale_decision_rejected",
+                    help_text="APPROVE rejected: request_id or decision_version missing",
+                )
+                raise StaleDecisionError("APPROVAL_IDENTITY_REQUIRED")
             if expected_decision_version != opp.decision_version:
                 from core.metrics import METRICS
 
@@ -391,7 +406,17 @@ class ExecutionService:
         # happens inside approval_commit together with Admission + Entry intent
         # so a crash cannot leave a linked admission without an intent (or the
         # reverse). Concurrent approvers both evaluate; exactly one wins the txn.
-        portfolio = await self.broker.get_portfolio()
+        try:
+            portfolio = await self.broker.get_portfolio()
+        except Exception as exc:
+            from core.metrics import METRICS
+            from trading.approval_errors import DataBlockedError
+
+            METRICS.counter(
+                "portfolio_state_unavailable",
+                help_text="APPROVE blocked: broker portfolio/positions unread",
+            )
+            raise DataBlockedError("PORTFOLIO_STATE_UNAVAILABLE") from exc
         portfolio = portfolio.model_copy(update={"kill_switch": is_kill_switch_on()})
         context, context_notes = await self._risk_context(opp.candidate)
 
@@ -460,8 +485,12 @@ class ExecutionService:
         from trading.sector_assessment import get_sector_assessment_port
 
         fresh_market = await assess_market(get_settings().fred_api_key, now=evaluated_at)
-        sector = await get_sector_assessment_port().assess(priced.symbol, now=evaluated_at)
-        if not sector.fresh or sector.tradable_long is None:
+        sector = await get_sector_assessment_port().assess(
+            priced.symbol,
+            market_data=self.market_data,
+            now=evaluated_at,
+        )
+        if sector.tradable_long is None or sector.data_status is not DataHealthStatus.HEALTHY:
             from core.metrics import METRICS
             from trading.approval_errors import DataBlockedError
 
@@ -469,7 +498,16 @@ class ExecutionService:
                 "sector_data_blocked",
                 help_text="APPROVE blocked: sector assessment missing or stale",
             )
-            raise DataBlockedError(",".join(sector.reason_codes) or "SECTOR_ASSESSMENT_REQUIRED")
+            raise DataBlockedError(",".join(sector.reason_codes) or "SECTOR_ASSESSMENT_MISSING")
+        if sector.tradable_long is False:
+            from core.metrics import METRICS
+            from trading.approval_errors import NoTradeError
+
+            METRICS.counter(
+                "sector_blocked",
+                help_text="APPROVE blocked: sector benchmark regime not tradable",
+            )
+            raise NoTradeError(",".join(sector.reason_codes) or "SECTOR_BLOCKED")
         try:
             final_eval = await build_and_evaluate_final_admission(
                 priced,
@@ -479,6 +517,9 @@ class ExecutionService:
                 market=fresh_market,
                 sector_label=sector.sector_label,
                 sector_tradable=sector.tradable_long,
+                sector_benchmark=sector.benchmark,
+                sector_provider=sector.provider,
+                sector_source_ts=sector.source_ts,
                 require_sector=True,
                 opportunity_id=opp.id,
                 decision_version=opp.decision_version,
@@ -647,15 +688,28 @@ class ExecutionService:
         if news_status is None or earnings_status is None:
             raise DataBlockedError("news_or_earnings_missing_on_approval_evidence")
 
+        from broker.interface import resolve_broker_identity
         from core.schemas import ApprovalCommand
         from trading.approval_errors import NoTradeError
         from trading.approval_evidence import evaluate_final_approval
 
-        assert request_id is not None  # synthesized above for APPROVE
+        assert request_id is not None
+        assert expected_decision_version is not None
+        try:
+            broker_name, broker_account_id, broker_env = resolve_broker_identity(self.broker)
+        except RuntimeError as exc:
+            from core.metrics import METRICS
+
+            METRICS.counter(
+                "broker_environment_blocked",
+                help_text="APPROVE blocked before Final Admission: broker env",
+            )
+            raise DataBlockedError(str(exc)) from exc
+
         cmd = ApprovalCommand(
             request_id=request_id,
             opportunity_id=opp.id,
-            expected_decision_version=opp.decision_version,
+            expected_decision_version=expected_decision_version,
             requested_qty=qty,
             requested_at=evaluated_at,
             actor="user",
@@ -664,7 +718,7 @@ class ExecutionService:
             update={
                 "request_id": request_id,
                 "opportunity_id": opp.id,
-                "decision_version": opp.decision_version,
+                "decision_version": expected_decision_version,
                 "sector_label": sector.sector_label,
                 "sector_tradable": sector.tradable_long,
                 "sector_benchmark": sector.benchmark,
@@ -681,6 +735,10 @@ class ExecutionService:
                 "geometry_hash": final_eval.geometry_hash or admission_input.geometry_hash,
             }
         )
+        target_reach = None
+        if admission_input.target_plan is not None:
+            r = admission_input.target_plan.reachability
+            target_reach = r.value if hasattr(r, "value") else str(r)
         final_ok = evaluate_final_approval(
             command=cmd,
             admission_input=admission_input,
@@ -690,11 +748,22 @@ class ExecutionService:
             stop_price=stop_px,
             risk_verdict=risk.verdict.value,
             liquidity_ok=True,
-            prior_admission=approval_admission,
+            broker=broker_name,
+            broker_account_id=broker_account_id,
+            broker_environment=broker_env,
+            sector_regime=sector.sector_regime.value if sector.sector_regime else None,
+            sector_data_status=sector.data_status.value,
+            sector_bars_count=sector.benchmark_bars_count,
+            sector_reason_codes=tuple(sector.reason_codes),
+            sector_assessment_version=sector.assessment_version,
+            sector_classification_version=sector.classification_version,
+            target_reachability=target_reach,
+            entry_quality=int(getattr(admission_input.bundle, "entry_quality", 0) or 0),
         )
         approval_admission = final_ok.admission
         admission_input = final_ok.evidence.admission_input
         fp = final_ok.fingerprint
+        sealed_evidence = final_ok.evidence
 
         try:
             bundle = commit_approval_bundle(
@@ -717,6 +786,8 @@ class ExecutionService:
                 decision_version=opp.decision_version,
                 request_id=request_id,
                 request_fingerprint=fp,
+                broker_account_id=broker_account_id,
+                broker_environment=broker_env,
             )
         except (
             StaleDecisionError,
@@ -736,6 +807,27 @@ class ExecutionService:
 
         opp = bundle.opportunity
         intent = bundle.intent
+        await self.audit.append(
+            "ApprovalCommitted",
+            "user",
+            {
+                "opportunity_id": str(opp.id),
+                "intent_id": str(intent.id),
+                "request_id": str(request_id),
+                "request_fingerprint": fp,
+                "broker": broker_name,
+                "broker_account_id": broker_account_id,
+                "broker_environment": broker_env,
+                "created_intent": bundle.created_intent,
+                "approval_admission_record_id": str(bundle.admission_record.id),
+                "geometry_hash": sealed_evidence.geometry_hash,
+                "decision": approval_admission.decision.value,
+                "evaluated_at": sealed_evidence.broker.evaluated_at.isoformat(),
+            },
+            pipeline_run_id=opp.candidate.pipeline_run_id,
+            entity_type="order_intent",
+            entity_id=str(intent.id),
+        )
         if bundle.created_intent:
             await self.audit.append(
                 "OrderIntentCreated",
@@ -748,6 +840,10 @@ class ExecutionService:
                     "limit_price": str(limit_px),
                     "opportunity_id": str(opp.id),
                     "approval_admission_record_id": str(bundle.admission_record.id),
+                    "request_fingerprint": fp,
+                    "broker": broker_name,
+                    "broker_account_id": broker_account_id,
+                    "broker_environment": broker_env,
                 },
                 pipeline_run_id=opp.candidate.pipeline_run_id,
                 entity_type="order_intent",

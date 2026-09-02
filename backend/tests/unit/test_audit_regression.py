@@ -190,7 +190,7 @@ def test_sector_gate_missing_blocked() -> None:
     )
     gate = evaluate_market_gate(market, now=datetime.now(UTC), require_sector=True)
     assert gate.status is DataHealthStatus.UNHEALTHY
-    assert "SECTOR_GATE_MISSING" in gate.reason_codes
+    assert "SECTOR_ASSESSMENT_MISSING" in gate.reason_codes
 
 
 def test_target_plan_mismatch() -> None:

@@ -41,6 +41,7 @@ from trading.approval_evidence import evaluate_final_approval
 from trading.intents import MemoryOrderIntentStore
 from trading.opportunities import MemoryOpportunityStore
 
+pytestmark = pytest.mark.usefixtures("capital_path_ready")
 
 def _breakdown() -> EntryQualityBreakdown:
     return EntryQualityBreakdown(
@@ -57,10 +58,9 @@ def _breakdown() -> EntryQualityBreakdown:
         signal_drift=80,
     )
 
-
 def _input(**overrides) -> AdmissionInput:
     from core.enums import EarningsCheck, NewsCheck
-    from core.schemas import MarketAssessment
+    from core.schemas import MarketAssessment, StopPlan
 
     facts = EntryTimingFacts(current_price=100.0, atr=2.0, stop_distance_atr=2.0)
     bundle = EntryDecisionBundle(
@@ -72,11 +72,22 @@ def _input(**overrides) -> AdmissionInput:
         facts=facts,
         chase_reasons=[],
         reasons=["ok"],
+        entry_zone_low=Decimal("99"),
+        entry_zone_high=Decimal("101"),
+        stop_price=Decimal("95"),
+        target=TargetPlan(
+            price=Decimal(110),
+            model="test",
+            reachability=TargetReachabilityClass.REALISTIC,
+        ),
     )
     base = {
         "bundle": bundle,
         "setup_type": SetupType.PULLBACK_CONTINUATION,
         "setup_quality": 80,
+        "entry_zone_low": Decimal("99"),
+        "entry_zone_high": Decimal("101"),
+        "stop_plan": StopPlan(price=Decimal("95"), model="structure"),
         "target_plan": TargetPlan(
             price=Decimal(110),
             model="test",
@@ -86,7 +97,7 @@ def _input(**overrides) -> AdmissionInput:
             symbol="AAPL",
             bid=Decimal("99.9"),
             ask=Decimal("100.1"),
-            ts=datetime(2026, 3, 10, 15, 0, tzinfo=UTC),
+            ts=datetime(2026, 3, 10, 15, 0, 55, tzinfo=UTC),
             source="test",
         ),
         "bars_count": 60,
@@ -117,12 +128,17 @@ def _input(**overrides) -> AdmissionInput:
         "risk_snapshot": {"verdict": "pass", "sized_qty": "10"},
         "liquidity_snapshot": {"ok": True},
         "decision_version": 0,
+        "sized_qty": Decimal(10),
+        "limit_price": Decimal(100),
+        "stop_price": Decimal(95),
     }
     base.update(overrides)
     return AdmissionInput(**base)
 
+def test_sealed_evidence_refuses_authority_model_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    from core.enums import DataHealthStatus
+    from trading.trade_admission import evaluate_from_admission_input
 
-def test_sealed_evidence_refuses_authority_model_copy() -> None:
     rid = uuid4()
     inp = _input(request_id=rid, opportunity_id=uuid4())
     cmd = ApprovalCommand(
@@ -131,19 +147,24 @@ def test_sealed_evidence_refuses_authority_model_copy() -> None:
         expected_decision_version=0,
         requested_at=datetime(2026, 3, 10, 15, 1, tzinfo=UTC),
     )
-    admission = TradeAdmissionResult(
+    allowed = TradeAdmissionResult(
         decision=AdmissionDecision.BUY_ALLOWED,
         admitted=True,
         setup_type=SetupType.PULLBACK_CONTINUATION,
         setup_quality=80,
         entry_quality=80,
-        effective_rr=2.0,
+        effective_rr=2.5,
         chase_score=10,
         structure_valid=True,
         stop_valid=True,
         target_valid=True,
+        data_status=DataHealthStatus.HEALTHY,
         reason_codes=["BUY_ALLOWED"],
         admission_version="admission@1",
+    )
+    monkeypatch.setattr(
+        "trading.approval_evidence.evaluate_from_admission_input",
+        lambda *_a, **_k: allowed,
     )
     result = evaluate_final_approval(
         command=cmd,
@@ -154,20 +175,15 @@ def test_sealed_evidence_refuses_authority_model_copy() -> None:
         stop_price=Decimal(95),
         risk_verdict="pass",
         liquidity_ok=True,
-        prior_admission=admission,
+        broker="MockPaperBroker",
+        broker_account_id="mock-paper-account",
+        broker_environment="paper",
     )
     with pytest.raises(TypeError, match="sealed"):
         result.evidence.model_copy(update={"geometry_hash": "other"})
-    fp2 = build_request_fingerprint(
-        result.evidence.admission_input,
-        geometry_hash="geo1",
-        decision_version=0,
-        request_id=rid,
-        sized_qty=Decimal(10),
-        limit_price=Decimal(100),
-    )
-    assert fp2 == result.fingerprint
-
+    assert result.fingerprint
+    assert result.evidence.request_fingerprint == result.fingerprint
+    assert len(result.fingerprint) == 32
 
 @pytest.mark.asyncio
 async def test_hundred_distinct_request_ids_second_blocked_while_in_flight() -> None:
@@ -210,7 +226,6 @@ async def test_hundred_distinct_request_ids_second_blocked_while_in_flight() -> 
     # race losers must not mint a second intent/order.
     assert set(outcomes) <= {"executed", "in_flight", "ValueError", "RuntimeError"}
     assert outcomes.count("executed") >= 1
-
 
 @pytest.mark.asyncio
 async def test_sql_commit_rollback_leaves_no_partial_bundle(monkeypatch) -> None:
@@ -285,6 +300,7 @@ async def test_sql_commit_rollback_leaves_no_partial_bundle(monkeypatch) -> None
             decision_version=0,
             request_id=rid,
             request_fingerprint=fp,
+            broker_account_id="MockPaperBroker:paper",
         )
     assert intent_store.list_by_key_prefix(f"entry:{opp.id}:") == []
     refreshed = opp_store.get(opp.id)

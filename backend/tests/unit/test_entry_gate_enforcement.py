@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -32,7 +33,8 @@ from trading.gates import LiquidityPolicy
 from trading.intents import MemoryOrderIntentStore
 from trading.opportunities import MemoryOpportunityStore
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
+
 
 ET = ZoneInfo("America/New_York")
 
@@ -146,7 +148,7 @@ async def test_no_entry_reaches_the_broker_outside_regular_hours(
     )
 
     with pytest.raises(RuntimeError, match="RTH_GATE_REJECTED"):
-        await service.decide(opp.id, UserDecision.APPROVE)
+        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert broker.orders == [], label
     assert any(e["event_type"] == "RTHGateRejected" for e in audit.events)
@@ -166,7 +168,7 @@ async def test_an_entry_during_the_regular_session_proceeds() -> None:
         clock=lambda: datetime(2026, 3, 10, 11, 0, tzinfo=ET),
     )
 
-    result = await service.decide(opp.id, UserDecision.APPROVE)
+    result = await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert result.status is OpportunityStatus.EXECUTED
     assert broker.orders
@@ -186,7 +188,7 @@ async def test_the_rth_gate_can_be_disabled_for_environments_that_trade_extended
         clock=lambda: SATURDAY,
     )
 
-    assert (await service.decide(opp.id, UserDecision.APPROVE)).status is (
+    assert (await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)).status is (
         OpportunityStatus.EXECUTED
     )
 
@@ -208,7 +210,7 @@ async def test_an_illiquid_symbol_never_reaches_the_broker() -> None:
     )
 
     with pytest.raises(RuntimeError, match="LIQUIDITY_GATE_REJECTED"):
-        await service.decide(opp.id, UserDecision.APPROVE)
+        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert broker.orders == []
     rejection = next(e for e in audit.events if e["event_type"] == "LiquidityGateRejected")
@@ -227,7 +229,7 @@ async def test_a_liquid_symbol_passes_the_gate() -> None:
         clock=lambda: datetime(2026, 3, 10, 11, 0, tzinfo=ET),
     )
 
-    assert (await service.decide(opp.id, UserDecision.APPROVE)).status is (
+    assert (await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)).status is (
         OpportunityStatus.EXECUTED
     )
 
@@ -247,7 +249,7 @@ async def test_no_live_quote_means_no_entry() -> None:
     )
 
     with pytest.raises(RuntimeError, match="LIQUIDITY_GATE_REJECTED"):
-        await service.decide(opp.id, UserDecision.APPROVE)
+        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert broker.orders == []
     rejection = next(e for e in audit.events if e["event_type"] == "LiquidityGateRejected")
@@ -268,7 +270,7 @@ async def test_a_stale_quote_does_not_count_as_a_live_spread_check() -> None:
     )
 
     with pytest.raises(RuntimeError, match="LIQUIDITY_GATE_REJECTED"):
-        await service.decide(opp.id, UserDecision.APPROVE)
+        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     rejection = next(e for e in audit.events if e["event_type"] == "LiquidityGateRejected")
     assert "QUOTE_STALE" in rejection["payload"]["reasons"]
@@ -297,7 +299,7 @@ async def test_unavailable_market_data_blocks_rather_than_waves_through() -> Non
     )
 
     with pytest.raises(RuntimeError, match="LIQUIDITY_GATE_REJECTED"):
-        await service.decide(opp.id, UserDecision.APPROVE)
+        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
     assert broker.orders == []
 
 
@@ -315,7 +317,7 @@ async def test_the_price_floor_is_enforced_at_execution_time() -> None:
     )
 
     with pytest.raises(RuntimeError, match="PRICE_BELOW_FLOOR"):
-        await service.decide(opp.id, UserDecision.APPROVE)
+        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
     assert broker.orders == []
 
 
@@ -374,7 +376,7 @@ async def test_a_second_entry_is_refused_while_the_symbol_is_already_held() -> N
     )
 
     with pytest.raises(RuntimeError, match="POSITION_ALREADY_OPEN"):
-        await service.decide(opp.id, UserDecision.APPROVE)
+        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert broker.orders == [], "nothing may reach the broker"
     assert any(e["event_type"] == "EntryBlockedByOpenPosition" for e in audit.events)
@@ -420,6 +422,6 @@ async def test_the_symbol_can_be_re_entered_once_the_position_is_closed() -> Non
         clock=lambda: SESSION,
     )
 
-    assert (await service.decide(opp.id, UserDecision.APPROVE)).status is (
+    assert (await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)).status is (
         OpportunityStatus.EXECUTED
     )

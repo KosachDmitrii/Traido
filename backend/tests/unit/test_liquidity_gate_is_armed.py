@@ -1,5 +1,7 @@
 """The liquidity gate has to be reachable, not merely written.
 
+pytestmark = pytest.mark.usefixtures("capital_path_ready")
+
 It existed, was fail-closed, was covered by `test_gates.py`, and was described
 in `ARCHITECTURE.md` as enforced inside the execution service. None of that was
 false about the gate. It was false about the desk: both routes that authorize a
@@ -31,8 +33,9 @@ from tests.support import CLEARED_EARNINGS
 from trading.execution import ExecutionService
 from trading.opportunities import MemoryOpportunityStore
 
-REPO = Path(__file__).resolve().parents[2]
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
 
+REPO = Path(__file__).resolve().parents[2]
 
 def _candidate() -> TradeCandidate:
     return TradeCandidate(
@@ -48,9 +51,7 @@ def _candidate() -> TradeCandidate:
         pipeline_run_id=uuid4(),
     )
 
-
 # ── The gate refuses when it cannot measure ──────────────────────────────────
-
 
 @pytest.mark.asyncio
 async def test_a_service_with_no_market_data_refuses_the_entry() -> None:
@@ -78,11 +79,10 @@ async def test_a_service_with_no_market_data_refuses_the_entry() -> None:
     )
 
     with pytest.raises(RuntimeError) as err:
-        await service.decide(opp.id, UserDecision.APPROVE)
+        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert "MARKET_DATA_NOT_CONFIGURED" in str(err.value)
     assert "LIQUIDITY_GATE_REJECTED" in str(err.value)
-
 
 def test_the_desk_builds_a_service_that_can_measure_liquidity() -> None:
     """The wiring itself, asserted — this is the half that was actually broken."""
@@ -91,9 +91,7 @@ def test_the_desk_builds_a_service_that_can_measure_liquidity() -> None:
     assert service.market_data is not None, "the liquidity gate has nothing to measure"
     assert service.quotes is not None, "the spread check has no top of book"
 
-
 # ── And the wiring cannot be bypassed again ──────────────────────────────────
-
 
 def test_no_route_constructs_the_execution_service_directly() -> None:
     """A route that builds its own can omit a gate without anything complaining.

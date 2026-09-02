@@ -50,6 +50,7 @@ class AlpacaPaperBroker:
         # Injectable so the broker contract suite can exercise this adapter's
         # own normalization instead of a stand-in.
         self._transport = transport
+        self.account_id: str | None = None
         assert_paper_only(self.environment)
         if "paper-api" not in self._base:
             raise RuntimeError("AlpacaPaperBroker requires paper-api base URL")
@@ -142,6 +143,10 @@ class AlpacaPaperBroker:
                 if stale is not None:
                     return stale.model_copy(update={"kill_switch": is_kill_switch_on()})
             raise
+
+        acct_id = acct.get("id") or acct.get("account_number")
+        if acct_id:
+            self.account_id = str(acct_id)
 
         positions = positions or []
         self._cache_set("positions_raw", positions)

@@ -34,11 +34,11 @@ from trading.intents import MemoryOrderIntentStore
 from trading.opportunities import MemoryOpportunityStore
 from trading.order_intent import OrderIntent
 
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
 
 @pytest.fixture(autouse=True)
 def _kill_off() -> None:
     set_kill_switch(False)
-
 
 def _service(broker, store, intents, audit=None):
     return ExecutionService(
@@ -52,12 +52,10 @@ def _service(broker, store, intents, audit=None):
         require_fresh_reconciliation=False,
     )
 
-
 async def _approved_opp(broker, store, symbol="AAPL"):
     cand = admission_ready_candidate(symbol=symbol)
     risk = RiskEngine().evaluate(cand, await broker.get_portfolio(), context=CLEARED_EARNINGS)
     return store.create(cand, risk, TradingMode.CONFIRMATION)
-
 
 def _record_for(
     opp,
@@ -86,11 +84,12 @@ def _record_for(
         request_fingerprint="fp",
     )
 
-
 def _intent_for(opp, record, *, qty=Decimal(10), geometry_hash="abc123"):
     return OrderIntent(
         idempotency_key=f"entry:{opp.id}:0",
         broker="MockPaperBroker",
+        broker_account_id="MockPaperBroker:paper",
+        broker_environment="paper",
         symbol=opp.candidate.symbol,
         side="buy",
         requested_qty=qty,
@@ -101,10 +100,10 @@ def _intent_for(opp, record, *, qty=Decimal(10), geometry_hash="abc123"):
         opportunity_id=opp.id,
         approval_admission_record_id=record.id,
         geometry_hash=geometry_hash,
+        request_fingerprint=record.request_fingerprint,
         purpose=IntentPurpose.ENTRY,
         status=IntentStatus.CREATED,
     )
-
 
 @pytest.mark.asyncio
 async def test_null_phase_blocks_broker() -> None:
@@ -119,7 +118,6 @@ async def test_null_phase_blocks_broker() -> None:
     with pytest.raises(AdmissionAuthorityError, match="wrong_phase"):
         assert_authority_invariant(rec, opp, intent)
 
-
 @pytest.mark.asyncio
 async def test_null_opportunity_id_blocks_broker() -> None:
     broker = MockPaperBroker()
@@ -132,7 +130,6 @@ async def test_null_opportunity_id_blocks_broker() -> None:
     with pytest.raises(AdmissionAuthorityError, match="opportunity_id_null"):
         assert_authority_invariant(rec, opp, intent)
 
-
 @pytest.mark.asyncio
 async def test_geometry_hash_mismatch_blocks_broker() -> None:
     broker = MockPaperBroker()
@@ -144,7 +141,6 @@ async def test_geometry_hash_mismatch_blocks_broker() -> None:
     with pytest.raises(AdmissionAuthorityError, match="GEOMETRY_MISMATCH"):
         assert_authority_invariant(rec, opp, intent)
 
-
 @pytest.mark.asyncio
 async def test_degraded_data_status_blocks_broker() -> None:
     broker = MockPaperBroker()
@@ -155,7 +151,6 @@ async def test_degraded_data_status_blocks_broker() -> None:
     intent = _intent_for(opp, rec)
     with pytest.raises(AdmissionAuthorityError, match="BUY_REJECTED_ADMISSION"):
         assert_authority_invariant(rec, opp, intent)
-
 
 @pytest.mark.asyncio
 async def test_fk_mismatch_blocks_broker() -> None:
@@ -169,7 +164,6 @@ async def test_fk_mismatch_blocks_broker() -> None:
     intent = _intent_for(opp, rec)
     with pytest.raises(AdmissionAuthorityError, match="opportunity_fk_mismatch"):
         assert_authority_invariant(rec, opp, intent)
-
 
 @pytest.mark.asyncio
 async def test_approve_zero_broker_when_authority_corrupt(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -199,9 +193,8 @@ async def test_approve_zero_broker_when_authority_corrupt(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(ac, "commit_approval_bundle", _corrupt)
     with pytest.raises((AdmissionAuthorityError, RuntimeError)):
-        await _service(broker, store, intents).decide(opp.id, UserDecision.APPROVE)
+        await _service(broker, store, intents).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
     assert place.call_count == 0
-
 
 @pytest.mark.asyncio
 async def test_lost_reply_retry_reuses_intent(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -227,7 +220,7 @@ async def test_lost_reply_retry_reuses_intent(monkeypatch: pytest.MonkeyPatch) -
     opp = await _approved_opp(broker, store)
 
     with pytest.raises(RuntimeError, match="ENTRY_STATE_UNKNOWN"):
-        await _service(broker, store, intents, audit).decide(opp.id, UserDecision.APPROVE)
+        await _service(broker, store, intents, audit).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
     assert broker.submit_count == 1
     assert len(intents.list_by_key_prefix(f"entry:{opp.id}:")) == 1
 
@@ -236,10 +229,9 @@ async def test_lost_reply_retry_reuses_intent(monkeypatch: pytest.MonkeyPatch) -
     # until recovery; may raise ENTRY_STATE_UNKNOWN again without a second submit.
     before = broker.submit_count
     with pytest.raises(RuntimeError):
-        await _service(broker, store, intents, audit).decide(opp.id, UserDecision.APPROVE)
+        await _service(broker, store, intents, audit).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
     assert broker.submit_count == before  # no second place while UNKNOWN
     assert len(intents.list_by_key_prefix(f"entry:{opp.id}:")) == 1
-
 
 @pytest.mark.asyncio
 async def test_stale_unresolved_intent_different_hash_raises() -> None:
@@ -362,8 +354,8 @@ async def test_stale_unresolved_intent_different_hash_raises() -> None:
             opportunity_store=store,
             intent_store=intents,
             decision_version=0,
+            broker_account_id="MockPaperBroker:paper",
         )
-
 
 @pytest.mark.asyncio
 async def test_empty_fred_series_is_data_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -377,14 +369,12 @@ async def test_empty_fred_series_is_data_blocked(monkeypatch: pytest.MonkeyPatch
     assert "FRED_SERIES_EMPTY" in result.reasons
     assert "DATA_BLOCKED" in result.reasons
 
-
 @pytest.mark.asyncio
 async def test_fred_without_key_is_data_blocked() -> None:
     result = await assess_market(None)
     assert result.evaluated_at is None
     assert result.sector_tradable is None
     assert "FRED_NOT_CONFIGURED" in result.reasons
-
 
 def test_sql_no_entry_intent_without_approval_fk() -> None:
     from database.models.desk import OrderIntentRow
@@ -404,7 +394,6 @@ def test_sql_no_entry_intent_without_approval_fk() -> None:
             .count()
         )
     assert bad == 0
-
 
 @pytest.mark.asyncio
 async def test_hundred_concurrent_approves_one_buy() -> None:

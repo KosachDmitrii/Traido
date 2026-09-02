@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from uuid import UUID
 
 from core.enums import AdmissionDecision, DataHealthStatus, IntentPurpose
 from core.metrics import METRICS
 from core.schemas import AdmissionRecord, TradeOpportunity
 from trading.order_intent import OrderIntent
+from trading.pricing import round_equity_price, round_equity_qty
 
 
 class AdmissionAuthorityError(RuntimeError):
@@ -26,12 +28,111 @@ def _phase_of(record: AdmissionRecord) -> str | None:
     )
 
 
+def _record_request_id(record: AdmissionRecord) -> UUID | None:
+    if record.request_id is not None:
+        return record.request_id
+    raw = record.context.get("request_id")
+    if not raw:
+        return None
+    try:
+        return UUID(str(raw))
+    except ValueError:
+        return None
+
+
+def _context_admission_input(record: AdmissionRecord) -> dict[str, object]:
+    ctx = record.context or {}
+    adm = ctx.get("admission_input")
+    if isinstance(adm, dict):
+        return adm
+    if isinstance(record.admission_input, dict):
+        return record.admission_input
+    return {}
+
+
+def _decimal_or_none(value: object) -> Decimal | None:
+    if value is None:
+        return None
+    return Decimal(str(value))
+
+
+def assert_entry_broker_authority(
+    intent: OrderIntent,
+    opportunity: TradeOpportunity,
+    record: AdmissionRecord,
+    *,
+    broker_environment: str | None = None,
+) -> None:
+    """Verify sealed approval evidence and broker identity for entry intents."""
+    if intent.purpose is not IntentPurpose.ENTRY:
+        return
+
+    if not intent.broker_account_id:
+        METRICS.counter(
+            "broker_authority_rejected",
+            help_text="Entry intent missing broker_account_id at authority gate",
+        )
+        raise AdmissionAuthorityError("BROKER_ACCOUNT_IDENTITY_REQUIRED", "broker_account_id_null")
+
+    env = (intent.broker_environment or broker_environment or "paper").strip().lower()
+    if env != "paper":
+        METRICS.counter(
+            "broker_environment_blocked",
+            help_text="Entry intent broker environment is not paper",
+        )
+        raise AdmissionAuthorityError("BROKER_ENVIRONMENT_BLOCKED", env)
+
+    rec_fp = record.request_fingerprint or record.context.get("request_fingerprint")
+    if rec_fp and intent.request_fingerprint and str(rec_fp) != intent.request_fingerprint:
+        METRICS.counter(
+            "approval_fingerprint_mismatch",
+            help_text="ApprovalAdmission fingerprint mismatch vs OrderIntent",
+        )
+        raise AdmissionAuthorityError("APPROVAL_FINGERPRINT_MISMATCH", str(rec_fp))
+
+    rec_rid = _record_request_id(record)
+    if intent.request_id is not None and rec_rid is not None and intent.request_id != rec_rid:
+        METRICS.counter(
+            "broker_authority_rejected",
+            help_text="ApprovalAdmission request_id mismatch vs OrderIntent",
+        )
+        raise AdmissionAuthorityError("REQUEST_ID_MISMATCH", str(rec_rid))
+
+    adm_inp = _context_admission_input(record)
+    sized = _decimal_or_none(adm_inp.get("sized_qty"))
+    if sized is not None and intent.requested_qty != round_equity_qty(sized):
+        METRICS.counter(
+            "broker_authority_rejected",
+            help_text="Entry intent qty mismatch vs ApprovalAdmission context",
+        )
+        raise AdmissionAuthorityError("SIZING_MISMATCH", str(intent.requested_qty))
+
+    limit_px = _decimal_or_none(adm_inp.get("limit_price"))
+    if limit_px is not None:
+        if intent.limit_price is None or intent.limit_price != round_equity_price(limit_px):
+            METRICS.counter(
+                "broker_authority_rejected",
+                help_text="Entry intent limit mismatch vs ApprovalAdmission context",
+            )
+            raise AdmissionAuthorityError("LIMIT_MISMATCH", str(intent.limit_price))
+
+    stop_px = _decimal_or_none(adm_inp.get("stop_price"))
+    if stop_px is not None:
+        if intent.stop_price is None or intent.stop_price != round_equity_price(stop_px):
+            METRICS.counter(
+                "broker_authority_rejected",
+                help_text="Entry intent stop mismatch vs ApprovalAdmission context",
+            )
+            raise AdmissionAuthorityError("STOP_MISMATCH", str(intent.stop_price))
+
+
 def assert_authority_invariant(
     record: AdmissionRecord,
     opportunity: TradeOpportunity,
     intent: OrderIntent,
     *,
     now: datetime | None = None,
+    broker_environment: str | None = None,
 ) -> AdmissionRecord:
     """Strict chain: record ↔ opportunity ↔ intent. Any NULL/mismatch refuses broker."""
     now = now or datetime.now(UTC)
@@ -92,6 +193,13 @@ def assert_authority_invariant(
     if exp <= now:
         raise AdmissionAuthorityError("ADMISSION_REQUIRED", "admission_expired")
 
+    assert_entry_broker_authority(
+        intent,
+        opportunity,
+        record,
+        broker_environment=broker_environment,
+    )
+
     return record
 
 
@@ -101,6 +209,7 @@ def load_valid_approval_admission(
     opportunity: TradeOpportunity,
     intent: OrderIntent,
     now: datetime | None = None,
+    broker_environment: str | None = None,
 ) -> AdmissionRecord:
     """Load and verify an ApprovalAdmission record for capital-path entry."""
     from trading.admission_records import ADMISSION_RECORDS
@@ -108,10 +217,21 @@ def load_valid_approval_admission(
     record = ADMISSION_RECORDS.get(record_id)
     if record is None:
         raise AdmissionAuthorityError("ADMISSION_REQUIRED", "approval_record_missing")
-    return assert_authority_invariant(record, opportunity, intent, now=now)
+    return assert_authority_invariant(
+        record,
+        opportunity,
+        intent,
+        now=now,
+        broker_environment=broker_environment,
+    )
 
 
-def assert_entry_intent_has_admission(intent: OrderIntent, opportunity: TradeOpportunity) -> None:
+def assert_entry_intent_has_admission(
+    intent: OrderIntent,
+    opportunity: TradeOpportunity,
+    *,
+    broker_environment: str | None = None,
+) -> None:
     """Hard gate before place_order — EntryDecision/Risk PASS are not authority."""
     if intent.purpose is not IntentPurpose.ENTRY:
         return
@@ -125,4 +245,5 @@ def assert_entry_intent_has_admission(intent: OrderIntent, opportunity: TradeOpp
         intent.approval_admission_record_id,
         opportunity=opportunity,
         intent=intent,
+        broker_environment=broker_environment,
     )

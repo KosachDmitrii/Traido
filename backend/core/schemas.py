@@ -846,14 +846,181 @@ class ApprovalCommand(StrictModel):
     actor: str = "user"
 
 
-class ApprovalEvidence(StrictModel):
-    """Full immutable facts that authorized (or blocked) one ApprovalAdmission.
+class IdentityEvidence(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
-    Fingerprint is computed from this object after risk/liquidity are known.
+    request_id: UUID
+    opportunity_id: UUID
+    expected_decision_version: int
+    user_decision: UserDecision
+    requested_at: datetime
+    actor: str
+    decision_version: int
+
+
+class MarketEvidence(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    regime: str | None
+    risk_posture: str | None
+    score: int | None
+    evaluated_at: datetime | None
+    benchmark: str | None
+    reason_codes: tuple[str, ...] = ()
+
+
+class SectorEvidence(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    symbol: str
+    sector: str | None
+    industry: str | None
+    benchmark: str | None
+    tradable_long: bool | None
+    sector_regime: str | None
+    data_status: str
+    source_ts: datetime | None
+    bars_count: int = 0
+    reason_codes: tuple[str, ...] = ()
+    classification_version: str | None = None
+    assessment_version: str | None = None
+    provider: str | None = None
+
+
+class EntryEvidence(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    symbol: str
+    thesis: str
+    setup_type: str
+    setup_quality: int
+    entry_quality: int
+    quote_bid: Decimal | None
+    quote_ask: Decimal | None
+    quote_ts: datetime | None
+    bars_count: int
+    bar_timeframe: str
+    last_bar_ts: datetime | None
+    entry_zone_low: Decimal | None
+    entry_zone_high: Decimal | None
+
+
+class GeometryEvidence(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    entry: Decimal
+    stop: Decimal
+    target: Decimal
+    sized_qty: Decimal
+    stop_provenance: str
+    target_provenance: str
+    target_reachability: str
+    effective_rr: float | None
+    spread: Decimal | None
+    geometry_hash: str
+
+
+class PortfolioEvidence(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    equity: Decimal | None = None
+    cash: Decimal | None = None
+    open_positions: int = 0
+    verified: bool = False
+    kill_switch: bool = False
+    facts: tuple[tuple[str, str], ...] = ()
+
+
+class RiskEvidence(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    verdict: str
+    sized_qty: Decimal | None = None
+    reasons: tuple[str, ...] = ()
+    facts: tuple[tuple[str, str], ...] = ()
+
+
+class LiquidityEvidence(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    ok: bool
+    facts: tuple[tuple[str, str], ...] = ()
+
+
+class EventRiskEvidence(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    news_status: str
+    earnings_status: str
+    news_blocked: bool = False
+    earnings_blocked: bool = False
+
+
+class BrokerEvidence(StrictModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    broker: str
+    broker_account_id: str
+    broker_environment: str  # must be "paper" for capital path
+    strategy_version: str
+    admission_version: str
+    policy_version: str
+    evaluated_at: datetime
+
+
+class FinalApprovalInput(StrictModel):
+    """Sole input contract for Final Admission. No permissive authority defaults."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    command: ApprovalCommand
+    admission_input: AdmissionInput
+    geometry_hash: str
+    sized_qty: Decimal
+    limit_price: Decimal
+    stop_price: Decimal
+    risk_verdict: str
+    liquidity_ok: bool
+    broker: str
+    broker_account_id: str
+    broker_environment: str
+    unresolved_broker_state: bool = False
+    sector_regime: str | None = None
+    sector_data_status: str | None = None
+    sector_bars_count: int = 0
+    sector_reason_codes: tuple[str, ...] = ()
+    sector_assessment_version: str | None = None
+    sector_classification_version: str | None = None
+    effective_rr: float | None = None
+    spread: Decimal | None = None
+    stop_provenance: str = "structure"
+    target_provenance: str = "plan"
+    target_reachability: str = "unknown"
+    entry_quality: int = 0
+
+
+class ApprovalEvidence(StrictModel):
+    """Deep-immutable facts that authorized one ApprovalAdmission.
+
+    Nested parts are frozen. Fingerprint is computed from canonical serialize.
+    ``admission_input`` is retained so commit/trade_admission can reproduce the
+    evaluation; it must itself be frozen (StrictModel frozen=True).
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    identity: IdentityEvidence
+    market: MarketEvidence
+    sector: SectorEvidence
+    entry: EntryEvidence
+    geometry: GeometryEvidence
+    portfolio: PortfolioEvidence
+    risk: RiskEvidence
+    liquidity: LiquidityEvidence
+    event_risk: EventRiskEvidence
+    broker: BrokerEvidence
+    request_fingerprint: str
+    # Compatibility for commit / evaluate_from_admission_input reuse.
     command: ApprovalCommand
     admission_input: AdmissionInput
     geometry_hash: str
@@ -863,7 +1030,6 @@ class ApprovalEvidence(StrictModel):
     stop_price: Decimal
     risk_verdict: str
     liquidity_ok: bool = True
-    request_fingerprint: str
 
 
 class WatchRevalidationResult(StrictModel):

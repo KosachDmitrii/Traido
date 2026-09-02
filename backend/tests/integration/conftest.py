@@ -340,19 +340,22 @@ class Desk:
         risk snapshot on it is a genuine verdict against the fake broker's
         actual portfolio.
         """
+        from tests.support import ensure_admission_ready
         from trading.opportunities import OPPORTUNITIES
 
-        candidate = TradeCandidate(
-            symbol=symbol.upper(),
-            action=TradeAction.BUY,
-            entry=Decimal(str(entry)),
-            stop=Decimal(str(stop)),
-            target=Decimal(str(target)),
-            confidence=confidence,
-            risk_reward=round((target - entry) / (entry - stop), 2),
-            reasons=["integration harness"],
-            strategy_version="integration@1",
-            pipeline_run_id=uuid4(),
+        candidate = ensure_admission_ready(
+            TradeCandidate(
+                symbol=symbol.upper(),
+                action=TradeAction.BUY,
+                entry=Decimal(str(entry)),
+                stop=Decimal(str(stop)),
+                target=Decimal(str(target)),
+                confidence=confidence,
+                risk_reward=round((target - entry) / (entry - stop), 2),
+                reasons=["integration harness"],
+                strategy_version="integration@1",
+                pipeline_run_id=uuid4(),
+            )
         )
         # Read the account through the app's own route rather than awaiting the
         # broker here: the adapter's HTTP client belongs to the loop the test
@@ -709,6 +712,63 @@ def desk(monkeypatch: pytest.MonkeyPatch) -> Iterator[Desk]:
 
     monkeypatch.setattr(execution_mod, "fill_wait_seconds", lambda **_: 0.25)
 
+    # Macro + sector assessments are required for Final Admission. Integration
+    # desk opts in explicitly (unit suite no longer auto-clears them).
+    from datetime import UTC, datetime as _dt
+
+    from core.enums import AssessmentKind, DataHealthStatus, MarketRegimeLabel
+    from core.schemas import MarketAssessment
+    from trading.sector_assessment import SectorMarketAssessment, set_sector_assessment_port
+    from trading.sector_classification import classify_symbol
+    from trading.sector_policy import SECTOR_ASSESSMENT_VERSION
+
+    async def _assess_market(fred_api_key=None, *, now=None):
+        evaluated_at = now or _dt.now(UTC)
+        return MarketAssessment(
+            kind=AssessmentKind.MARKET,
+            regime=MarketRegimeLabel.RISK_ON,
+            score=70,
+            risk_posture="risk_on",
+            reasons=["integration_cleared_market"],
+            evaluated_at=evaluated_at,
+            benchmark="SPY",
+        )
+
+    class _IntegrationSectorPort:
+        async def assess(self, symbol, *, market_data=None, symbol_bars=None, now=None):
+            evaluated_at = now or _dt.now(UTC)
+            if evaluated_at.tzinfo is None:
+                evaluated_at = evaluated_at.replace(tzinfo=UTC)
+            cls = classify_symbol(symbol)
+            if cls.benchmark is None:
+                return SectorMarketAssessment(
+                    symbol=cls.symbol,
+                    evaluated_at=evaluated_at,
+                    data_status=DataHealthStatus.UNHEALTHY,
+                    tradable_long=None,
+                    reason_codes=("SECTOR_METADATA_MISSING",),
+                    assessment_version=SECTOR_ASSESSMENT_VERSION,
+                )
+            return SectorMarketAssessment(
+                symbol=cls.symbol,
+                sector=cls.sector,
+                industry=cls.industry,
+                benchmark=cls.benchmark,
+                benchmark_bars_count=120,
+                benchmark_last_bar_ts=evaluated_at,
+                evaluated_at=evaluated_at,
+                data_status=DataHealthStatus.HEALTHY,
+                sector_regime=MarketRegimeLabel.BULLISH,
+                tradable_long=True,
+                reason_codes=("SECTOR_BENCHMARK_OK", "INTEGRATION_FIXTURE"),
+                assessment_version=SECTOR_ASSESSMENT_VERSION,
+                classification_provider=cls.classification_provider,
+                classification_version=cls.classification_version,
+            )
+
+    monkeypatch.setattr("agents.market.agent.assess_market", _assess_market)
+    set_sector_assessment_port(_IntegrationSectorPort())
+
     # No `with`: the lifespan would start the scanner loop, and a background
     # walker scanning the universe is not part of any assertion here.
     client = TestClient(app)
@@ -720,6 +780,7 @@ def desk(monkeypatch: pytest.MonkeyPatch) -> Iterator[Desk]:
     stand.reconcile_now()
 
     yield stand
+    set_sector_assessment_port(None)
     client.close()
 
 

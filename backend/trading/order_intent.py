@@ -282,6 +282,7 @@ class OrderIntent(StrictModel):
     purpose: IntentPurpose = IntentPurpose.ENTRY
     broker: str
     broker_account_id: str | None = None
+    broker_environment: str | None = "paper"
 
     symbol: str
     side: OrderSide

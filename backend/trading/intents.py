@@ -80,6 +80,10 @@ def _from_row(row: OrderIntentRow) -> OrderIntent:
         updates["approval_admission_record_id"] = row.approval_admission_record_id
     if getattr(row, "geometry_hash", None):
         updates["geometry_hash"] = row.geometry_hash
+    if getattr(row, "broker_account_id", None):
+        updates["broker_account_id"] = row.broker_account_id
+    if getattr(row, "broker_environment", None):
+        updates["broker_environment"] = row.broker_environment
     return intent.model_copy(update=updates) if updates else intent
 
 
@@ -108,6 +112,8 @@ def _write(session: Session, intent: OrderIntent) -> None:
                 idempotency_key=intent.idempotency_key,
                 purpose=intent.purpose.value,
                 broker=intent.broker,
+                broker_account_id=intent.broker_account_id,
+                broker_environment=intent.broker_environment,
                 symbol=intent.symbol,
                 status=intent.status.value,
                 broker_order_id=intent.broker_order_id,
@@ -134,6 +140,10 @@ def _write(session: Session, intent: OrderIntent) -> None:
             row.request_id = intent.request_id.hex if intent.request_id else None
         if hasattr(row, "request_fingerprint"):
             row.request_fingerprint = intent.request_fingerprint
+        if hasattr(row, "broker_account_id"):
+            row.broker_account_id = intent.broker_account_id
+        if hasattr(row, "broker_environment"):
+            row.broker_environment = intent.broker_environment
         row.payload = data
 
 

@@ -5,6 +5,8 @@ Every negative path asserts broker.place_order call_count == 0.
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock
@@ -47,11 +49,11 @@ from trading.intents import MemoryOrderIntentStore
 from trading.opportunities import MemoryOpportunityStore
 from trading.trade_admission import evaluate_trade_admission
 
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
 
 @pytest.fixture(autouse=True)
 def _kill_off() -> None:
     set_kill_switch(False)
-
 
 @pytest.mark.asyncio
 async def test_normalized_lly_unrealistic_target_blocks_with_zero_broker_calls(
@@ -151,11 +153,10 @@ async def test_normalized_lly_unrealistic_target_blocks_with_zero_broker_calls(
         audit=InMemoryAudit(),
     )
     with pytest.raises(RuntimeError) as e:
-        await svc.decide(opp.id, UserDecision.APPROVE)
+        await svc.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
     assert "TARGET_UNREALISTIC" in str(e.value) or "NO_TRADE" in str(e.value)
     assert place.call_count == 0
     assert intents.list_by_key_prefix(f"entry:{opp.id}:") == []
-
 
 @pytest.mark.asyncio
 async def test_raw_legacy_lly_requires_admission_zero_broker(
@@ -200,7 +201,7 @@ async def test_raw_legacy_lly_requires_admission_zero_broker(
         audit=InMemoryAudit(),
     )
     with pytest.raises(RuntimeError) as e:
-        await svc.decide(opp.id, UserDecision.APPROVE)
+        await svc.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
     detail = str(e.value)
     assert place.call_count == 0
     assert intents.list_by_key_prefix(f"entry:{opp.id}:") == []
@@ -214,7 +215,6 @@ async def test_raw_legacy_lly_requires_admission_zero_broker(
             "TARGET_PLAN_REQUIRED",
         )
     )
-
 
 @pytest.mark.asyncio
 async def test_nem_orphan_creates_external_incident_not_admission() -> None:
@@ -238,7 +238,6 @@ async def test_nem_orphan_creates_external_incident_not_admission() -> None:
     assert intents.list_by_key_prefix("entry:") == []
     assert intents.list_by_key_prefix("orphan:NEM:") == []
 
-
 @pytest.mark.asyncio
 async def test_aged_lly_card_invalidated_after_orphan(monkeypatch: pytest.MonkeyPatch) -> None:
     from trading import opportunities as opp_mod
@@ -259,7 +258,6 @@ async def test_aged_lly_card_invalidated_after_orphan(monkeypatch: pytest.Monkey
     )
     updated = store.get(opp.id)
     assert updated is None or updated.status.value != "awaiting_confirmation"
-
 
 def test_missing_stop_blocks() -> None:
     now = datetime.now(UTC)
@@ -315,7 +313,6 @@ def test_missing_stop_blocks() -> None:
     assert result.decision is not AdmissionDecision.BUY_ALLOWED
     assert "MISSING_STOP" in result.vetoes or "MISSING_STOP" in result.reason_codes
 
-
 def test_entry_intent_without_admission_fk_refused() -> None:
     from core.enums import IntentPurpose, IntentStatus, OrderSide, OrderType
     from trading.order_intent import OrderIntent
@@ -336,7 +333,6 @@ def test_entry_intent_without_admission_fk_refused() -> None:
                 approval_admission_record_id=None,
             )
         )
-
 
 def test_ensure_admission_ready_does_not_lift_target() -> None:
     cand = admission_ready_candidate(entry=100.0, stop=95.0, target=105.0)

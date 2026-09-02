@@ -14,6 +14,8 @@ than the one that was proposed.
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from decimal import Decimal
 
 import pytest
@@ -31,11 +33,14 @@ from trading.exits import MemoryExitStore
 from trading.ledger import LEDGER
 from trading.opportunities import MemoryOpportunityStore
 
+pytestmark = pytest.mark.usefixtures("capital_path_ready")
+
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
+
 # A 2:1 card: risk 1.00, reward 2.00.
 CARD_ENTRY = Decimal("100.00")
 CARD_STOP = Decimal("99.00")
 CARD_TARGET = Decimal("102.00")
-
 
 class BookAt(LiquidMarketData):
     """A market whose offer sits wherever the test needs it."""
@@ -53,7 +58,6 @@ class BookAt(LiquidMarketData):
             source="synthetic",
         )
 
-
 def _candidate() -> TradeCandidate:
     return TradeCandidate(
         symbol="AAPL",
@@ -67,7 +71,6 @@ def _candidate() -> TradeCandidate:
         strategy_version="test@1",
     )
 
-
 async def _approve(broker: MockPaperBroker, *, ask: float):
     store = MemoryOpportunityStore()
     card = _candidate()
@@ -80,15 +83,13 @@ async def _approve(broker: MockPaperBroker, *, ask: float):
         store=store,
         exit_store=MemoryExitStore(),
     )
-    return await service.decide(opp.id, UserDecision.APPROVE)
-
+    return await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
 @pytest.fixture(autouse=True)
 def _armed_desk():
     set_kill_switch(False)
     yield
     set_kill_switch(False)
-
 
 def test_the_allowance_cannot_be_widened_past_the_strategy_bar() -> None:
     """The bound on the entry and the strategy's target geometry are linked.
@@ -100,7 +101,6 @@ def test_the_allowance_cannot_be_widened_past_the_strategy_bar() -> None:
     """
     worst = (MIN_RISK_REWARD - MAX_ENTRY_SLIPPAGE_R) / (1 + MAX_ENTRY_SLIPPAGE_R)
     assert worst == pytest.approx(1.4)
-
 
 @pytest.mark.asyncio
 async def test_an_entry_that_no_longer_pays_for_its_risk_is_refused() -> None:
@@ -115,7 +115,6 @@ async def test_an_entry_that_no_longer_pays_for_its_risk_is_refused() -> None:
         await _approve(broker, ask=101.30)
 
     assert broker.orders == []
-
 
 @pytest.mark.asyncio
 async def test_the_live_oxy_entry_would_now_be_refused() -> None:
@@ -148,10 +147,9 @@ async def test_the_live_oxy_entry_would_now_be_refused() -> None:
     )
 
     with pytest.raises(RuntimeError, match="ENTRY_TOO_FAR_ABOVE_CARD"):
-        await service.decide(opp.id, UserDecision.APPROVE)
+        await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert broker.orders == []
-
 
 @pytest.mark.asyncio
 async def test_an_entry_that_still_pays_for_its_risk_is_taken() -> None:
@@ -162,7 +160,6 @@ async def test_an_entry_that_still_pays_for_its_risk_is_taken() -> None:
 
     assert result.status is OpportunityStatus.EXECUTED
     assert len(broker.orders) >= 1
-
 
 @pytest.mark.asyncio
 async def test_the_ledger_records_the_trade_that_happened() -> None:

@@ -33,9 +33,12 @@ def store(request: pytest.FixtureRequest, tmp_path: Path) -> Iterator[OrderInten
 
 
 def _intent(**overrides: Any) -> OrderIntent:
+    rid = uuid4()
     base: dict[str, Any] = {
         "idempotency_key": "entry:store-test:0",
         "broker": "MockPaperBroker",
+        "broker_account_id": "mock-paper-account",
+        "broker_environment": "paper",
         "symbol": "AAPL",
         "side": OrderSide.BUY,
         "requested_qty": Decimal(10),
@@ -44,6 +47,8 @@ def _intent(**overrides: Any) -> OrderIntent:
         "opportunity_id": uuid4(),
         "approval_admission_record_id": uuid4(),
         "geometry_hash": "intent-store-test",
+        "request_id": rid,
+        "request_fingerprint": "a" * 32,
     }
     base.update(overrides)
     return OrderIntent(**base)

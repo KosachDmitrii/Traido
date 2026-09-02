@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from core.enums import Timeframe
+from core.enums import DataHealthStatus, Timeframe
 from core.ports import MarketDataPort
 from core.schemas import (
     AdmissionInput,
@@ -61,16 +61,17 @@ async def build_and_evaluate_final_admission(
     market: MarketAssessment | None = None,
     sector_label: str | None = None,
     sector_tradable: bool | None = None,
+    sector_benchmark: str | None = None,
+    sector_provider: str | None = None,
+    sector_source_ts: datetime | None = None,
     require_sector: bool = True,
     opportunity_id: UUID | None = None,
     decision_version: int = 0,
 ) -> FinalAdmissionEvaluation:
     """Fetch bars + regime, then run full final_pretrade_validation.
 
-    Only production capital-path entry to final admission. Synthetic bars,
-    invented SMAs, or scan-time market labels alone are not sufficient.
-    Never stamps evaluated_at onto an assessment that arrived without one —
-    that would launder FRED_NOT_CONFIGURED into a tradable regime.
+    Macro (FRED) and sector (benchmark bars) are independent hard gates.
+    Macro gate runs without sector; sector is enforced separately.
     """
     evaluated_at = now or datetime.now(UTC)
     if evaluated_at.tzinfo is None:
@@ -87,17 +88,56 @@ async def build_and_evaluate_final_admission(
     assessment = market
     sec_label = sector_label
     sec_tradable = sector_tradable
-    if assessment is not None:
-        sec_label = sec_label if sec_label is not None else assessment.sector_label
-        sec_tradable = sec_tradable if sec_tradable is not None else assessment.sector_tradable
+    # Never pull synthetic sector facts from FRED MarketAssessment.
 
+    # Macro gate: regime only. Sector enforced below / in final_pretrade.
     gate = evaluate_market_gate(
         assessment,
         now=evaluated_at,
-        sector_label=sec_label,
-        sector_tradable=sec_tradable,
-        require_sector=require_sector,
+        sector_label=None,
+        sector_tradable=None,
+        require_sector=False,
     )
+    # Overlay sector into the combined gate result for callers that read it.
+    if require_sector:
+        if sec_tradable is None:
+            gate = MarketGateResult(
+                tradable_long=False,
+                status=DataHealthStatus.UNHEALTHY,
+                market_label=gate.market_label,
+                sector_label=sec_label,
+                sector_tradable=None,
+                evaluated_at=evaluated_at,
+                regime_ts=gate.regime_ts,
+                reason_codes=[*gate.reason_codes, "SECTOR_ASSESSMENT_MISSING"],
+                benchmark=sector_benchmark or gate.benchmark,
+            )
+        elif sec_tradable is False:
+            gate = MarketGateResult(
+                tradable_long=False,
+                status=DataHealthStatus.HEALTHY
+                if gate.status is DataHealthStatus.HEALTHY
+                else gate.status,
+                market_label=gate.market_label,
+                sector_label=sec_label,
+                sector_tradable=False,
+                evaluated_at=evaluated_at,
+                regime_ts=gate.regime_ts,
+                reason_codes=[*gate.reason_codes, "SECTOR_BLOCKED"],
+                benchmark=sector_benchmark or gate.benchmark,
+            )
+        else:
+            gate = MarketGateResult(
+                tradable_long=gate.tradable_long,
+                status=gate.status,
+                market_label=gate.market_label,
+                sector_label=sec_label,
+                sector_tradable=True,
+                evaluated_at=evaluated_at,
+                regime_ts=gate.regime_ts,
+                reason_codes=list(gate.reason_codes),
+                benchmark=sector_benchmark or gate.benchmark,
+            )
 
     exec_snap: FeatureSnapshot | None = None
     if bars_count >= MIN_BARS_FOR_FEATURES and bars:
@@ -120,6 +160,9 @@ async def build_and_evaluate_final_admission(
         market=assessment,
         sector_label=sec_label,
         sector_tradable=sec_tradable,
+        sector_benchmark=sector_benchmark,
+        sector_provider=sector_provider,
+        sector_source_ts=sector_source_ts,
         bar_timeframe=tf.value,
         geometry_hash=gh,
         opportunity_id=opportunity_id,

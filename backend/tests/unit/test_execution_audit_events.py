@@ -1,5 +1,4 @@
-"""
-The audit vocabulary is an interface.
+"""The audit vocabulary is an interface.
 
 Operators, alerting, and post-mortems all key off these names. Renaming one is
 a breaking change, so the vocabulary is pinned here, and the important ones are
@@ -10,6 +9,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 
@@ -18,6 +18,8 @@ from core.enums import IntentStatus, OrderSide, OrderStatus, OrderType
 from tests.support import CLEARED_EARNINGS, liquid_market_data
 from trading.intents import MemoryOrderIntentStore
 from trading.order_intent import OrderIntent
+
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -68,14 +70,12 @@ REQUIRED_EVENTS = [
     "ProtectionUnverified",
 ]
 
-
 @pytest.mark.parametrize("event", REQUIRED_EVENTS)
 def test_the_execution_audit_vocabulary_exists(event: str) -> None:
     sources = "\n".join(
         path.read_text() for path in (REPO / "trading").rglob("*.py") if path.is_file()
     )
     assert f'"{event}"' in sources, f"{event} is no longer emitted anywhere in trading/"
-
 
 @pytest.mark.asyncio
 async def test_a_broker_expiry_is_audited_as_an_expiry() -> None:
@@ -119,7 +119,6 @@ async def test_a_broker_expiry_is_audited_as_an_expiry() -> None:
 
     assert any(e["event_type"] == "OrderExpired" for e in audit.events)
 
-
 @pytest.mark.asyncio
 async def test_audit_payloads_from_a_real_entry_carry_no_credentials() -> None:
     """Checks what is actually emitted, not what the source happens to mention."""
@@ -159,7 +158,7 @@ async def test_audit_payloads_from_a_real_entry_carry_no_credentials() -> None:
         store=store,
         exit_store=MemoryExitStore(),
         intents=MemoryOrderIntentStore(),
-    ).decide(opp.id, UserDecision.APPROVE)
+    ).decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
 
     assert audit.events, "the entry path must leave an audit trail"
     forbidden = ("api_key", "api_secret", "apca-api", "password", "authorization")

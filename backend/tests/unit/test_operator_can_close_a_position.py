@@ -12,6 +12,8 @@ the venue rather than the book, and the ledger reduced exactly once.
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from decimal import Decimal
 
 import pytest
@@ -28,8 +30,9 @@ from trading.exits import EXIT_SOLD, OPERATOR_CLOSE_REASON, MemoryExitStore
 from trading.ledger import LEDGER
 from trading.opportunities import MemoryOpportunityStore
 
-PRICE = 100.0
+pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
 
+PRICE = 100.0
 
 def _card() -> TradeCandidate:
     return TradeCandidate(
@@ -44,7 +47,6 @@ def _card() -> TradeCandidate:
         strategy_version="test@1",
     )
 
-
 async def _service_with_open_position() -> tuple[ExecutionService, MockPaperBroker]:
     broker = MockPaperBroker()
     store = MemoryOpportunityStore()
@@ -58,20 +60,17 @@ async def _service_with_open_position() -> tuple[ExecutionService, MockPaperBrok
         store=store,
         exit_store=MemoryExitStore(),
     )
-    await service.decide(opp.id, UserDecision.APPROVE)
+    await service.decide(opp.id, UserDecision.APPROVE, request_id=uuid4(), expected_decision_version=opp.decision_version)
     return service, broker
-
 
 def _sell_orders(broker: MockPaperBroker):
     return [o for o in broker.orders if o.side is OrderSide.SELL]
-
 
 @pytest.fixture(autouse=True)
 def _armed_desk():
     set_kill_switch(False)
     yield
     set_kill_switch(False)
-
 
 @pytest.mark.asyncio
 async def test_a_position_can_be_closed_without_a_proposal() -> None:
@@ -82,7 +81,6 @@ async def test_a_position_can_be_closed_without_a_proposal() -> None:
 
     assert result.status == EXIT_SOLD
     assert LEDGER.find_open_by_symbol("AAPL") is None
-
 
 @pytest.mark.asyncio
 async def test_the_sell_is_sized_from_the_venue() -> None:
@@ -95,7 +93,6 @@ async def test_the_sell_is_sized_from_the_venue() -> None:
     market_sells = [o for o in _sell_orders(broker) if o.stop_price is None]
     assert len(market_sells) == 1
     assert market_sells[0].qty == held
-
 
 @pytest.mark.asyncio
 async def test_closing_twice_does_not_sell_twice() -> None:
@@ -110,14 +107,12 @@ async def test_closing_twice_does_not_sell_twice() -> None:
 
     assert len(_sell_orders(broker)) == before
 
-
 @pytest.mark.asyncio
 async def test_closing_what_is_not_held_is_refused() -> None:
     service, _ = await _service_with_open_position()
 
     with pytest.raises(ValueError, match="no_open_position:NOPE"):
         await service.close_position("NOPE")
-
 
 @pytest.mark.asyncio
 async def test_the_background_pass_does_not_withdraw_an_operator_card() -> None:
@@ -151,7 +146,6 @@ async def test_the_background_pass_does_not_withdraw_an_operator_card() -> None:
     still_there = EXITS.get(card.id)
     assert still_there is not None
     assert still_there.status == EXIT_AWAITING
-
 
 @pytest.mark.asyncio
 async def test_a_halted_desk_can_still_be_flattened() -> None:

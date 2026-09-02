@@ -78,14 +78,20 @@ class LiquidMarketData:
     async def get_bars(
         self, symbol: str, timeframe: Timeframe, start: datetime, end: datetime
     ) -> list[Bar]:
-        # Last bar must be fresh relative to the frozen execution clock.
-        now = self._now()
+        # Honour the caller's end so sector/admission freshness checks agree with
+        # the evaluation clock (wall-clock _utcnow can race a few ms ahead).
+        now = end
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        else:
+            now = now.astimezone(UTC)
         step = timedelta(hours=1) if timeframe != Timeframe.D1 else timedelta(days=1)
         bars: list[Bar] = []
         for i in range(60):
             ts = now - step * (59 - i)
-            # Mild downtrend into support so feature engine finds structure.
-            px = self.price * (1.0 - 0.001 * (59 - i) / 59.0)
+            # Mild pullback into self.price so entry geometry / chase gates agree
+            # with the synthetic quote stamped at self.price.
+            px = self.price * (1.0 + 0.002 * (59 - i) / 59.0)
             bars.append(
                 Bar(
                     symbol=symbol,

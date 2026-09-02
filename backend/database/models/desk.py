@@ -84,6 +84,26 @@ class OrderIntentRow(Base):
             "(purpose != 'entry') OR (geometry_hash IS NOT NULL)",
             name="ck_entry_intent_has_geometry_hash",
         ),
+        CheckConstraint(
+            "(purpose != 'entry') OR (request_id IS NOT NULL)",
+            name="ck_entry_intent_has_request_id",
+        ),
+        CheckConstraint(
+            "(purpose != 'entry') OR (request_fingerprint IS NOT NULL)",
+            name="ck_entry_intent_has_request_fingerprint",
+        ),
+        CheckConstraint(
+            "(purpose != 'entry') OR (broker IS NOT NULL)",
+            name="ck_entry_intent_has_broker",
+        ),
+        CheckConstraint(
+            "(purpose != 'entry') OR (broker_account_id IS NOT NULL)",
+            name="ck_entry_intent_has_broker_account_id",
+        ),
+        CheckConstraint(
+            "(purpose != 'entry') OR (broker_environment = 'paper')",
+            name="ck_entry_intent_paper_environment",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUIDType, primary_key=True, default=uuid.uuid4)
@@ -92,6 +112,10 @@ class OrderIntentRow(Base):
     )
     purpose: Mapped[str] = mapped_column(String(32), nullable=False, index=True, default="entry")
     broker: Mapped[str] = mapped_column(String(32), nullable=False)
+    broker_account_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    broker_environment: Mapped[str | None] = mapped_column(
+        String(16), nullable=True, server_default="paper"
+    )
     symbol: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     broker_order_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
@@ -175,6 +199,10 @@ class AdmissionRecordRow(Base):
             postgresql_where=text("evaluation_key IS NOT NULL"),
         ),
         Index("ix_admission_records_request_fingerprint", "request_fingerprint"),
+        CheckConstraint(
+            "(phase != 'approval') OR (request_id IS NOT NULL)",
+            name="ck_approval_admission_has_request_id",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUIDType, primary_key=True, default=uuid.uuid4)
