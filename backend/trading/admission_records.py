@@ -527,6 +527,7 @@ def persist_admission(
     phase: str | None = None,
     decision_version: int | None = None,
     request_fingerprint: str | None = None,
+    request_id: UUID | str | None = None,
     audit: bool = True,
 ) -> AdmissionRecord:
     """Sync persist — critical path; audit is best-effort async only."""
@@ -548,6 +549,7 @@ def persist_admission(
         phase=phase_val,
         decision_version=decision_version,
         request_fingerprint=request_fingerprint,
+        request_id=request_id,
     )
     if audit:
         try:

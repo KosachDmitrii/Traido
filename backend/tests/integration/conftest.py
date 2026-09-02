@@ -714,7 +714,8 @@ def desk(monkeypatch: pytest.MonkeyPatch) -> Iterator[Desk]:
 
     # Macro + sector assessments are required for Final Admission. Integration
     # desk opts in explicitly (unit suite no longer auto-clears them).
-    from datetime import UTC, datetime as _dt
+    from datetime import UTC
+    from datetime import datetime as _dt
 
     from core.enums import AssessmentKind, DataHealthStatus, MarketRegimeLabel
     from core.schemas import MarketAssessment

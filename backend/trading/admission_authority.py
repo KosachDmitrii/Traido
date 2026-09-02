@@ -108,22 +108,24 @@ def assert_entry_broker_authority(
         raise AdmissionAuthorityError("SIZING_MISMATCH", str(intent.requested_qty))
 
     limit_px = _decimal_or_none(adm_inp.get("limit_price"))
-    if limit_px is not None:
-        if intent.limit_price is None or intent.limit_price != round_equity_price(limit_px):
-            METRICS.counter(
-                "broker_authority_rejected",
-                help_text="Entry intent limit mismatch vs ApprovalAdmission context",
-            )
-            raise AdmissionAuthorityError("LIMIT_MISMATCH", str(intent.limit_price))
+    if limit_px is not None and (
+        intent.limit_price is None or intent.limit_price != round_equity_price(limit_px)
+    ):
+        METRICS.counter(
+            "broker_authority_rejected",
+            help_text="Entry intent limit mismatch vs ApprovalAdmission context",
+        )
+        raise AdmissionAuthorityError("LIMIT_MISMATCH", str(intent.limit_price))
 
     stop_px = _decimal_or_none(adm_inp.get("stop_price"))
-    if stop_px is not None:
-        if intent.stop_price is None or intent.stop_price != round_equity_price(stop_px):
-            METRICS.counter(
-                "broker_authority_rejected",
-                help_text="Entry intent stop mismatch vs ApprovalAdmission context",
-            )
-            raise AdmissionAuthorityError("STOP_MISMATCH", str(intent.stop_price))
+    if stop_px is not None and (
+        intent.stop_price is None or intent.stop_price != round_equity_price(stop_px)
+    ):
+        METRICS.counter(
+            "broker_authority_rejected",
+            help_text="Entry intent stop mismatch vs ApprovalAdmission context",
+        )
+        raise AdmissionAuthorityError("STOP_MISMATCH", str(intent.stop_price))
 
 
 def assert_authority_invariant(

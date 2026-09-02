@@ -390,6 +390,7 @@ def test_9_an_unknown_intent_blocks_a_conflicting_entry(desk) -> None:
     from trading.trade_admission import ADMISSION_VERSION
 
     ghost_opp = uuid4()
+    ghost_rid = uuid4()
     admission = ADMISSION_RECORDS.record(
         symbol="AAPL",
         admission=TradeAdmissionResult(
@@ -411,12 +412,13 @@ def test_9_an_unknown_intent_blocks_a_conflicting_entry(desk) -> None:
         phase="approval",
         decision_version=0,
         request_fingerprint="ghost-aapl-fp",
+        request_id=ghost_rid,
     )
     INTENTS.create_or_get(
         OrderIntent(
             idempotency_key=f"entry:{ghost_opp}:0",
             broker="AlpacaPaperBroker",
-            broker_account_id=None,
+            broker_account_id="AlpacaPaperBroker:paper",
             symbol="AAPL",
             side=OrderSide.BUY,
             requested_qty=Decimal(10),
@@ -425,6 +427,8 @@ def test_9_an_unknown_intent_blocks_a_conflicting_entry(desk) -> None:
             status=IntentStatus.UNKNOWN,
             approval_admission_record_id=admission.id,
             geometry_hash="ghost-aapl",
+            request_id=ghost_rid,
+            request_fingerprint="ghost-aapl-fp",
         )
     )
     opp = desk.offer("AAPL")
@@ -448,6 +452,7 @@ def test_9b_an_unknown_intent_does_not_block_a_different_symbol(desk) -> None:
     from trading.trade_admission import ADMISSION_VERSION
 
     ghost_opp = uuid4()
+    ghost_rid = uuid4()
     admission = ADMISSION_RECORDS.record(
         symbol="TSLA",
         admission=TradeAdmissionResult(
@@ -469,12 +474,13 @@ def test_9b_an_unknown_intent_does_not_block_a_different_symbol(desk) -> None:
         phase="approval",
         decision_version=0,
         request_fingerprint="ghost-tsla-fp",
+        request_id=ghost_rid,
     )
     INTENTS.create_or_get(
         OrderIntent(
             idempotency_key=f"entry:{ghost_opp}:0",
             broker="AlpacaPaperBroker",
-            broker_account_id=None,
+            broker_account_id="AlpacaPaperBroker:paper",
             symbol="TSLA",
             side=OrderSide.BUY,
             requested_qty=Decimal(10),
@@ -483,6 +489,8 @@ def test_9b_an_unknown_intent_does_not_block_a_different_symbol(desk) -> None:
             status=IntentStatus.UNKNOWN,
             approval_admission_record_id=admission.id,
             geometry_hash="ghost-tsla",
+            request_id=ghost_rid,
+            request_fingerprint="ghost-tsla-fp",
         )
     )
     opp = desk.offer("AAPL")

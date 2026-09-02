@@ -12,9 +12,8 @@ the venue rather than the book, and the ledger reduced exactly once.
 
 from __future__ import annotations
 
-from uuid import uuid4
-
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
 

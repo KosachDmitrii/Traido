@@ -282,25 +282,16 @@ class ExecutionService:
             sector_tradable=None,
             require_sector=False,
         )
+        # Macro gate only for risk.regime_tradable. Sector is a separate hard
+        # gate later in decide() (DataBlockedError / NoTradeError) so a blocked
+        # sector is not mis-labelled REGIME_NOT_TRADABLE and the sector_*
+        # metrics stay reachable.
         regime: bool | None
         if gate.status is DataHealthStatus.HEALTHY:
             regime = gate.tradable_long
         else:
             regime = None
 
-        from trading.sector_assessment import get_sector_assessment_port
-
-        sector = await get_sector_assessment_port().assess(
-            candidate.symbol,
-            market_data=self.market_data,
-            now=now,
-        )
-        # Same SectorMarketAssessment feeds risk + final admission. Missing →
-        # fail-closed regime_tradable for new exposure; False blocks longs.
-        if sector.tradable_long is None:
-            regime = None
-        elif sector.tradable_long is False:
-            regime = False
         try:
             built = await build_risk_context(
                 candidate.symbol.upper(),

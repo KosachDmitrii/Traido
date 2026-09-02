@@ -12,16 +12,13 @@ import pytest
 from broker.paper.mock import MockPaperBroker
 from core.audit import InMemoryAudit
 from core.enums import (
-    AdmissionDecision,
     DataHealthStatus,
-    InstrumentThesis,
-    SetupType,
     TargetReachabilityClass,
     Timeframe,
     TradingMode,
     UserDecision,
 )
-from core.schemas import Bar, Quote
+from core.schemas import Bar
 from risk.kill_switch import set_kill_switch
 from risk.risk_engine import RiskEngine
 from tests.support import CLEARED_EARNINGS, admission_ready_candidate, liquid_market_data
@@ -185,7 +182,9 @@ async def test_sector_blocked_cannot_be_overridden_by_setup_score(
         intents=intents,
         market_data=liquid_market_data(),
     )
-    with pytest.raises(Exception):
+    from trading.approval_errors import NoTradeError
+
+    with pytest.raises(NoTradeError, match="SECTOR_BLOCKED"):
         await svc.decide(
             opp.id,
             UserDecision.APPROVE,

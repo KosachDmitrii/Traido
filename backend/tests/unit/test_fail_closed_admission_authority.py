@@ -5,11 +5,10 @@ Every negative path asserts broker.place_order call_count == 0.
 
 from __future__ import annotations
 
-from uuid import uuid4
-
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 

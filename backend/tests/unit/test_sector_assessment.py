@@ -151,9 +151,9 @@ async def test_production_port_is_benchmark_bars() -> None:
 
 @pytest.mark.asyncio
 async def test_sector_label_without_tradable_is_data_blocked() -> None:
-    from trading.market_gate import evaluate_market_gate
     from core.enums import AssessmentKind, MarketRegimeLabel
     from core.schemas import MarketAssessment
+    from trading.market_gate import evaluate_market_gate
 
     market = MarketAssessment(
         kind=AssessmentKind.MARKET,

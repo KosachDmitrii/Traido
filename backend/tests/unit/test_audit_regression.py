@@ -227,6 +227,7 @@ def test_idempotency_conflict_different_payload() -> None:
         entry_quality=75,
     )
     oid = uuid4()
+    rid = uuid4()
     persist_admission(
         symbol="TEST",
         admission=adm,
@@ -235,6 +236,7 @@ def test_idempotency_conflict_different_payload() -> None:
         phase="approval",
         trigger_version=1,
         context={"v": 1},
+        request_id=rid,
     )
     adm2 = adm.model_copy(update={"setup_quality": 99})
     with pytest.raises(AdmissionIdempotencyConflict):
@@ -246,6 +248,7 @@ def test_idempotency_conflict_different_payload() -> None:
             phase="approval",
             trigger_version=1,
             context={"v": 2},
+            request_id=rid,
         )
 
 

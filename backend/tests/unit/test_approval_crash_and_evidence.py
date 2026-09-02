@@ -74,9 +74,9 @@ def _input(**overrides) -> AdmissionInput:
         facts=facts,
         chase_reasons=[],
         reasons=["ok"],
-        entry_zone_low=Decimal("99"),
-        entry_zone_high=Decimal("101"),
-        stop_price=Decimal("95"),
+        entry_zone_low=Decimal(99),
+        entry_zone_high=Decimal(101),
+        stop_price=Decimal(95),
         target=TargetPlan(
             price=Decimal(110),
             model="test",
@@ -87,9 +87,9 @@ def _input(**overrides) -> AdmissionInput:
         "bundle": bundle,
         "setup_type": SetupType.PULLBACK_CONTINUATION,
         "setup_quality": 80,
-        "entry_zone_low": Decimal("99"),
-        "entry_zone_high": Decimal("101"),
-        "stop_plan": StopPlan(price=Decimal("95"), model="structure"),
+        "entry_zone_low": Decimal(99),
+        "entry_zone_high": Decimal(101),
+        "stop_plan": StopPlan(price=Decimal(95), model="structure"),
         "target_plan": TargetPlan(
             price=Decimal(110),
             model="test",
@@ -140,7 +140,6 @@ def _input(**overrides) -> AdmissionInput:
 
 def test_sealed_evidence_refuses_authority_model_copy(monkeypatch: pytest.MonkeyPatch) -> None:
     from core.enums import DataHealthStatus
-    from trading.trade_admission import evaluate_from_admission_input
 
     rid = uuid4()
     inp = _input(request_id=rid, opportunity_id=uuid4())
