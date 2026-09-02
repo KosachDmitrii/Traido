@@ -27,22 +27,22 @@ REDIS_KEY = "traido:entry_policy"
 _LOCK = threading.Lock()
 _cached: int | None = None
 
-# Five operator steps. Production max is 50; 55+ is experimental paper-only.
-ENTRY_LEVELS: tuple[int, ...] = (0, 25, 50)
+# Five production desk steps — Сильно → Слабо. Must match frontend ENTRY_STEPS.
+ENTRY_LEVELS: tuple[int, ...] = (0, 25, 50, 75, 100)
 ENTRY_LEVEL_LABELS: dict[int, str] = {
     0: "strong",
     25: "firmer",
     50: "medium",
+    75: "softer",
+    100: "weak",
 }
-EXPERIMENTAL_ENTRY_LEVELS: tuple[int, ...] = (55, 80, 100)
-EXPERIMENTAL_ENTRY_LEVEL_LABELS: dict[int, str] = {
-    55: "medium_experimental",
-    80: "softer_experimental",
-    100: "weak_experimental",
-}
-PRODUCTION_MAX_AGGRESSIVENESS = 50
-# Soft ceiling for experimental paper-only admin mode (never live).
+# Legacy aliases: experimental used to gate 55/80/100; those are production now.
+EXPERIMENTAL_ENTRY_LEVELS: tuple[int, ...] = ()
+EXPERIMENTAL_ENTRY_LEVEL_LABELS: dict[int, str] = {}
+PRODUCTION_MAX_AGGRESSIVENESS = 100
 EXPERIMENTAL_MAX_AGGRESSIVENESS = 100
+# Historical production soft end (old max=50). Levels above this extend further.
+_MEDIUM_AGGRESSIVENESS = 50
 
 # Soft chase: extension / drift. Hard chase still forces WAIT/NO_TRADE even at max.
 SOFT_CHASE_CODES = frozenset(
@@ -128,60 +128,72 @@ def clamp_aggressiveness(
     *,
     experimental: bool = False,
 ) -> int:
+    """Snap to a production desk step. `experimental` kept for call-site compat."""
+    _ = experimental
     try:
         n = round(float(value))
     except (TypeError, ValueError):
         return 0
-    ceiling = EXPERIMENTAL_MAX_AGGRESSIVENESS if experimental else PRODUCTION_MAX_AGGRESSIVENESS
-    n = max(0, min(ceiling, n))
-    levels = ENTRY_LEVELS + (EXPERIMENTAL_ENTRY_LEVELS if experimental else ())
-    return min(levels, key=lambda step: abs(step - n))
+    n = max(0, min(PRODUCTION_MAX_AGGRESSIVENESS, n))
+    return min(ENTRY_LEVELS, key=lambda step: abs(step - n))
 
 
 def _label(a: int) -> str:
-    a = clamp_aggressiveness(a, experimental=a > PRODUCTION_MAX_AGGRESSIVENESS)
-    return ENTRY_LEVEL_LABELS.get(a) or EXPERIMENTAL_ENTRY_LEVEL_LABELS.get(a) or "strong"
+    a = clamp_aggressiveness(a)
+    return ENTRY_LEVEL_LABELS.get(a) or "strong"
+
+
+def _band(a: int, v0: float, v50: float, v100: float) -> float:
+    """Keep a=0 and a=50 identical to the old three-step curve; extend 50→100."""
+    if a <= _MEDIUM_AGGRESSIVENESS:
+        return _lerp(v0, v50, a / float(_MEDIUM_AGGRESSIVENESS))
+    return _lerp(
+        v50,
+        v100,
+        (a - _MEDIUM_AGGRESSIVENESS)
+        / float(PRODUCTION_MAX_AGGRESSIVENESS - _MEDIUM_AGGRESSIVENESS),
+    )
 
 
 def thresholds_for(aggressiveness: int) -> EntryThresholds:
-    """Map aggressiveness onto chase floors. Production max 50; higher is experimental."""
-    experimental = aggressiveness > PRODUCTION_MAX_AGGRESSIVENESS
-    a = clamp_aggressiveness(aggressiveness, experimental=experimental)
-    # Normalize against production ceiling so 50 maps to moderate softness,
-    # never to the forbidden 100-level floors (VWAP 8%, EMA 18%, 5 ATR, etc.).
-    t = min(a, PRODUCTION_MAX_AGGRESSIVENESS) / float(PRODUCTION_MAX_AGGRESSIVENESS)
+    """Map aggressiveness onto chase floors across the five production steps.
+
+    a=0 / a=50 match the historical F3→medium curve. a=75 / a=100 soften further
+    without the old experimental extremes (VWAP 8%, EMA 18%, 5 ATR).
+    """
+    a = clamp_aggressiveness(aggressiveness)
     return EntryThresholds(
         aggressiveness=a,
-        vwap_ext_pct=_lerp(1.0, 3.5, t),
-        ema_ext_pct=_lerp(2.5, 7.0, t),
-        atr_ext_max=_lerp(1.5, 2.5, t),
-        impulse_atr_max=_lerp(2.0, 3.0, t),
-        drift_high_pct=_lerp(0.40, 1.0, t),
-        min_buy_quality=round(_lerp(55, 50, t)),
-        zone_gap_frac=_lerp(0.0, 0.45, t),
-        zone_atr_undercut=_lerp(0.5, 0.40, t),
-        zone_atr_buffer=_lerp(0.20, 0.30, t),
-        allow_soft_chase_buy=a >= 50,
-        wait_ttl_minutes=round(_lerp(390, 180, t)),
-        retrace_deep_pct=_lerp(0.786, 0.85, t),
-        retrace_shallow_pct=_lerp(0.20, 0.12, t),
-        retrace_shallow_vwap_pct=_lerp(0.30, 0.55, t),
-        pullback_vol_max=_lerp(1.0, 1.15, t),
-        pullback_index_max=round(_lerp(3, 4, t)),
-        flag_impulse_weak=a < 50,
-        vwap_hold_min_pct=_lerp(-0.35, -0.55, t),
-        vwap_anchor_hold_frac=_lerp(0.996, 0.992, t),
-        pullback_vol_digest_max=_lerp(1.05, 1.15, t),
-        resistance_close_pct=_lerp(0.40, 0.30, t),
-        reward_consumed_frac=_lerp(0.50, 0.60, t),
-        atr_extension_min_quality=round(_lerp(70, 60, t)),
-        chase_wait_quality_buffer=round(_lerp(15, 10, t)),
-        pullback_deep_no_trade=a < 50,
-        max_spread_bps=_lerp(30.0, 35.0, t),
-        min_setup_quality=round(_lerp(60, 55, t)),
-        min_entry_quality=round(_lerp(55, 50, t)),
-        min_zone_arrival_quality=round(_lerp(60, 55, t)),
-        allow_fast_pullback=a >= 50,
+        vwap_ext_pct=_band(a, 1.0, 3.5, 4.5),
+        ema_ext_pct=_band(a, 2.5, 7.0, 9.0),
+        atr_ext_max=_band(a, 1.5, 2.5, 3.0),
+        impulse_atr_max=_band(a, 2.0, 3.0, 3.5),
+        drift_high_pct=_band(a, 0.40, 1.0, 1.25),
+        min_buy_quality=round(_band(a, 55, 50, 48)),
+        zone_gap_frac=_band(a, 0.0, 0.45, 0.60),
+        zone_atr_undercut=_band(a, 0.5, 0.40, 0.35),
+        zone_atr_buffer=_band(a, 0.20, 0.30, 0.35),
+        allow_soft_chase_buy=a >= _MEDIUM_AGGRESSIVENESS,
+        wait_ttl_minutes=round(_band(a, 390, 180, 90)),
+        retrace_deep_pct=_band(a, 0.786, 0.85, 0.88),
+        retrace_shallow_pct=_band(a, 0.20, 0.12, 0.10),
+        retrace_shallow_vwap_pct=_band(a, 0.30, 0.55, 0.65),
+        pullback_vol_max=_band(a, 1.0, 1.15, 1.25),
+        pullback_index_max=round(_band(a, 3, 4, 5)),
+        flag_impulse_weak=a < _MEDIUM_AGGRESSIVENESS,
+        vwap_hold_min_pct=_band(a, -0.35, -0.55, -0.65),
+        vwap_anchor_hold_frac=_band(a, 0.996, 0.992, 0.990),
+        pullback_vol_digest_max=_band(a, 1.05, 1.15, 1.25),
+        resistance_close_pct=_band(a, 0.40, 0.30, 0.25),
+        reward_consumed_frac=_band(a, 0.50, 0.60, 0.65),
+        atr_extension_min_quality=round(_band(a, 70, 60, 55)),
+        chase_wait_quality_buffer=round(_band(a, 15, 10, 8)),
+        pullback_deep_no_trade=a < _MEDIUM_AGGRESSIVENESS,
+        max_spread_bps=_band(a, 30.0, 35.0, 40.0),
+        min_setup_quality=round(_band(a, 60, 55, 52)),
+        min_entry_quality=round(_band(a, 55, 50, 48)),
+        min_zone_arrival_quality=round(_band(a, 60, 55, 52)),
+        allow_fast_pullback=a >= _MEDIUM_AGGRESSIVENESS,
     )
 
 

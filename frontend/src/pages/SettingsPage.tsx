@@ -6,12 +6,12 @@ import { useI18n } from "@/i18n/I18nProvider";
 import type { Locale, MessageKey } from "@/i18n";
 import { Button, Input, SegmentedControl, SwitchControl } from "@/ui";
 
-/** Five desk steps — Сильно → Слабо. Values match backend ENTRY_LEVELS. */
+/** Five production desk steps — Сильно → Слабо. Values match backend ENTRY_LEVELS. */
 const ENTRY_STEPS = [
   { value: 0, key: "settings.entry.strong" as const },
   { value: 25, key: "settings.entry.firmer" as const },
-  { value: 55, key: "settings.entry.medium" as const },
-  { value: 80, key: "settings.entry.softer" as const },
+  { value: 50, key: "settings.entry.medium" as const },
+  { value: 75, key: "settings.entry.softer" as const },
   { value: 100, key: "settings.entry.weak" as const },
 ] as const;
 

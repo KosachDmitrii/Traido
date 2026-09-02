@@ -30,24 +30,42 @@ def test_zero_matches_shipped_f3_floors() -> None:
 def test_levels_snap_within_production_ceiling() -> None:
     assert thresholds_for(40).aggressiveness == 50
     assert thresholds_for(12).aggressiveness == 0
-    assert clamp_aggressiveness(80) == PRODUCTION_MAX_AGGRESSIVENESS
+    assert thresholds_for(70).aggressiveness == 75
+    assert thresholds_for(90).aggressiveness == 100
+    assert clamp_aggressiveness(80) == 75
+    assert clamp_aggressiveness(100) == 100
     assert clamp_aggressiveness(100, experimental=True) == 100
 
 
 def test_production_max_does_not_reach_forbidden_floors() -> None:
     th = thresholds_for(PRODUCTION_MAX_AGGRESSIVENESS)
-    assert th.vwap_ext_pct <= 3.5
-    assert th.ema_ext_pct <= 7.0
-    assert th.atr_ext_max <= 2.5
-    assert th.max_spread_bps <= 35.0
-    assert th.min_setup_quality >= 55
-    assert th.min_entry_quality >= 50
+    # Softest production step — still far below old experimental extremes.
+    assert th.vwap_ext_pct <= 4.5
+    assert th.ema_ext_pct <= 9.0
+    assert th.atr_ext_max <= 3.0
+    assert th.max_spread_bps <= 40.0
+    assert th.min_setup_quality >= 52
+    assert th.min_entry_quality >= 48
 
 
-def test_experimental_aggressiveness_widens_more() -> None:
-    th = thresholds_for(100)
-    assert th.aggressiveness == 100  # experimental path via value > 50
-    assert th.vwap_ext_pct <= 3.5  # mapping still capped at production softness
+def test_medium_matches_historical_production_soft_end() -> None:
+    """a=50 must keep the old three-step medium floors so desk behaviour does not jump."""
+    th = thresholds_for(50)
+    assert th.aggressiveness == 50
+    assert th.vwap_ext_pct == 3.5
+    assert th.ema_ext_pct == 7.0
+    assert th.wait_ttl_minutes == 180
+    assert th.allow_soft_chase_buy is True
+    assert th.allow_fast_pullback is True
+
+
+def test_weak_extends_past_medium() -> None:
+    mid = thresholds_for(50)
+    weak = thresholds_for(100)
+    assert weak.aggressiveness == 100
+    assert weak.vwap_ext_pct > mid.vwap_ext_pct
+    assert weak.wait_ttl_minutes == 90
+    assert weak.zone_gap_frac > mid.zone_gap_frac
 
 
 def test_hard_veto_survives_aggressiveness() -> None:
@@ -73,8 +91,10 @@ def test_hard_veto_survives_aggressiveness() -> None:
 def test_wait_ttl_from_policy() -> None:
     set_entry_aggressiveness(0, actor="test")
     assert thresholds_for(0).wait_ttl_minutes == 390
+    set_entry_aggressiveness(50, actor="test")
+    assert thresholds_for(50).wait_ttl_minutes == 180
     set_entry_aggressiveness(PRODUCTION_MAX_AGGRESSIVENESS, actor="test")
-    assert thresholds_for(PRODUCTION_MAX_AGGRESSIVENESS).wait_ttl_minutes == 180
+    assert thresholds_for(PRODUCTION_MAX_AGGRESSIVENESS).wait_ttl_minutes == 90
 
 
 def test_aggressive_policy_allows_extended_buy() -> None:
