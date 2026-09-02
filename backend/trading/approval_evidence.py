@@ -138,9 +138,7 @@ def evaluate_final_approval(
 class _SealedApprovalEvidence(ApprovalEvidence):
     """ApprovalEvidence that refuses authority-field model_copy updates."""
 
-    def model_copy(
-        self, *, update: Mapping[str, Any] | None = None, deep: bool = False
-    ) -> Self:
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
         if update:
             raise TypeError("ApprovalEvidence is sealed; rebuild via evaluate_final_approval")
         return super().model_copy(update=update, deep=deep)
