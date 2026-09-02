@@ -66,11 +66,30 @@ def test_weak_extends_past_medium() -> None:
     weak = thresholds_for(100)
     assert weak.aggressiveness == 100
     assert weak.vwap_ext_pct > mid.vwap_ext_pct
-    assert weak.wait_ttl_minutes == 90
+    assert weak.wait_ttl_minutes == 150
+    assert weak.zone_gap_frac == pytest.approx(0.82)
+    assert weak.zone_atr_buffer == pytest.approx(0.55)
+    assert weak.zone_atr_undercut == pytest.approx(0.45)
+    assert weak.zone_max_width_atr == pytest.approx(2.5)
     assert weak.zone_gap_frac > mid.zone_gap_frac
     assert weak.require_momentum_flip is False
     assert weak.momentum_min_pct < mid.momentum_min_pct
     assert weak.min_zone_arrival_quality <= mid.min_zone_arrival_quality
+
+
+def test_weak_zone_is_closer_and_width_capped() -> None:
+    """Variant A: touchable pullback band — not an 8-ATR canyon under VWAP."""
+    facts = evaluate_timing(_snap(close=110.0, sma20=100.0, atr=2.0, vwap=100.0))
+    set_entry_aggressiveness(PRODUCTION_MAX_AGGRESSIVENESS, actor="test")
+    low, high = zone_from_facts(facts)
+    lo, hi = float(low), float(high)
+    atr = 2.0
+    # High should cover most of the extension toward price (gap_frac 0.82).
+    assert hi >= 100.0 + 0.55 * atr + 0.80 * (110.0 - 100.0) - 1e-6
+    assert hi <= 110.0
+    assert (hi - lo) / atr <= 2.5 + 1e-6
+    # Still a pullback plan: high stays at/under last.
+    assert hi < 110.0 or hi == pytest.approx(110.0)
 
 
 def test_hard_veto_survives_aggressiveness() -> None:
@@ -99,7 +118,7 @@ def test_wait_ttl_from_policy() -> None:
     set_entry_aggressiveness(50, actor="test")
     assert thresholds_for(50).wait_ttl_minutes == 180
     set_entry_aggressiveness(PRODUCTION_MAX_AGGRESSIVENESS, actor="test")
-    assert thresholds_for(PRODUCTION_MAX_AGGRESSIVENESS).wait_ttl_minutes == 90
+    assert thresholds_for(PRODUCTION_MAX_AGGRESSIVENESS).wait_ttl_minutes == 150
 
 
 def test_aggressive_policy_allows_extended_buy() -> None:

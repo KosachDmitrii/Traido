@@ -153,3 +153,42 @@ def test_list_actionable_persists_ttl_expiry(engine) -> None:
             assert row.status == EntryWatchStatus.EXPIRED.value
     finally:
         configure_entry_watch_persistence(enabled=False)
+
+
+def test_price_in_zone_uses_admission_atr_cushion() -> None:
+    """Trigger band matches TradeAdmission ±0.2 ATR — no BUY invent, no edge flap."""
+    from datetime import UTC, datetime, timedelta
+
+    from core.enums import InstrumentThesis, SetupType
+    from core.schemas import AdmissionSnapshot, EntryWatch
+    from trading.entry_watches import price_in_zone
+
+    now = datetime.now(UTC)
+    watch = EntryWatch(
+        id=uuid4(),
+        symbol="TEST",
+        strategy_version="t@1",
+        created_at=now,
+        valid_until=now + timedelta(hours=1),
+        thesis=InstrumentThesis.BULLISH,
+        signal_price=Decimal(100),
+        current_price_at_creation=Decimal(100),
+        entry_zone_low=Decimal(98),
+        entry_zone_high=Decimal(100),
+        planned_entry=Decimal(99),
+        planned_stop=Decimal(97),
+        planned_target=Decimal(103),
+        entry_quality_at_creation=70,
+        status=EntryWatchStatus.WAITING,
+        admission_snapshot=AdmissionSnapshot(
+            price_at_creation=100.0,
+            atr_at_creation=2.0,
+            setup_type=SetupType.PULLBACK_CONTINUATION,
+            entry_zone_low=98.0,
+            entry_zone_high=100.0,
+        ),
+    )
+    assert price_in_zone(100.35, watch) is True
+    assert price_in_zone(100.45, watch) is False
+    assert price_in_zone(97.65, watch) is True
+    assert price_in_zone(97.55, watch) is False

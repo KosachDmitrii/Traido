@@ -119,6 +119,16 @@ export const en = {
   "stats.ordersPill": "{n} orders",
   "stats.tradesPill": "{n} trades",
 
+  "session.strip.label": "Session decisions",
+  "session.strip.buy": "BUY",
+  "session.strip.plans": "Plans",
+  "session.strip.inZone": "In zone",
+  "session.strip.near": "Near",
+  "session.strip.sell": "SELL",
+  "session.strip.scanned": "Deep → pub",
+  "session.strip.waitingNote": "No BUY yet — plans wait for the zone, not a forced entry.",
+  "session.strip.emptyNote": "No decisions this cycle yet.",
+
   "recon.title": "Broker reconciliation failing",
   "recon.detail":
     "Numbers below are the local book, not broker truth ({since}). New entries stay blocked until a pass succeeds.",
@@ -160,6 +170,7 @@ export const en = {
   "rail.age.justNow": "just now",
   "rail.age.minutes": "{n}m ago",
   "rail.age.hours": "{n}h ago",
+  "rail.wait.badge": "WAIT",
   "rail.wait.header": "THESIS {thesis} · ENTRY WAIT · Quality {q}/100",
   "rail.wait.nowLabel": "Now",
   "rail.wait.now": "Now ~{p}",

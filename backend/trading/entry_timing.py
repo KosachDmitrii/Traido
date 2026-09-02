@@ -334,6 +334,7 @@ def zone_from_facts(
     Desk convention: allow ~0.5 ATR undercut below VWAP, ~0.20 ATR above before
     chase. When impulse leg geometry is known, intersect with the 38–62% fib band.
     Aggressiveness widens the upper band toward live price via zone_gap_frac.
+    Width is capped in ATR so Weak does not mint untouchable 8-ATR canyons.
     """
     from trading.entry_policy import get_entry_thresholds
 
@@ -341,6 +342,7 @@ def zone_from_facts(
     gap_frac = float(getattr(th, "zone_gap_frac", 0.0))
     undercut = float(getattr(th, "zone_atr_undercut", ZONE_ATR_UNDERCUT))
     buffer = float(getattr(th, "zone_atr_buffer", ZONE_ATR_BUFFER))
+    max_width_atr = float(getattr(th, "zone_max_width_atr", 0.0) or 0.0)
 
     price = facts.current_price
     atr = facts.atr or (price * 0.01)
@@ -376,4 +378,14 @@ def zone_from_facts(
     else:
         low = Decimal(str(round(low, 4)))
         high = Decimal(str(round(high, 4)))
+
+    # Prefer keeping the upper edge (nearer price); lift the floor if too wide.
+    if max_width_atr > 0 and atr > 0:
+        width = float(high) - float(low)
+        limit = max_width_atr * atr
+        if width > limit:
+            low = Decimal(str(round(float(high) - limit, 4)))
+            if low >= high:
+                low = Decimal(str(round(float(high) - max(atr * 0.1, price * 0.001), 4)))
+
     return low, high

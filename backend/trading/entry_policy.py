@@ -74,6 +74,8 @@ class EntryThresholds:
     zone_atr_undercut: float
     """Buffer above anchor before chase (ATR multiples). Desk default 0.20."""
     zone_atr_buffer: float
+    """Hard cap on zone width in ATR — stops 8-ATR 'canyons' that never get touched."""
+    zone_max_width_atr: float
     """When True, soft chase alone does not block BUY_NOW if quality clears the floor."""
     allow_soft_chase_buy: bool
     """How long a WAIT plan stays actionable before WAIT_EXPIRED."""
@@ -175,11 +177,14 @@ def thresholds_for(aggressiveness: int) -> EntryThresholds:
         impulse_atr_max=_band(a, 2.2, 3.2, 3.7),
         drift_high_pct=_band(a, 0.45, 1.1, 1.35),
         min_buy_quality=round(_band(a, 52, 48, 45)),
-        zone_gap_frac=_band(a, 0.05, 0.50, 0.65),
-        zone_atr_undercut=_band(a, 0.5, 0.40, 0.35),
-        zone_atr_buffer=_band(a, 0.22, 0.32, 0.38),
+        # Weak pulls the zone toward price so WAIT plans are touchable same-session
+        # without allowing BUY at the extension print (high still ≤ price).
+        zone_gap_frac=_band(a, 0.05, 0.50, 0.82),
+        zone_atr_undercut=_band(a, 0.5, 0.40, 0.45),
+        zone_atr_buffer=_band(a, 0.22, 0.32, 0.55),
+        zone_max_width_atr=_band(a, 3.5, 3.0, 2.5),
         allow_soft_chase_buy=a >= 25,
-        wait_ttl_minutes=round(_band(a, 390, 180, 90)),
+        wait_ttl_minutes=round(_band(a, 390, 180, 150)),
         retrace_deep_pct=_band(a, 0.80, 0.86, 0.90),
         retrace_shallow_pct=_band(a, 0.18, 0.11, 0.09),
         retrace_shallow_vwap_pct=_band(a, 0.35, 0.58, 0.68),

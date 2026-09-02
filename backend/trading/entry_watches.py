@@ -414,8 +414,26 @@ def Decimal_safe(x: float) -> Decimal:
     return Decimal(str(round(x, 4)))
 
 
-def price_in_zone(price: float, watch: EntryWatch) -> bool:
-    return float(watch.entry_zone_low) <= price <= float(watch.entry_zone_high)
+# Match trade_admission.ZONE_ABOVE_BUFFER_ATR so TRIGGER and BUY zone gates agree.
+# Strict edges used to flap: last prints in-zone while ask (admission) used ±0.2 ATR.
+ZONE_TRIGGER_BUFFER_ATR = 0.20
+
+
+def price_in_zone(price: float, watch: EntryWatch, *, atr: float | None = None) -> bool:
+    """True when price is inside the entry band, with the admission ATR cushion.
+
+    Does not invent BUY above the plan — only aligns trigger/wait-condition
+    geometry with TradeAdmission's ±0.2 ATR allowance.
+    """
+    lo = float(watch.entry_zone_low)
+    hi = float(watch.entry_zone_high)
+    buf = 0.0
+    atr_v = atr
+    if atr_v is None and watch.admission_snapshot is not None:
+        atr_v = watch.admission_snapshot.atr_at_creation
+    if atr_v is not None and atr_v > 0:
+        buf = float(atr_v) * ZONE_TRIGGER_BUFFER_ATR
+    return (lo - buf) <= price <= (hi + buf)
 
 
 ENTRY_WATCHES = EntryWatchStore()

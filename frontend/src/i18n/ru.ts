@@ -121,6 +121,16 @@ export const ru: Record<MessageKey, string> = {
   "stats.ordersPill": "{n} ордеров",
   "stats.tradesPill": "{n} сделок",
 
+  "session.strip.label": "Решения сессии",
+  "session.strip.buy": "BUY",
+  "session.strip.plans": "Планы",
+  "session.strip.inZone": "В зоне",
+  "session.strip.near": "Близко",
+  "session.strip.sell": "SELL",
+  "session.strip.scanned": "Deep → pub",
+  "session.strip.waitingNote": "BUY пока нет — планы ждут зону, а не принудительный вход.",
+  "session.strip.emptyNote": "За этот цикл решений ещё нет.",
+
   "recon.title": "Сверка с брокером не проходит",
   "recon.detail":
     "Цифры ниже — локальная книга, не правда брокера ({since}). Новые входы заблокированы, пока сверка не пройдёт.",
@@ -162,6 +172,7 @@ export const ru: Record<MessageKey, string> = {
   "rail.age.justNow": "только что",
   "rail.age.minutes": "{n} мин назад",
   "rail.age.hours": "{n} ч назад",
+  "rail.wait.badge": "WAIT",
   "rail.wait.header": "THESIS {thesis} · ENTRY WAIT · Качество {q}/100",
   "rail.wait.nowLabel": "Сейчас",
   "rail.wait.now": "Сейчас ~{p}",
