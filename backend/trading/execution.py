@@ -625,12 +625,12 @@ class ExecutionService:
             raise RuntimeError(f"POSITION_ALREADY_OPEN:{opp.candidate.symbol.upper()}")
 
         from trading.admission_authority import AdmissionAuthorityError
-        from trading.admission_records import StaleDecisionError
         from trading.approval_commit import commit_approval_bundle
         from trading.approval_errors import (
             DataBlockedError,
             EntryInFlightError,
             IdempotencyConflictError,
+            StaleDecisionError,
         )
 
         # Freeze full ApprovalEvidence facts into AdmissionInput before commit.
@@ -651,6 +651,7 @@ class ExecutionService:
         from trading.approval_errors import NoTradeError
         from trading.approval_evidence import evaluate_final_approval
 
+        assert request_id is not None  # synthesized above for APPROVE
         cmd = ApprovalCommand(
             request_id=request_id,
             opportunity_id=opp.id,

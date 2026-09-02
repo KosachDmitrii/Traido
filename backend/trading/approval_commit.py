@@ -204,8 +204,11 @@ def _commit_sql(
 
         from core.metrics import METRICS
         from database.models.desk import OrderIntentRow
-        from trading.admission_records import StaleDecisionError
-        from trading.approval_errors import EntryInFlightError, IdempotencyConflictError
+        from trading.approval_errors import (
+            EntryInFlightError,
+            IdempotencyConflictError,
+            StaleDecisionError,
+        )
         from trading.intents import _from_row as intent_from_row
 
         prefix = f"entry:{opportunity_id}:"
@@ -226,12 +229,10 @@ def _commit_sql(
                         help_text="New APPROVE blocked by unresolved entry intent",
                     )
                     raise EntryInFlightError(str(live.id))
-                prior_fp = live.request_fingerprint or (
-                    admission_store.get(live.approval_admission_record_id).request_fingerprint
-                    if live.approval_admission_record_id
-                    and admission_store.get(live.approval_admission_record_id)
-                    else None
-                )
+                prior_fp = live.request_fingerprint
+                if prior_fp is None and live.approval_admission_record_id is not None:
+                    adm_rec = admission_store.get(live.approval_admission_record_id)
+                    prior_fp = adm_rec.request_fingerprint if adm_rec is not None else None
                 # UNKNOWN + same request_id = transport retry after lost reply:
                 # recover the existing intent; do not demand a fresh fingerprint
                 # match (re-evaluation always drifts wall-clock snapshot fields).
@@ -461,8 +462,11 @@ def _commit_memory(
         live = next((i for i in existing if i.is_unresolved), None)
         if live is not None:
             from core.metrics import METRICS
-            from trading.admission_records import StaleDecisionError
-            from trading.approval_errors import EntryInFlightError, IdempotencyConflictError
+            from trading.approval_errors import (
+                EntryInFlightError,
+                IdempotencyConflictError,
+                StaleDecisionError,
+            )
 
             if request_id is not None and live.request_id is not None:
                 if live.request_id != request_id:
@@ -471,10 +475,10 @@ def _commit_memory(
                         help_text="New APPROVE blocked by unresolved entry intent",
                     )
                     raise EntryInFlightError(str(live.id))
-                prior_fp = live.request_fingerprint or (
-                    (admission_store.get(live.approval_admission_record_id) or None)
-                    and admission_store.get(live.approval_admission_record_id).request_fingerprint  # type: ignore[union-attr]
-                )
+                prior_fp = live.request_fingerprint
+                if prior_fp is None and live.approval_admission_record_id is not None:
+                    adm_rec = admission_store.get(live.approval_admission_record_id)
+                    prior_fp = adm_rec.request_fingerprint if adm_rec is not None else None
                 if live.status is IntentStatus.UNKNOWN:
                     prior_fp = fp
                 if prior_fp is not None and prior_fp != fp:

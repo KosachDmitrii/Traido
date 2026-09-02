@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Self
 from uuid import UUID
 
 from core.enums import AdmissionDecision, DataHealthStatus
@@ -138,7 +138,9 @@ def evaluate_final_approval(
 class _SealedApprovalEvidence(ApprovalEvidence):
     """ApprovalEvidence that refuses authority-field model_copy updates."""
 
-    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False):
+    def model_copy(
+        self, *, update: Mapping[str, Any] | None = None, deep: bool = False
+    ) -> Self:
         if update:
             raise TypeError("ApprovalEvidence is sealed; rebuild via evaluate_final_approval")
         return super().model_copy(update=update, deep=deep)

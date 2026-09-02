@@ -17,7 +17,8 @@ from core.schemas import PortfolioSnapshot, TradeAdmissionExplain, TradeOpportun
 from notifications.telegram import get_notifier
 from risk.kill_switch import get_kill_switch_state, is_kill_switch_on, set_kill_switch
 from trading.admission_authority import AdmissionAuthorityError
-from trading.admission_records import AdmissionIdempotencyConflict, StaleDecisionError
+from trading.admission_records import AdmissionIdempotencyConflict
+from trading.approval_errors import StaleDecisionError
 from trading.opportunities import OPPORTUNITIES
 
 router = APIRouter(prefix="/api/v1", tags=["trading"])

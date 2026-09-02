@@ -27,10 +27,7 @@ from risk.kill_switch import set_kill_switch
 from risk.risk_engine import RiskEngine
 from tests.support import CLEARED_EARNINGS, admission_ready_candidate, liquid_market_data
 from trading.admission_authority import AdmissionAuthorityError, assert_authority_invariant
-from trading.admission_records import (
-    StaleDecisionError,
-)
-from trading.approval_errors import ApprovalDomainError
+from trading.approval_errors import ApprovalDomainError, StaleDecisionError
 from trading.execution import ExecutionService
 from trading.exits import MemoryExitStore
 from trading.intents import MemoryOrderIntentStore
