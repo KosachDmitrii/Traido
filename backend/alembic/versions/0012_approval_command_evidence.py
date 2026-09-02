@@ -97,8 +97,7 @@ def upgrade() -> None:
         if "request_fingerprint" not in intent_cols:
             batch.add_column(sa.Column("request_fingerprint", sa.String(64), nullable=True))
     op.execute(
-        "CREATE INDEX IF NOT EXISTS ix_order_intents_request_id "
-        "ON order_intents (request_id)"
+        "CREATE INDEX IF NOT EXISTS ix_order_intents_request_id ON order_intents (request_id)"
     )
     # Archive legacy entry intents missing admission/hash instead of deleting.
     conn = op.get_bind()

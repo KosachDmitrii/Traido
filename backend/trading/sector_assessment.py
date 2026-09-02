@@ -61,9 +61,7 @@ _INSTRUMENT_SECTOR: dict[str, tuple[str, str, str]] = {
 
 
 class SectorAssessmentPort(Protocol):
-    async def assess(
-        self, symbol: str, *, now: datetime | None = None
-    ) -> SectorAssessment: ...
+    async def assess(self, symbol: str, *, now: datetime | None = None) -> SectorAssessment: ...
 
 
 @dataclass
@@ -72,9 +70,7 @@ class MetadataSectorAssessment:
 
     provider: str = "metadata_sector_map@1"
 
-    async def assess(
-        self, symbol: str, *, now: datetime | None = None
-    ) -> SectorAssessment:
+    async def assess(self, symbol: str, *, now: datetime | None = None) -> SectorAssessment:
         now = now or datetime.now(UTC)
         sym = symbol.upper()
         mapped = _INSTRUMENT_SECTOR.get(sym)

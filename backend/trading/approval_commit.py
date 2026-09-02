@@ -192,9 +192,7 @@ def _commit_sql(
         if opp.decision_version != decision_version:
             from trading.approval_errors import StaleDecisionError
 
-            raise StaleDecisionError(
-                f"decision_version:{opp.decision_version}!={decision_version}"
-            )
+            raise StaleDecisionError(f"decision_version:{opp.decision_version}!={decision_version}")
         already_approving = row.status == OpportunityStatus.APPROVING.value
         if not already_approving:
             opp = opp.model_copy(
@@ -446,9 +444,7 @@ def _commit_memory(
         if opp.decision_version != decision_version:
             from trading.approval_errors import StaleDecisionError
 
-            raise StaleDecisionError(
-                f"decision_version:{opp.decision_version}!={decision_version}"
-            )
+            raise StaleDecisionError(f"decision_version:{opp.decision_version}!={decision_version}")
 
         already_approving = opp.status is OpportunityStatus.APPROVING
         if not already_approving:

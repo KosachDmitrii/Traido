@@ -460,9 +460,7 @@ class ExecutionService:
         from trading.sector_assessment import get_sector_assessment_port
 
         fresh_market = await assess_market(get_settings().fred_api_key, now=evaluated_at)
-        sector = await get_sector_assessment_port().assess(
-            priced.symbol, now=evaluated_at
-        )
+        sector = await get_sector_assessment_port().assess(priced.symbol, now=evaluated_at)
         if not sector.fresh or sector.tradable_long is None:
             from core.metrics import METRICS
             from trading.approval_errors import DataBlockedError
@@ -471,9 +469,7 @@ class ExecutionService:
                 "sector_data_blocked",
                 help_text="APPROVE blocked: sector assessment missing or stale",
             )
-            raise DataBlockedError(
-                ",".join(sector.reason_codes) or "SECTOR_ASSESSMENT_REQUIRED"
-            )
+            raise DataBlockedError(",".join(sector.reason_codes) or "SECTOR_ASSESSMENT_REQUIRED")
         try:
             final_eval = await build_and_evaluate_final_admission(
                 priced,

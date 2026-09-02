@@ -145,16 +145,17 @@ async def adopt_orphan_position(
         # Correlation: match explicit IDs — never "last opportunity by symbol".
         correlated = False
         if entry_intent is not None:
-            if expected_broker_order_id and entry_intent.broker_order_id == expected_broker_order_id:
+            if (
+                expected_broker_order_id
+                and entry_intent.broker_order_id == expected_broker_order_id
+            ):
                 correlated = True
                 correlation_evidence["broker_order_id"] = expected_broker_order_id
             payload = entry_intent.payload or {}
             client_oid = payload.get("client_order_id") or getattr(
                 entry_intent, "client_order_id", None
             )
-            perm_id = payload.get("broker_perm_id") or getattr(
-                entry_intent, "broker_perm_id", None
-            )
+            perm_id = payload.get("broker_perm_id") or getattr(entry_intent, "broker_perm_id", None)
             if expected_client_order_id and client_oid == expected_client_order_id:
                 correlated = True
                 correlation_evidence["client_order_id"] = expected_client_order_id

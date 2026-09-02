@@ -59,10 +59,7 @@ def evaluate_final_approval(
         and command.opportunity_id != admission_input.opportunity_id
     ):
         raise DataBlockedError("opportunity_id_mismatch")
-    if (
-        admission_input.request_id is not None
-        and command.request_id != admission_input.request_id
-    ):
+    if admission_input.request_id is not None and command.request_id != admission_input.request_id:
         raise DataBlockedError("request_id_mismatch")
     if command.expected_decision_version != admission_input.decision_version:
         from trading.approval_errors import StaleDecisionError
@@ -143,9 +140,7 @@ class _SealedApprovalEvidence(ApprovalEvidence):
 
     def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False):
         if update:
-            raise TypeError(
-                "ApprovalEvidence is sealed; rebuild via evaluate_final_approval"
-            )
+            raise TypeError("ApprovalEvidence is sealed; rebuild via evaluate_final_approval")
         return super().model_copy(update=update, deep=deep)
 
 
