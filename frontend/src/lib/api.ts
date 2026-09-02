@@ -207,6 +207,8 @@ export type EntryWatchCard = {
   current_price_at_creation: string;
   /** Live tick from the watch loop; falls back to creation price in UI. */
   last_price?: string | null;
+  /** Last non-flat move vs previous watch-loop tick: up / down / flat. */
+  price_tick?: "up" | "down" | "flat" | null;
   last_observed_at?: string | null;
   created_at?: string;
   entry_zone_low: string;
@@ -441,6 +443,11 @@ export async function fetchDeskLight(signal?: AbortSignal): Promise<DeskLight | 
   const etag = res.headers.get("ETag");
   if (etag) deskEtag = etag;
   return data as DeskLight;
+}
+
+/** Drop cached ETag so the next desk poll cannot keep a stale entry_policy. */
+export function invalidateDeskEtag(): void {
+  deskEtag = null;
 }
 
 export async function fetchBroker(fresh = false): Promise<BrokerSnapshot> {

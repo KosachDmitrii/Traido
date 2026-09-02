@@ -74,10 +74,10 @@ export function LogsPage() {
             const lvl = e.level === "warn" || e.level === "error" ? e.level : "";
             const msg = e.symbol ? `${e.symbol}: ${e.message}` : e.message;
             return (
-              <div className={`row ${lvl}`} key={`${e.ts}-${e.agent}-${i}`} title={`${formatExchangeStamp(e.ts)} ET`}>
+              <div className={`row ${lvl}`} key={`${e.ts}-${e.agent}-${i}`} title={`${formatExchangeStamp(e.ts)} ET · ${msg}`}>
                 <span className="mono">{formatExchangeStamp(e.ts)}</span>
                 <span className="ag">{e.agent}</span>
-                <span>{msg}</span>
+                <span className="msg">{msg}</span>
               </div>
             );
           })

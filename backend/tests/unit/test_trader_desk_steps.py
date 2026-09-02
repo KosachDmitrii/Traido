@@ -13,6 +13,21 @@ from agents.trader.structure import run_structure
 from agents.trader.types import TraderBundle
 from core.enums import Timeframe
 from core.schemas import Bar, FeatureSnapshot
+from trading.entry_policy import reset_entry_policy_cache, set_entry_aggressiveness
+
+
+@pytest.fixture(autouse=True)
+def _strict_trader_policy(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin Structure/Setup to the strong end unless a test overrides."""
+    from trading import entry_policy
+
+    path = tmp_path / "entry_policy.json"
+    monkeypatch.setattr(entry_policy, "POLICY_PATH", path)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    reset_entry_policy_cache()
+    set_entry_aggressiveness(0, actor="test")
+    yield
+    reset_entry_policy_cache()
 
 
 def _snap(
@@ -50,6 +65,45 @@ def test_structure_rejects_downtrend() -> None:
     assert "STRUCTURE_REJECT" in step.reasons
 
 
+def test_structure_rejects_range_when_strict() -> None:
+    bundle = TraderBundle(symbol="AAPL")
+    bundle.features[Timeframe.D1] = _snap(structure="range", ema_ok=True)
+    step = run_structure(bundle)
+    assert step.ok is False
+
+
+def test_structure_rejects_range_when_firmer() -> None:
+    set_entry_aggressiveness(25, actor="test")
+    bundle = TraderBundle(symbol="AAPL")
+    bundle.features[Timeframe.D1] = _snap(structure="range", ema_ok=True)
+    step = run_structure(bundle)
+    assert step.ok is False
+
+
+def test_structure_allows_range_when_medium() -> None:
+    set_entry_aggressiveness(50, actor="test")
+    bundle = TraderBundle(symbol="AAPL")
+    bundle.features[Timeframe.D1] = _snap(structure="range", ema_ok=True)
+    step = run_structure(bundle)
+    assert step.ok is True, step.reasons
+
+
+def test_structure_allows_range_without_ema_when_softer() -> None:
+    set_entry_aggressiveness(75, actor="test")
+    bundle = TraderBundle(symbol="AAPL")
+    bundle.features[Timeframe.D1] = _snap(structure="range", ema_ok=False)
+    step = run_structure(bundle)
+    assert step.ok is True, step.reasons
+
+
+def test_five_desk_steps_have_distinct_rsi_caps() -> None:
+    from agents.trader.policy import _GATES
+
+    caps = [g.rsi_overbought for g in (_GATES[a] for a in (0, 25, 50, 75, 100))]
+    assert caps == sorted(caps)
+    assert len(set(caps)) == 5
+
+
 def test_structure_passes_uptrend_stack() -> None:
     bundle = TraderBundle(symbol="AAPL")
     bundle.features[Timeframe.D1] = _snap()
@@ -67,6 +121,22 @@ def test_setup_rejects_chase() -> None:
     assert "SETUP_CHASE" in step.reasons
 
 
+def test_setup_rejects_rsi_72_when_strict() -> None:
+    bundle = TraderBundle(symbol="AAPL")
+    bundle.features[Timeframe.D1] = _snap(close=100.5, sma20=100.0, rsi=72.0)
+    step = run_setup(bundle)
+    assert step.ok is False
+    assert "SETUP_RSI_HIGH" in step.reasons
+
+
+def test_setup_allows_rsi_72_when_softer() -> None:
+    set_entry_aggressiveness(75, actor="test")
+    bundle = TraderBundle(symbol="AAPL")
+    bundle.features[Timeframe.D1] = _snap(close=100.5, sma20=100.0, rsi=72.0)
+    step = run_setup(bundle)
+    assert step.ok is True, step.reasons
+
+
 def test_setup_accepts_pullback() -> None:
     bundle = TraderBundle(symbol="AAPL")
     bundle.features[Timeframe.D1] = _snap(close=100.5, sma20=100.0, rsi=48.0)
@@ -79,7 +149,7 @@ async def test_context_allows_neutral_spy() -> None:
     """Range / mixed SPY must not freeze the desk — only hostile regimes block."""
 
     class _MD:
-        async def get_bars(self, symbol, timeframe, start, end):  # noqa: ANN001
+        async def get_bars(self, symbol, timeframe, start, end):
             assert symbol == "SPY"
             base = datetime.now(UTC) - timedelta(days=120)
             bars: list[Bar] = []
@@ -111,7 +181,7 @@ async def test_context_allows_neutral_spy() -> None:
 @pytest.mark.asyncio
 async def test_context_blocks_bearish_spy() -> None:
     class _MD:
-        async def get_bars(self, symbol, timeframe, start, end):  # noqa: ANN001
+        async def get_bars(self, symbol, timeframe, start, end):
             base = datetime.now(UTC) - timedelta(days=250)
             bars: list[Bar] = []
             px = 200.0

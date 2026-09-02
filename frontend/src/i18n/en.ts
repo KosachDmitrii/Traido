@@ -378,11 +378,11 @@ export const en = {
   "settings.kill.flash.failed": "Kill switch failed",
 
   "settings.entry.title": "Entry conditions",
-  "settings.entry.lead": "One slider: chase, zone, WAIT TTL, pullback, and entry checks.",
+  "settings.entry.lead": "Five levels: Сильно → Слабо. Structure, Setup, and entry timing.",
   "settings.entry.what":
-    "Strong — deep pullback, long WAIT (~6.5 h), hard vetoes. Weak — zone nearer price, shorter WAIT (~1.5 h), softer pullback/impulse.",
+    "Strong — daily uptrend + EMA, RSI 68. Firmer — same HTF, RSI 70. Medium — range+EMA, RSI 72. Softer — range without EMA, RSI 75. Weak — loosest chase, RSI 78.",
   "settings.entry.keeps":
-    "Risk, liquidity, RTH, earnings and news stay the same — only entry logic changes (BUY / WAIT / zone).",
+    "Risk, liquidity, RTH, earnings and news stay the same — all five steps only move analysis/entry floors.",
   "settings.entry.hint":
     "Each pick starts a scan. If one is already running, it is stopped and a new pass uses the latest level.",
   "settings.entry.strong": "Strong",

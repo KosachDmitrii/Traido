@@ -1,12 +1,13 @@
-"""Structure agent — higher-timeframe trend only (D1)."""
+"""Structure agent — higher-timeframe trend (D1), floors from entry aggressiveness."""
 
 from __future__ import annotations
 
+from agents.trader.policy import structure_ok, trader_gates_for
 from agents.trader.types import StepResult, TraderBundle, TraderStep
 from core.enums import AssessmentKind, Timeframe
 from core.schemas import TechnicalAssessment
 
-PROMPT_VERSION = "trader.structure@1.0.0"
+PROMPT_VERSION = "trader.structure@1.1.0"
 
 
 def run_structure(bundle: TraderBundle) -> StepResult:
@@ -22,6 +23,7 @@ def run_structure(bundle: TraderBundle) -> StepResult:
         bundle.record(result)
         return result
 
+    policy = trader_gates_for()
     ind = d1.indicators
     structure = d1.chart_patterns.get("structure")
     ema_ok = ind.get("ema50_above_ema200") is True
@@ -43,7 +45,8 @@ def run_structure(bundle: TraderBundle) -> StepResult:
     else:
         reasons.append(f"D1 structure={structure}")
 
-    ok = ema_ok and structure == "uptrend"
+    ok, gate_reasons = structure_ok(structure=structure, ema_ok=ema_ok, policy=policy)
+    reasons = [*reasons, *[r for r in gate_reasons if r not in reasons]]
     score = max(0, min(100, score))
     trend = "bullish" if ok else "bearish" if structure == "downtrend" else "neutral"
 

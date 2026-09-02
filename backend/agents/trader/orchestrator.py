@@ -1,13 +1,13 @@
 """Trader desk orchestrator — one agent per professional step, Alpaca data only.
 
 Order: context → universe → structure → setup → entry → risk_plan → checklist.
-Any fail stops the chain. Success yields a TradeCandidate for RiskEngine + desk.
-Never places an order.
+BUY_NOW requires checklist. WAIT_FOR_ENTRY builds a candidate so the pipeline
+can publish an EntryWatch card — never places an order.
 """
 
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from agents.trader.checklist import PROMPT_VERSION as CHECKLIST_PV
 from agents.trader.checklist import run_checklist
@@ -26,11 +26,11 @@ from agents.trader.universe import PROMPT_VERSION as UNIVERSE_PV
 from agents.trader.universe import run_universe
 from core.activity import BOARD
 from core.config import Settings, get_settings
-from core.enums import InstrumentThesis, SetupType, TradeAction
+from core.enums import AssessmentKind, InstrumentThesis, NewsCheck, SetupType, TradeAction
 from core.ports import AuditPort, MarketDataPort
-from core.schemas import PipelineResult, TradeCandidate
+from core.schemas import NewsAssessment, PipelineResult, TradeCandidate
 
-DESK_VERSION = "trader_desk@1.0.0"
+DESK_VERSION = "trader_desk@1.1.0"
 
 
 _BOARD_IDS = {
@@ -50,6 +50,53 @@ def _mark(
     aid = _BOARD_IDS[step]
     BOARD.set_agent(aid, status=status, detail=detail, symbol=symbol, score=score)
     BOARD.log(aid, detail, symbol=symbol, level="info" if status != "error" else "error")
+
+
+def _build_candidate(bundle: TraderBundle, *, run_id: UUID) -> TradeCandidate:
+    plan = bundle.risk_plan
+    tech = bundle.technical
+    market = bundle.market
+    news = bundle.news
+    assert plan is not None and tech is not None and market is not None and news is not None
+    entry_bundle = getattr(bundle, "_entry_decision", None)
+    reasons = [
+        f"desk={DESK_VERSION}",
+        *[r for s in bundle.steps for r in s.reasons[:2]],
+    ][:12]
+    return TradeCandidate(
+        symbol=bundle.symbol,
+        action=TradeAction.BUY,
+        confidence=min(0.95, 0.55 + (tech.score / 200.0)),
+        entry=plan.entry,
+        stop=plan.stop,
+        target=plan.target,
+        risk_reward=plan.risk_reward,
+        reasons=reasons or ["trader_desk_pass"],
+        strategy_version=DESK_VERSION,
+        technical_score=tech.score,
+        quant_score=tech.score,
+        news_label=news.sentiment,
+        market_label=market.regime.value,
+        pipeline_run_id=run_id,
+        exec_timeframe=plan.exec_timeframe,
+        thesis=InstrumentThesis.BULLISH,
+        setup_type=SetupType.PULLBACK_CONTINUATION,
+        entry_decision=entry_bundle.entry_decision if entry_bundle is not None else None,
+        entry_quality=entry_bundle.entry_quality if entry_bundle is not None else None,
+        setup_quality=entry_bundle.setup_quality if entry_bundle is not None else None,
+        chase_reasons=list(entry_bundle.chase_reasons) if entry_bundle is not None else [],
+        entry_zone_low=entry_bundle.entry_zone_low if entry_bundle is not None else None,
+        entry_zone_high=entry_bundle.entry_zone_high if entry_bundle is not None else None,
+        session_cohort=getattr(getattr(bundle, "_entry_facts", None), "session_cohort", None),
+        entry_quality_breakdown=(
+            entry_bundle.breakdown.as_dict() if entry_bundle is not None else {}
+        ),
+        setup_quality_breakdown=(
+            entry_bundle.setup_breakdown.as_dict()
+            if entry_bundle is not None and entry_bundle.setup_breakdown is not None
+            else {}
+        ),
+    )
 
 
 async def run_trader_desk(
@@ -138,6 +185,7 @@ async def run_trader_desk(
     # 5 Entry
     _mark(TraderStep.ENTRY, status="working", detail="Entry timing", symbol=symbol)
     step = run_entry(bundle)
+    wait_path = step.ok and "ENTRY_WAIT" in step.reasons
     _mark(
         TraderStep.ENTRY,
         status="done" if step.ok else "error",
@@ -146,10 +194,9 @@ async def run_trader_desk(
         score=step.score,
     )
     if not step.ok:
-        status = "wait_for_entry" if "ENTRY_WAIT" in step.reasons else "no_trade"
-        return _fail(run_id, symbol, bundle, prompt_versions, status=status)
+        return _fail(run_id, symbol, bundle, prompt_versions, status="no_trade")
 
-    # 6 Risk plan
+    # 6 Risk plan (geometry for BUY card and WAIT watch alike)
     _mark(TraderStep.RISK_PLAN, status="working", detail="Stop / target / R:R", symbol=symbol)
     step = run_risk_plan(bundle)
     _mark(
@@ -162,7 +209,82 @@ async def run_trader_desk(
     if not step.ok:
         return _fail(run_id, symbol, bundle, prompt_versions, status="no_candidate")
 
-    # 7 Checklist (quote + Alpaca news)
+    if wait_path:
+        # WAIT plans do not need a live BUY checklist; news is re-checked on trigger.
+        if bundle.news is None:
+            bundle.news = NewsAssessment(
+                kind=AssessmentKind.NEWS,
+                symbol=symbol,
+                sentiment="neutral",
+                score=50,
+                reasons=["WAIT_PATH_NEWS_AT_TRIGGER"],
+                status=NewsCheck.CHECKED,
+            )
+        entry_bundle = getattr(bundle, "_entry_decision", None)
+        # Align desk geometry with the zone wait plan the pipeline will publish.
+        if (
+            entry_bundle is not None
+            and entry_bundle.entry_zone_low is not None
+            and entry_bundle.entry_zone_high is not None
+        ):
+            from dataclasses import replace
+            from decimal import Decimal
+
+            from trading.target_model import build_target_plan
+            from trading.wait_plan import derive_wait_levels
+
+            wait_levels = derive_wait_levels(entry_bundle)
+            tp = build_target_plan(
+                entry=wait_levels.entry,
+                stop=wait_levels.stop,
+                facts=entry_bundle.facts,
+                min_rr=2.0,
+            )
+            bundle._planned = (
+                float(wait_levels.entry),
+                float(wait_levels.stop),
+                float(tp.price),
+            )  # type: ignore[attr-defined]
+            if bundle.risk_plan is not None:
+                risk = wait_levels.entry - wait_levels.stop
+                rr = float((tp.price - wait_levels.entry) / risk) if risk > 0 else 0.0
+                bundle.risk_plan = replace(
+                    bundle.risk_plan,
+                    entry=wait_levels.entry.quantize(Decimal("0.01")),
+                    stop=wait_levels.stop.quantize(Decimal("0.01")),
+                    target=tp.price.quantize(Decimal("0.01")),
+                    risk_reward=rr,
+                )
+            entry_bundle = entry_bundle.model_copy(
+                update={"stop_price": wait_levels.stop, "target": tp}
+            )
+            bundle._entry_decision = entry_bundle  # type: ignore[attr-defined]
+        candidate = _build_candidate(bundle, run_id=run_id)
+        await audit.append(
+            "TraderDeskWaitCandidate",
+            "trader_desk",
+            {
+                "symbol": symbol,
+                "entry": str(candidate.entry),
+                "reasons": candidate.chase_reasons[:4],
+            },
+            pipeline_run_id=run_id,
+            entity_type="symbol",
+            entity_id=symbol,
+        )
+        return PipelineResult(
+            pipeline_run_id=run_id,
+            symbol=symbol,
+            status="completed",
+            technical=bundle.technical,
+            news=bundle.news,
+            market=bundle.market,
+            candidate=candidate,
+            entry_decision=entry_bundle,
+            prompt_versions=prompt_versions,
+        )
+
+    # 7 Checklist (quote + Alpaca news) — BUY path only
     _mark(TraderStep.CHECKLIST, status="working", detail="Quote + news", symbol=symbol)
     step = await run_checklist(bundle, market_data, settings=settings)
     _mark(
@@ -175,43 +297,8 @@ async def run_trader_desk(
     if not step.ok:
         return _fail(run_id, symbol, bundle, prompt_versions, status="no_trade")
 
-    plan = bundle.risk_plan
-    assert plan is not None
-    tech = bundle.technical
-    assert tech is not None
-    market = bundle.market
-    assert market is not None
-    news = bundle.news
-    assert news is not None
-
+    candidate = _build_candidate(bundle, run_id=run_id)
     entry_bundle = getattr(bundle, "_entry_decision", None)
-    reasons = [
-        f"desk={DESK_VERSION}",
-        *[r for s in bundle.steps for r in s.reasons[:2]],
-    ][:12]
-
-    candidate = TradeCandidate(
-        symbol=symbol,
-        action=TradeAction.BUY,
-        confidence=min(0.95, 0.55 + (tech.score / 200.0)),
-        entry=plan.entry,
-        stop=plan.stop,
-        target=plan.target,
-        risk_reward=plan.risk_reward,
-        reasons=reasons or ["trader_desk_pass"],
-        strategy_version=DESK_VERSION,
-        technical_score=tech.score,
-        quant_score=tech.score,
-        news_label=news.sentiment,
-        market_label=market.regime.value,
-        pipeline_run_id=run_id,
-        exec_timeframe=plan.exec_timeframe,
-        thesis=InstrumentThesis.BULLISH,
-        setup_type=SetupType.PULLBACK_CONTINUATION,
-        entry_decision=entry_bundle.entry_decision if entry_bundle is not None else None,
-        entry_quality=entry_bundle.entry_quality if entry_bundle is not None else None,
-        session_cohort=getattr(getattr(bundle, "_entry_facts", None), "session_cohort", None),
-    )
 
     await audit.append(
         "TraderDeskCandidate",
@@ -219,9 +306,9 @@ async def run_trader_desk(
         {
             "symbol": symbol,
             "steps": [{"step": s.step.value, "ok": s.ok, "detail": s.detail} for s in bundle.steps],
-            "entry": str(plan.entry),
-            "stop": str(plan.stop),
-            "target": str(plan.target),
+            "entry": str(candidate.entry),
+            "stop": str(candidate.stop),
+            "target": str(candidate.target),
         },
         pipeline_run_id=run_id,
         entity_type="symbol",
@@ -232,9 +319,9 @@ async def run_trader_desk(
         pipeline_run_id=run_id,
         symbol=symbol,
         status="completed",
-        technical=tech,
-        news=news,
-        market=market,
+        technical=bundle.technical,
+        news=bundle.news,
+        market=bundle.market,
         candidate=candidate,
         entry_decision=entry_bundle,
         prompt_versions=prompt_versions,
@@ -250,7 +337,14 @@ def _fail(
     status: str,
 ) -> PipelineResult:
     failed = bundle.failed
-    errors = list(failed.reasons) if failed else ["TRADER_DESK_FAIL"]
+    # WAIT used to be recorded as a failed step; ignore ok steps when looking for errors.
+    errors: list[str] = []
+    for s in reversed(bundle.steps):
+        if not s.ok:
+            errors = list(s.reasons)
+            break
+    if not errors:
+        errors = list(failed.reasons) if failed else ["TRADER_DESK_FAIL"]
     return PipelineResult(
         pipeline_run_id=run_id,
         symbol=symbol,

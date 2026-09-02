@@ -9,6 +9,8 @@ from core.enums import Timeframe
 
 PROMPT_VERSION = "trader.risk_plan@1.0.0"
 MIN_RR = 2.0
+# Display rounds to 2dp; accept float dust so "2.00" is not rejected as < 2.0.
+_RR_EPS = 1e-6
 
 
 def _q(x: float) -> Decimal:
@@ -58,11 +60,11 @@ def run_risk_plan(bundle: TraderBundle) -> StepResult:
         f"rr={rr:.2f}",
     ]
 
-    if rr < MIN_RR:
+    if rr + _RR_EPS < MIN_RR:
         result = StepResult(
             step=TraderStep.RISK_PLAN,
             ok=False,
-            detail=f"R:R {rr:.2f} < {MIN_RR}",
+            detail=f"R:R {rr:.2f} < {MIN_RR:g}",
             reasons=[*reasons, "RISK_PLAN_RR_LOW"],
             score=25,
         )

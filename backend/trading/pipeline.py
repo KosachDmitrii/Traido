@@ -118,11 +118,56 @@ async def run_symbol_pipeline(
 
     admission = None
     if bundle is not None:
+        adm_entry = None
+        adm_stop = None
+        adm_target = None
+        adm_target_plan = bundle.target
+        stop_model = None
+        stop_source = None
+        stop_level = None
+        # WAIT cards are scored on zone-coherent plan levels, not the live ask.
+        if (
+            candidate.entry_decision is EntryDecision.WAIT_FOR_ENTRY
+            and bundle.entry_zone_low is not None
+            and bundle.entry_zone_high is not None
+        ):
+            from trading.target_model import build_target_plan
+            from trading.wait_plan import derive_wait_levels
+
+            wait_levels = derive_wait_levels(bundle, candidate)
+            adm_entry = wait_levels.entry
+            adm_stop = wait_levels.stop
+            adm_target = wait_levels.target
+            adm_target_plan = build_target_plan(
+                entry=wait_levels.entry,
+                stop=wait_levels.stop,
+                facts=bundle.facts,
+                min_rr=2.0,
+            )
+            adm_target = adm_target_plan.price
+            stop_model = "structure"
+            stop_source = "entry_zone_low"
+            stop_level = float(bundle.entry_zone_low)
+            candidate = candidate.model_copy(
+                update={
+                    "entry": wait_levels.entry,
+                    "stop": wait_levels.stop,
+                    "target": adm_target,
+                    "risk_reward": wait_levels.risk_reward,
+                }
+            )
+            result = result.model_copy(update={"candidate": candidate})
         admission = evaluate_trade_admission(
             bundle=bundle,
             candidate=candidate,
             quote=quote,
-            target_plan=bundle.target,
+            entry=adm_entry,
+            stop=adm_stop,
+            target=adm_target,
+            target_plan=adm_target_plan,
+            stop_plan_model=stop_model,
+            stop_structural_source=stop_source,
+            stop_structural_level=stop_level,
         )
         from trading.admission_records import persist_admission
 

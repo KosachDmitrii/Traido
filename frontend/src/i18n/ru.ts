@@ -380,11 +380,11 @@ export const ru: Record<MessageKey, string> = {
   "settings.kill.flash.failed": "Не удалось переключить kill switch",
 
   "settings.entry.title": "Условия входа",
-  "settings.entry.lead": "Один ползунок: chase, зона, TTL WAIT, pullback и условия входа.",
+  "settings.entry.lead": "Пять уровней: Сильно → Слабо. Structure, Setup и тайминг входа.",
   "settings.entry.what":
-    "Сильно — глубокий откат, длинный WAIT (~6.5 ч), жёсткие veto. Слабо — зона ближе к цене, короче WAIT (~1.5 ч), мягче pullback/impulse.",
+    "Сильно — дневной uptrend + EMA, RSI 68. Построже — тот же HTF, RSI 70. Средне — range+EMA, RSI 72. Помягче — range без EMA, RSI 75. Слабо — самый широкий chase, RSI 78.",
   "settings.entry.keeps":
-    "Risk, ликвидность, RTH, earnings и news не трогаем — меняется только логика входа (BUY / WAIT / зона).",
+    "Risk, ликвидность, RTH, earnings и news не трогаем — пять ступеней двигают только пороги анализа и входа.",
   "settings.entry.hint":
     "Каждый выбор сам запускает скан. Если прошлый ещё шёл — он останавливается, идёт новый с последним уровнем.",
   "settings.entry.strong": "Сильно",

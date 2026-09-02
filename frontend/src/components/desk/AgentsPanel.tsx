@@ -91,10 +91,10 @@ export function AgentsPanel({ desk }: { desk: DeskResponse | null }) {
               const lvl = e.level === "warn" || e.level === "error" ? e.level : "";
               const msg = e.symbol ? `${e.symbol}: ${e.message}` : e.message;
               return (
-                <div className={`row ${lvl}`} key={`${e.ts}-${i}`} title={e.ts || undefined}>
+                <div className={`row ${lvl}`} key={`${e.ts}-${i}`} title={msg}>
                   <span>{time}</span>
                   <span className="ag">{e.agent}</span>
-                  <span>{msg}</span>
+                  <span className="msg">{msg}</span>
                 </div>
               );
             })

@@ -29,8 +29,20 @@ _DISPLAY_KEYS = frozenset(
         "buy_blocked",
         "zone_touch_calibration",
         "enriched_at",
+        "price_tick",
     }
 )
+
+
+def price_tick_from_move(prev: float | None, price: float) -> str:
+    """up / down / flat from consecutive watch-loop ticks (Alpaca last, not day %)."""
+    if prev is None:
+        return "flat"
+    delta = price - prev
+    # Ignore sub-cent / sub-bps noise so the arrow does not flicker.
+    if abs(delta) < max(0.01, abs(prev) * 0.00005):
+        return "flat"
+    return "up" if delta > 0 else "down"
 
 
 async def refresh_watch_desk_cache(
@@ -39,6 +51,7 @@ async def refresh_watch_desk_cache(
     price: float,
     quote: Quote | None,
     md: Any,
+    prev_price: float | None = None,
 ) -> EntryWatch:
     """Compute likelihood (+ arrival when in zone) and store display fields only."""
     del quote  # quote reserved for future spread display; machine state ignores it
@@ -79,6 +92,13 @@ async def refresh_watch_desk_cache(
         bars=bars if in_zone else None,
     )
     display: dict[str, object] = {k: full[k] for k in _DISPLAY_KEYS if k in full}
+    tick = price_tick_from_move(prev_price, price)
+    if tick == "flat":
+        # Hold the last non-flat arrow until the tape reverses.
+        prior = (watch.desk_enrichment or {}).get("price_tick")
+        if prior in {"up", "down"}:
+            tick = str(prior)
+    display["price_tick"] = tick
     display["enriched_at"] = datetime.now(UTC).isoformat()
     return watch.model_copy(update={"desk_enrichment": display})
 

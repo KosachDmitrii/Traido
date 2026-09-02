@@ -161,6 +161,40 @@ def test_redis_survives_cache_and_missing_file(tmp_path, monkeypatch) -> None:
     assert entry_policy.get_entry_aggressiveness() == 50
 
 
+def test_newer_file_beats_stale_redis(tmp_path, monkeypatch) -> None:
+    """A failed Redis write must not forever pin the desk to an old level."""
+    from trading import entry_policy
+
+    path = tmp_path / "entry_policy.json"
+    store: dict[str, dict[str, str]] = {
+        entry_policy.REDIS_KEY: {
+            "aggressiveness": "50",
+            "updated_at": "2026-01-01T00:00:00+00:00",
+        }
+    }
+
+    class _FakeRedis:
+        def hget(self, key, field):
+            raw = store.get(key, {}).get(field)
+            return raw.encode() if raw is not None else None
+
+        def hset(self, key, mapping):
+            store[key] = {str(k): str(v) for k, v in mapping.items()}
+            return True
+
+        def ping(self):
+            return True
+
+    monkeypatch.setattr(entry_policy, "POLICY_PATH", path)
+    monkeypatch.setenv("REDIS_URL", "redis://test")
+    monkeypatch.setattr(entry_policy, "_redis_client", lambda: _FakeRedis())
+    entry_policy.reset_entry_policy_cache()
+
+    set_entry_aggressiveness(100, actor="test")
+    entry_policy.reset_entry_policy_cache()
+    assert entry_policy.get_entry_aggressiveness() == 100
+
+
 def test_desk_etag_includes_entry_policy() -> None:
     from api.routes import desk as desk_mod
 

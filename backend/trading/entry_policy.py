@@ -17,6 +17,7 @@ import logging
 import os
 import threading
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -212,65 +213,100 @@ def _redis_client() -> Any:
         return None
 
 
-def _read_file() -> int | None:
-    """Return aggressiveness from disk, or None when the file is missing."""
-    if not POLICY_PATH.exists():
+def _parse_ts(raw: Any) -> datetime | None:
+    if not isinstance(raw, str) or not raw.strip():
         return None
+    try:
+        return datetime.fromisoformat(raw)
+    except ValueError:
+        return None
+
+
+def _read_file() -> tuple[int, datetime | None] | tuple[None, None]:
+    """Return (aggressiveness, updated_at) from disk, or (None, None)."""
+    if not POLICY_PATH.exists():
+        return None, None
     try:
         raw = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         logger.warning("entry policy: unreadable file")
-        return None
+        return None, None
     if isinstance(raw, dict):
-        return clamp_aggressiveness(raw.get("aggressiveness", 0))
-    return None
+        return clamp_aggressiveness(raw.get("aggressiveness", 0)), _parse_ts(raw.get("updated_at"))
+    return None, None
 
 
-def _read_redis() -> int | None:
+def _read_redis() -> tuple[int, datetime | None] | tuple[None, None]:
     client = _redis_client()
     if client is None:
-        return None
+        return None, None
     try:
         raw = client.hget(REDIS_KEY, "aggressiveness")
+        ts_raw = client.hget(REDIS_KEY, "updated_at")
     except Exception as exc:  # noqa: BLE001
         logger.warning("entry policy: redis read failed (%s)", type(exc).__name__)
-        return None
+        return None, None
     if raw is None:
-        return None
+        return None, None
     if isinstance(raw, bytes):
         raw = raw.decode()
-    return clamp_aggressiveness(raw)
+    if isinstance(ts_raw, bytes):
+        ts_raw = ts_raw.decode()
+    return clamp_aggressiveness(raw), _parse_ts(ts_raw)
 
 
-def _write_file(aggressiveness: int, *, actor: str, thresholds: EntryThresholds) -> None:
+def _write_file(aggressiveness: int, *, actor: str, thresholds: EntryThresholds, updated_at: str) -> None:
     POLICY_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "aggressiveness": aggressiveness,
         "actor": actor,
+        "updated_at": updated_at,
         "thresholds": thresholds.as_dict(),
     }
     POLICY_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
 
 
-def _write_redis(aggressiveness: int, *, actor: str) -> None:
+def _write_redis(aggressiveness: int, *, actor: str, updated_at: str) -> bool:
     client = _redis_client()
     if client is None:
-        return
+        return False
     try:
         client.hset(
             REDIS_KEY,
-            mapping={"aggressiveness": str(aggressiveness), "actor": actor},
+            mapping={
+                "aggressiveness": str(aggressiveness),
+                "actor": actor,
+                "updated_at": updated_at,
+            },
         )
+        return True
     except Exception as exc:  # noqa: BLE001
         logger.error("entry policy: redis write failed (%s)", type(exc).__name__)
+        return False
 
 
 def _load_aggressiveness() -> int:
-    """Redis first (survives redeploy), then file, else strict default."""
-    redis_val = _read_redis()
+    """Prefer the newer of Redis vs file when both exist (stale Redis used to win)."""
+    redis_val, redis_ts = _read_redis()
+    file_val, file_ts = _read_file()
+    if redis_val is not None and file_val is not None:
+        if file_ts is not None and redis_ts is not None:
+            return file_val if file_ts >= redis_ts else redis_val
+        if file_ts is not None and redis_ts is None:
+            return file_val
+        if redis_ts is not None and file_ts is None:
+            return redis_val
+        # No timestamps: file is the local source of truth when Redis may be stale.
+        if redis_val != file_val:
+            logger.warning(
+                "entry policy: redis=%s file=%s disagree without updated_at; preferring file",
+                redis_val,
+                file_val,
+            )
+            return file_val
+        return redis_val
     if redis_val is not None:
         return redis_val
-    file_val = _read_file()
     if file_val is not None:
         return file_val
     return 0
@@ -298,15 +334,17 @@ def set_entry_aggressiveness(
     global _cached
     a = clamp_aggressiveness(value, experimental=experimental)
     thresholds = thresholds_for(a)
-    _write_file(a, actor=actor, thresholds=thresholds)
-    _write_redis(a, actor=actor)
+    updated_at = datetime.now(UTC).isoformat()
+    _write_file(a, actor=actor, thresholds=thresholds, updated_at=updated_at)
+    wrote_redis = _write_redis(a, actor=actor, updated_at=updated_at)
     with _LOCK:
         _cached = a
     logger.info(
-        "entry policy: aggressiveness=%s actor=%s experimental=%s",
+        "entry policy: aggressiveness=%s actor=%s experimental=%s redis=%s",
         a,
         actor,
         experimental,
+        "ok" if wrote_redis else "skip",
     )
     return thresholds
 
@@ -326,8 +364,8 @@ def policy_payload() -> dict[str, Any]:
         "thresholds": th.as_dict(),
         "soft_chase_codes": sorted(SOFT_CHASE_CODES),
         "note": (
-            "Single control for entry timing: chase floors, zone width, WAIT TTL, "
-            "pullback/impulse checks, and wait-trigger conditions. "
+            "Single control for entry timing and trader-desk Structure/Setup "
+            "floors (HTF trend, RSI, chase distance). "
             "Risk, liquidity, RTH, earnings and news gates are unchanged."
         ),
     }

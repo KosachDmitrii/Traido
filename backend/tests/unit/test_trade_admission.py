@@ -118,6 +118,28 @@ def test_nem_regression_pullback_outside_zone() -> None:
     )
 
 
+def test_deep_undercut_below_zone_is_wait_not_buy() -> None:
+    """Price under the pullback zone → WAIT for reclaim, not BUY at the print."""
+    set_entry_aggressiveness(100, actor="test")
+    bundle = _bundle(price=100.0, setup_q=80, entry_q=55, zone_low=111.8, zone_high=113.2)
+    admission = evaluate_trade_admission(
+        bundle=bundle,
+        setup_type=SetupType.PULLBACK_CONTINUATION,
+        quote=_quote(99.9, 100.0),
+        entry=112.5,
+        stop=108.0,
+        target=125.0,
+        stop_plan_model="structure",
+        stop_structural_source="entry_zone_low",
+        stop_structural_level=111.8,
+    )
+    assert admission.decision is AdmissionDecision.WAIT
+    assert admission.admitted is False
+    assert "ENTRY_OUTSIDE_ALLOWED_ZONE" in admission.vetoes or any(
+        "ENTRY_OUTSIDE" in r for r in admission.reason_codes
+    )
+
+
 def test_lly_regression_insufficient_effective_rr() -> None:
     """R:R ≈ 1.66 must block BUY at default 2.0 floor."""
     set_entry_aggressiveness(0, actor="test")

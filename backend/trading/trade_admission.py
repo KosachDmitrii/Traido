@@ -90,6 +90,9 @@ def entry_allowed_for_setup_type(
         buffer = (atr or price * 0.01) * ZONE_ABOVE_BUFFER_ATR
         if price > zone_high + buffer:
             return False, ["ENTRY_OUTSIDE_ALLOWED_ZONE"]
+        # Deep undercut: wait for reclaim of the zone, not BUY at the print.
+        if price < zone_low - buffer:
+            return False, ["ENTRY_OUTSIDE_ALLOWED_ZONE"]
     return True, []
 
 
@@ -222,7 +225,11 @@ def evaluate_trade_admission(
         )
 
     chase = compute_chase_facts(facts, zone_high=zone_high, thresholds=th)
-    structure = evaluate_structural_integrity(facts, chase_reasons=chase.reason_codes)
+    structure = evaluate_structural_integrity(
+        facts,
+        chase_reasons=chase.reason_codes,
+        deep_pullback_is_hard=th.pullback_deep_no_trade,
+    )
     vetoes: list[str] = []
 
     if bundle.thesis is not InstrumentThesis.BULLISH:

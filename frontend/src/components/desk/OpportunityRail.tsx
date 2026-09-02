@@ -362,7 +362,19 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
             <dl className="opp-card__levels">
               <div>
                 <dt>{t("rail.wait.nowLabel")}</dt>
-                <dd className="mono">{fmtPx(w.last_price ?? w.current_price_at_creation)}</dd>
+                <dd className="mono rail-wait__now">
+                  {fmtPx(w.last_price ?? w.current_price_at_creation)}
+                  {w.price_tick === "up" ? (
+                    <span className="pos-pnl pos-pnl--up rail-wait__tick" aria-hidden>
+                      <span className="pos-pnl__arrow">↑</span>
+                    </span>
+                  ) : null}
+                  {w.price_tick === "down" ? (
+                    <span className="pos-pnl pos-pnl--down rail-wait__tick" aria-hidden>
+                      <span className="pos-pnl__arrow">↓</span>
+                    </span>
+                  ) : null}
+                </dd>
               </div>
               <div>
                 <dt>{t("opp.levels.entry")}</dt>

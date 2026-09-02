@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
-import { Gauge, KeyRound, Languages, ScanSearch, ShieldAlert } from "lucide-react";
-import { runScanner, setEntryPolicy, setKillSwitch } from "@/lib/api";
+import { runScanner, invalidateDeskEtag, setEntryPolicy, setKillSwitch } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Locale, MessageKey } from "@/i18n";
 import { Button, Input, SegmentedControl, SwitchControl } from "@/ui";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Gauge, KeyRound, Languages, ScanSearch, ShieldAlert } from "lucide-react";
 
 /** Five production desk steps — Сильно → Слабо. Values match backend ENTRY_LEVELS. */
 const ENTRY_STEPS = [
@@ -38,9 +38,12 @@ export function SettingsPage() {
   const [aggressiveness, setAggressiveness] = useState(
     () => snapEntryStep(desk?.entry_policy?.aggressiveness ?? 0),
   );
+  const entrySaveGen = useRef(0);
 
   useEffect(() => {
     const n = desk?.entry_policy?.aggressiveness;
+    // Do not let a stale desk poll overwrite a save still in flight.
+    if (entrySaveGen.current !== 0) return;
     if (typeof n === "number") setAggressiveness(snapEntryStep(n));
   }, [desk?.entry_policy?.aggressiveness]);
 
@@ -98,9 +101,11 @@ export function SettingsPage() {
   const commitEntryPolicy = useCallback(
     async (value: number) => {
       const stepped = snapEntryStep(value);
+      const gen = ++entrySaveGen.current;
       try {
         const next = await setEntryPolicy(stepped);
         setAggressiveness(snapEntryStep(next.aggressiveness));
+        invalidateDeskEtag();
         const aborted = Boolean(next.rescan?.aborted);
         showFlash({
           kind: "ok",
@@ -116,6 +121,8 @@ export function SettingsPage() {
           title: t("settings.entry.flash.failed"),
           detail: err instanceof Error ? err.message : String(err),
         });
+      } finally {
+        if (entrySaveGen.current === gen) entrySaveGen.current = 0;
       }
     },
     [refreshAll, showFlash, t],

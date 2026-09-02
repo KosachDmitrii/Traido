@@ -32,7 +32,12 @@ def compute_effective_rr(
         if bid > 0 and ask >= bid:
             mid = (bid + ask) / 2
             spread_bps = (ask - bid) / mid * 10000
-            effective_entry = ask * (1.0 + slippage_bps / 10000.0)
+            # Ask only counts as the fill when it sits above the stop. A WAIT plan
+            # whose zone is still above the tape must be scored at planned entry.
+            if ask > stop_f:
+                effective_entry = ask * (1.0 + slippage_bps / 10000.0)
+            else:
+                effective_entry = entry_f * (1.0 + slippage_bps / 10000.0)
         else:
             effective_entry = entry_f * (1.0 + slippage_bps / 10000.0)
     else:

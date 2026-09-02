@@ -141,6 +141,7 @@ async def run_watch_pass() -> dict[str, int]:
                         price=price,
                         quote=quote,
                         md=md,
+                        prev_price=prev,
                     )
                     ENTRY_WATCHES.update(refreshed)
                     from trading.watch_telemetry import record_watch_telemetry
@@ -198,6 +199,7 @@ async def run_watch_pass() -> dict[str, int]:
                 price=price,
                 quote=q,
                 md=md,
+                prev_price=float(current.last_price) if current.last_price is not None else None,
             )
             ENTRY_WATCHES.update(cached)
             current = ENTRY_WATCHES.get(current.id) or current

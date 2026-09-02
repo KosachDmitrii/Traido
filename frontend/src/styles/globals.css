@@ -943,7 +943,7 @@ h1, h2, h3, p {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 494px;
+  /* max-height: 494px; */
   overflow: auto;
   margin-top: 4px;
   font-family: var(--td-font-mono);
@@ -953,9 +953,9 @@ h1, h2, h3, p {
 
 .activity-feed .row {
   display: grid;
-  grid-template-columns: 56px 72px minmax(0, 1fr);
+  grid-template-columns: 56px 10ch minmax(0, 1fr);
   gap: 8px;
-  align-items: start;
+  align-items: baseline;
   color: var(--td-text-muted);
 }
 
@@ -963,10 +963,9 @@ h1, h2, h3, p {
    width, and a vendor error carries an unbroken 180-character URL. The row grew
    past the card, the feed scrolled sideways to fit it, and every other row was
    dragged out of column with it. `minmax(0, 1fr)` lets the track shrink;
-   `anywhere` gives the URL somewhere to break. */
+   ellipsis keeps each record on one line to the end of the message column. */
 .activity-feed .row > span {
   min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 /* Timestamps only line up if their digits are one width. */
@@ -977,9 +976,14 @@ h1, h2, h3, p {
 .activity-feed .row .ag {
   color: var(--td-text);
   font-weight: 600;
-  overflow-wrap: normal;
-  text-overflow: ellipsis;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-feed .row .msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -1217,6 +1221,24 @@ h1, h2, h3, p {
 .block.accent.block--waiting {
   background: var(--td-surface, #faf9f7);
   border-color: var(--td-border);
+}
+
+.rail-wait__now {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.rail-wait__tick.pos-pnl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  font-size: inherit;
+}
+
+.rail-wait__tick .pos-pnl__arrow {
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .rail-wait {
@@ -1842,7 +1864,15 @@ h1, h2, h3, p {
 }
 
 .logs-feed .row {
-  grid-template-columns: 118px 72px minmax(0, 1fr);
+  grid-template-columns: 118px 10ch minmax(0, 1fr);
+}
+
+/* Full logs page: allow wrap so long vendor lines stay readable end-to-end. */
+.logs-feed .row .msg {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  overflow-wrap: anywhere;
 }
 
 .settings-row {
