@@ -61,6 +61,9 @@ testpaths = ["tests"]
 line-length = 100
 target-version = "py312"
 
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["EXE001", "EXE002", "SIM102", "BLE001", "S112", "E501", "ANN", "F401"]
+
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's dependency markers are called in argument defaults by design.
 extend-immutable-calls = [

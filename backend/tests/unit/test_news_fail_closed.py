@@ -61,6 +61,7 @@ def _context(news: NewsCheck) -> RiskContext:
         news=news,
         sector=CLEARED_EARNINGS.sector,
         sector_check=CLEARED_EARNINGS.sector_check,
+        regime_tradable=True,
     )
 
 

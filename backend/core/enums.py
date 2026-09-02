@@ -203,9 +203,38 @@ class EntryDecision(StrEnum):
     NO_TRADE = "no_trade"
 
 
+class SetupType(StrEnum):
+    """How the trade is meant to be entered — governs allowed price zones."""
+
+    PULLBACK_CONTINUATION = "pullback_continuation"
+    BREAKOUT_CONTINUATION = "breakout_continuation"
+    VWAP_RECLAIM = "vwap_reclaim"
+    MEAN_REVERSION = "mean_reversion"
+    GAP_CONTINUATION = "gap_continuation"
+    UNKNOWN = "unknown"
+
+
+class AdmissionDecision(StrEnum):
+    """TradeAdmission output — sole authority for publishing a BUY card."""
+
+    BUY_ALLOWED = "buy_allowed"
+    WAIT = "wait"
+    NO_TRADE = "no_trade"
+    DATA_BLOCKED = "data_blocked"
+
+
+class DataHealthStatus(StrEnum):
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+
+
 class EntryWatchStatus(StrEnum):
     WAITING = "waiting"
     TRIGGERED = "triggered"
+    REVALIDATING = "revalidating"
+    ADMITTED = "admitted"  # admission passed; publish may still be pending
+    CONVERTING = "converting"  # durable claim while watch→opportunity
     EXPIRED = "expired"
     INVALIDATED = "invalidated"
     CONVERTED = "converted"  # became a BUY_NOW opportunity after fresh re-check

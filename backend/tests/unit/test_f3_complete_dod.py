@@ -10,8 +10,9 @@ import pytest
 
 from core.enums import EntryWatchStatus, InstrumentThesis, TradeAction
 from core.schemas import Quote, TradeCandidate
-from trading.entry_timing import evaluate_timing
+from tests.unit.test_entry_timing_f3 import _snap
 from trading.entry_quality import decide_entry
+from trading.entry_timing import evaluate_timing
 from trading.entry_watches import ENTRY_WATCHES
 from trading.f3_diagnostics import build_f3_diagnostics, write_forward_report
 from trading.historical_mfe import (
@@ -22,7 +23,6 @@ from trading.historical_mfe import (
     sample_counts,
 )
 from trading.target_model import build_target_plan
-from tests.unit.test_entry_timing_f3 import _snap
 
 
 def test_historical_mfe_arms_reachability(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -129,8 +129,8 @@ async def test_watch_pass_never_places_broker_order(monkeypatch: pytest.MonkeyPa
         raise AssertionError("broker.place_order must not be called from watch loop")
 
     # Empty store — pass is a no-op; still proves the import path is safe.
-    from trading.entry_watches import EntryWatchStore
     import trading.entry_watch_loop as loop
+    from trading.entry_watches import EntryWatchStore
 
     monkeypatch.setattr(loop, "ENTRY_WATCHES", EntryWatchStore())
     stats = await loop.run_watch_pass()

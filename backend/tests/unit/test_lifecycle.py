@@ -15,32 +15,20 @@ from core.enums import (
     OrderSide,
     OrderStatus,
     OrderType,
-    TradeAction,
     TradingMode,
     UserDecision,
 )
 from core.schemas import OrderRecord, OrderRequest, TradeCandidate
 from risk.kill_switch import set_kill_switch
 from risk.risk_engine import RiskEngine
-from tests.support import CLEARED_EARNINGS, liquid_market_data
+from tests.support import CLEARED_EARNINGS, admission_ready_candidate, liquid_market_data
 from trading.execution import ExecutionService
 from trading.exits import MemoryExitStore
 from trading.opportunities import MemoryOpportunityStore
 
 
 def _candidate() -> TradeCandidate:
-    return TradeCandidate(
-        symbol="AAPL",
-        action=TradeAction.BUY,
-        confidence=0.9,
-        entry=Decimal(100),
-        stop=Decimal(95),
-        target=Decimal(110),
-        risk_reward=2.0,
-        reasons=["lifecycle test"],
-        strategy_version="strategy_confluence@0.2.0",
-        pipeline_run_id=uuid4(),
-    )
+    return admission_ready_candidate(strategy_version="strategy_confluence@0.2.0")
 
 
 @pytest.mark.asyncio

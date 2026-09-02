@@ -17,7 +17,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from core.enums import (
+    AdmissionDecision,
     AssessmentKind,
+    DataHealthStatus,
     EarningsCheck,
     EntryDecision,
     EntryWatchStatus,
@@ -32,6 +34,7 @@ from core.enums import (
     PositionStatus,
     RiskVerdict,
     SessionCohort,
+    SetupType,
     TargetReachabilityClass,
     Timeframe,
     TradeAction,
@@ -178,6 +181,12 @@ class MarketAssessment(StrictModel):
     risk_posture: str  # risk_on | risk_off | neutral
     reasons: list[str] = Field(default_factory=list)
     macro_notes: list[str] = Field(default_factory=list)
+    evaluated_at: datetime | None = None
+    """When the regime was computed. Required for capital-path market gate."""
+    benchmark: str | None = None
+    """Index / market benchmark used for the assessment (e.g. SPY)."""
+    sector_label: str | None = None
+    sector_tradable: bool | None = None
 
 
 # ── Strategy → Risk ──────────────────────────────────────────────────────────
@@ -221,6 +230,14 @@ class TradeCandidate(StrictModel):
     target_model: str | None = None
     target_reachability: TargetReachabilityClass | None = None
     session_cohort: SessionCohort | None = None
+    setup_type: SetupType = SetupType.UNKNOWN
+    setup_quality: int | None = Field(default=None, ge=0, le=100)
+    setup_quality_breakdown: dict[str, int] = Field(default_factory=dict)
+    admission_version: str | None = None
+    policy_version: str | None = None
+    aggressiveness_at_creation: int | None = Field(default=None, ge=0, le=100)
+    effective_rr_at_creation: float | None = None
+    admission_snapshot: dict[str, Any] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_geometry(self) -> TradeCandidate:
@@ -348,6 +365,15 @@ class TradeOpportunity(StrictModel):
     submit_reference_price: Decimal | None = None
     filled_at: datetime | None = None
     fill_price: Decimal | None = None
+    # Admission linkage — new opportunities require creation admission.
+    creation_admission_record_id: UUID | None = None
+    creation_admission_version: str | None = None
+    creation_geometry_hash: str | None = None
+    approval_admission_record_id: UUID | None = None
+    geometry_hash: str | None = None
+    policy_version: str | None = None
+    legacy: bool = True
+    decision_version: int = 0
 
 
 class ConfirmationRequest(StrictModel):
@@ -381,6 +407,38 @@ class EntryTimingFacts(StrictModel):
     stop_distance_pct: float | None = None
     stop_distance_atr: float | None = None
     session_cohort: SessionCohort = SessionCohort.UNKNOWN
+    # Impulse / pullback leg (from quant engine when bars available)
+    anchor_price: float | None = None
+    impulse_low: float | None = None
+    impulse_high: float | None = None
+    impulse_range_atr: float | None = None
+    impulse_bars: int | None = None
+    impulse_grade: str | None = None
+    retracement_pct: float | None = None
+    pullback_bars: int | None = None
+    pullback_vol_ratio: float | None = None
+    pullback_index: int | None = None
+
+
+class SetupQualityBreakdown(StrictModel):
+    """Thesis/setup quality — not whether to buy at the current price."""
+
+    trend_structure: int = Field(ge=0, le=100, default=50)
+    impulse_quality: int = Field(ge=0, le=100, default=50)
+    retracement_structure: int = Field(ge=0, le=100, default=50)
+    volume_participation: int = Field(ge=0, le=100, default=50)
+    support_structure: int = Field(ge=0, le=100, default=50)
+    market_alignment: int = Field(ge=0, le=100, default=50)
+    catalyst: int = Field(ge=0, le=100, default=50)
+    liquidity: int = Field(ge=0, le=100, default=50)
+
+    def as_dict(self) -> dict[str, int]:
+        return self.model_dump()
+
+    @property
+    def total(self) -> int:
+        vals = list(self.as_dict().values())
+        return round(sum(vals) / len(vals)) if vals else 0
 
 
 class EntryQualityBreakdown(StrictModel):
@@ -396,6 +454,8 @@ class EntryQualityBreakdown(StrictModel):
     market_alignment: int = Field(ge=0, le=100)
     liquidity_spread: int = Field(ge=0, le=100, default=70)
     signal_drift: int = Field(ge=0, le=100)
+    impulse_quality: int = Field(ge=0, le=100, default=50)
+    retracement_quality: int = Field(ge=0, le=100, default=50)
 
     def as_dict(self) -> dict[str, int]:
         return self.model_dump()
@@ -403,7 +463,7 @@ class EntryQualityBreakdown(StrictModel):
     @property
     def total(self) -> int:
         vals = list(self.as_dict().values())
-        return int(round(sum(vals) / len(vals))) if vals else 0
+        return round(sum(vals) / len(vals)) if vals else 0
 
 
 class TargetPlan(StrictModel):
@@ -419,12 +479,127 @@ class TargetPlan(StrictModel):
     reasons: list[str] = Field(default_factory=list)
 
 
+class AdmissionSnapshot(StrictModel):
+    """Immutable context frozen when a candidate or watch is created."""
+
+    price_at_creation: float
+    atr_at_creation: float | None = None
+    vwap_at_creation: float | None = None
+    setup_type: SetupType = SetupType.UNKNOWN
+    entry_zone_low: float | None = None
+    entry_zone_high: float | None = None
+    setup_quality_at_creation: int = Field(ge=0, le=100, default=0)
+    entry_quality_at_creation: int = Field(ge=0, le=100, default=0)
+    stop_at_creation: float | None = None
+    target_at_creation: float | None = None
+    effective_rr_at_creation: float | None = None
+    policy_version: str = "entry_policy@1"
+    aggressiveness: int = Field(ge=0, le=100, default=0)
+    admission_version: str = "admission@1.0.0"
+    feature_version: str = "features@1"
+    setup_model_version: str = "setup@1"
+    entry_model_version: str = "entry@1"
+    arrival_model_version: str = "arrival@1"
+    created_at: datetime | None = None
+    stop_model: str | None = None
+    structural_source: str | None = None
+    structural_level: float | None = None
+    structural_source_ts: datetime | None = None
+    atr_buffer: float | None = None
+    quote_ts: datetime | None = None
+    evaluated_at: datetime | None = None
+    last_bar_ts: datetime | None = None
+    market_gate_ts: datetime | None = None
+    effective_thresholds: dict[str, Any] | None = None
+
+
+class DataIntegrityResult(StrictModel):
+    status: DataHealthStatus
+    last_trade_fresh: bool = True
+    quote_fresh: bool = True
+    spread_fresh: bool = True
+    bars_complete: bool = True
+    timestamps_aligned: bool = True
+    reason_codes: list[str] = Field(default_factory=list)
+
+
+class EffectiveRRResult(StrictModel):
+    effective_entry: float
+    effective_stop: float
+    effective_target: float
+    effective_risk: float
+    effective_reward: float
+    effective_rr: float
+    spread_bps: float | None = None
+    slippage_bps: float = 5.0
+
+
+class StopValidationResult(StrictModel):
+    valid: bool
+    structural_basis: bool = False
+    distance_atr: float | None = None
+    stop_model: str | None = None
+    structural_source: str | None = None
+    structural_level: float | None = None
+    atr_buffer: float | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+
+
+class TargetValidationResult(StrictModel):
+    valid: bool
+    basis: str | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+
+
+class StructuralIntegrityFacts(StrictModel):
+    valid: bool
+    score: int = Field(ge=0, le=100, default=50)
+    swing_structure_valid: bool = True
+    impulse_valid: bool = True
+    support_valid: bool = True
+    vwap_structure_valid: bool = True
+    retracement_valid: bool = True
+    hard_damage: bool = False
+    reason_codes: list[str] = Field(default_factory=list)
+
+
+class ChaseFacts(StrictModel):
+    score: int = Field(ge=0, le=100, default=0)
+    atr_extension: float | None = None
+    vwap_extension: float | None = None
+    zone_extension: float | None = None
+    consecutive_green_bars: int = 0
+    reward_consumed_pct: float | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+
+
+class TradeAdmissionResult(StrictModel):
+    decision: AdmissionDecision
+    admitted: bool
+    setup_type: SetupType = SetupType.UNKNOWN
+    setup_quality: int = Field(ge=0, le=100, default=0)
+    entry_quality: int = Field(ge=0, le=100, default=0)
+    effective_rr: float | None = None
+    chase_score: int = Field(ge=0, le=100, default=0)
+    structure_valid: bool = True
+    stop_valid: bool = True
+    target_valid: bool = True
+    data_status: DataHealthStatus = DataHealthStatus.HEALTHY
+    vetoes: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    admission_version: str = "admission@1.0.0"
+    snapshot: AdmissionSnapshot | None = None
+
+
 class EntryDecisionBundle(StrictModel):
     """Structured thesis/entry/target/stop — prices are deterministic."""
 
     thesis: InstrumentThesis
     entry_decision: EntryDecision
     entry_quality: int = Field(ge=0, le=100)
+    setup_quality: int = Field(ge=0, le=100, default=0)
+    setup_breakdown: SetupQualityBreakdown | None = None
     breakdown: EntryQualityBreakdown
     chase_reasons: list[str] = Field(default_factory=list)
     facts: EntryTimingFacts
@@ -445,20 +620,41 @@ class EntryWatch(StrictModel):
     thesis: InstrumentThesis
     signal_price: Decimal
     current_price_at_creation: Decimal
+    """Frozen mid/close when the WAIT plan was (re)created by the scanner."""
+    last_price: Decimal | None = None
+    """Latest price the watch loop observed — desk «Сейчас» prefers this."""
+    last_observed_at: datetime | None = None
     entry_zone_low: Decimal
     entry_zone_high: Decimal
     planned_entry: Decimal
     planned_stop: Decimal
     planned_target: Decimal
+    planned_risk_reward: float | None = None
     required_conditions: list[str] = Field(default_factory=list)
     invalidating_conditions: list[str] = Field(default_factory=list)
     max_spread_bps: float = 30.0
     minimum_reward_risk: float = 1.4
     entry_quality_at_creation: int = Field(ge=0, le=100)
+    setup_type: SetupType = SetupType.UNKNOWN
+    setup_quality_at_creation: int = Field(ge=0, le=100, default=0)
+    trigger_version: int = Field(ge=0, default=0)
+    state_version: int = Field(ge=0, default=0)
+    claimed_at: datetime | None = None
+    claim_token: str | None = None
+    claim_owner_id: str | None = None
+    lease_expires_at: datetime | None = None
+    triggered_at: datetime | None = None
+    last_admission_record_id: UUID | None = None
+    converted_opportunity_id: UUID | None = None
+    exec_timeframe: str = "H1"
+    geometry_hash: str | None = None
+    admission_version: str = "admission@1.0.0"
+    admission_snapshot: AdmissionSnapshot | None = None
     status: EntryWatchStatus = EntryWatchStatus.WAITING
     pipeline_run_id: UUID | None = None
     candidate: TradeCandidate | None = None
     reasons: list[str] = Field(default_factory=list)
+    desk_enrichment: dict[str, object] = Field(default_factory=dict)
 
 
 class EntryAttribution(StrictModel):
@@ -504,6 +700,137 @@ class ShadowPolicyRecord(StrictModel):
     entry_quality: int | None = None
     chase_reasons: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
+
+
+class AdmissionRecord(StrictModel):
+    """Durable admission evaluation — facts, scores, decision at one moment."""
+
+    id: UUID
+    symbol: str
+    recorded_at: datetime
+    decision: AdmissionDecision
+    admitted: bool
+    setup_type: SetupType = SetupType.UNKNOWN
+    setup_quality: int = Field(ge=0, le=100, default=0)
+    entry_quality: int = Field(ge=0, le=100, default=0)
+    zone_arrival_quality: int | None = Field(default=None, ge=0, le=100)
+    zone_arrival_type: str | None = None
+    effective_rr: float | None = None
+    chase_score: int = Field(ge=0, le=100, default=0)
+    structure_valid: bool = True
+    stop_valid: bool = True
+    target_valid: bool = True
+    data_status: DataHealthStatus = DataHealthStatus.HEALTHY
+    vetoes: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    admission_version: str = "admission@1.0.0"
+    watch_id: UUID | None = None
+    opportunity_id: UUID | None = None
+    pipeline_run_id: UUID | None = None
+    trigger_version: int | None = None
+    context: dict[str, Any] = Field(default_factory=dict)
+    evaluation_key: str | None = None
+    phase: str | None = None
+    geometry_hash: str | None = None
+    quote_ts: datetime | None = None
+    market_gate_ts: datetime | None = None
+    expires_at: datetime | None = None
+    source_version: str | None = None
+
+
+class StopPlan(StrictModel):
+    """Structural basis for the protective stop — not cosmetic distance."""
+
+    price: Decimal
+    model: str = "structure"
+    basis_level: float | None = None
+    basis_timestamp: datetime | None = None
+    atr_distance: float | None = None
+    structure_distance: float | None = None
+    reason_codes: list[str] = Field(default_factory=list)
+    model_version: str = "stop@1"
+
+
+class WatchRevalidationResult(StrictModel):
+    """Single immutable outcome of a triggered watch revalidation."""
+
+    entry_decision: EntryDecision
+    admission: TradeAdmissionResult
+    candidate: TradeCandidate | None = None
+    target_plan: TargetPlan | None = None
+    stop_plan: StopPlan | None = None
+    quote: Quote
+    snapshot: AdmissionSnapshot | None = None
+    market_gate: dict[str, Any] | None = None
+    evaluated_at: datetime
+    geometry_hash: str
+
+
+class AdmissionExplainField(StrictModel):
+    label: str
+    value: str
+    status: str = "pass"  # pass | warn | fail | info
+
+
+class TradeAdmissionExplain(StrictModel):
+    """Human-readable answer to WHY WAS THIS TRADE ALLOWED / BLOCKED?"""
+
+    entity_type: str
+    entity_id: str
+    symbol: str
+    headline: str
+    decision: AdmissionDecision
+    admitted: bool
+    fields: list[AdmissionExplainField] = Field(default_factory=list)
+    vetoes: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    admission_version: str = "admission@1.0.0"
+    recorded_at: datetime | None = None
+
+
+class ShadowOutcomeRecord(StrictModel):
+    """Post-decision path tracking — even for WAIT / NO_TRADE / rejected BUY."""
+
+    id: UUID
+    symbol: str
+    watch_id: UUID | None = None
+    admission_record_id: UUID | None = None
+    recorded_at: datetime
+    shadow_until: datetime
+    status: str = "active"  # active | complete
+    origin: str  # pipeline | watch_revalidate | watch_terminal
+    entry_decision: EntryDecision
+    admission_decision: AdmissionDecision
+    setup_type: SetupType = SetupType.UNKNOWN
+    reference_price: float
+    zone_low: float
+    zone_high: float
+    planned_entry: float
+    planned_stop: float
+    planned_target: float
+    zone_reached: bool = False
+    zone_reached_at: datetime | None = None
+    time_to_zone_minutes: int | None = None
+    mfe_pct: float | None = None
+    mae_pct: float | None = None
+    target_hit: bool = False
+    stop_hit: bool = False
+    last_price: float | None = None
+    distance_atr_at_origin: float | None = None
+    zone_arrival_quality: int | None = None
+    zone_arrival_type: str | None = None
+
+
+class ZoneTouchCalibration(StrictModel):
+    """Historical zone-touch rate — only surfaced when sample is sufficient."""
+
+    setup_type: SetupType
+    distance_atr_bucket: str
+    zone_touch_rate_pct: float
+    sample_size: int
+    median_time_to_zone_minutes: int | None = None
+    calibrated: bool = False
 
 
 class PipelineResult(StrictModel):

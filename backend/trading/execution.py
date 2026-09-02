@@ -25,6 +25,7 @@ from broker.interface import BrokerRejection, broker_connection_state
 from core.config import get_settings
 from core.enums import (
     BrokerConnectionState,
+    DataHealthStatus,
     IntentPurpose,
     IntentStatus,
     OpportunityStatus,
@@ -262,35 +263,42 @@ class ExecutionService:
     def connection_state(self) -> BrokerConnectionState:
         return broker_connection_state(self.broker)
 
-    async def _risk_context(self, symbol: str) -> tuple[RiskContext, list[str]]:
+    async def _risk_context(self, candidate: TradeCandidate) -> tuple[RiskContext, list[str]]:
         """Re-derive the facts the engine judges against, at the moment of the click.
 
-        A card can sit for an hour. In that hour the book can gain a position
-        that makes this one a duplicate of exposure already held, an intent can
-        go `UNKNOWN` in this symbol, and the calendar can be read for the first
-        time. Re-running the engine against the portfolio alone would re-check
-        the numbers and quietly skip every one of those, which makes the last
-        gate before capital moves the weakest one in the pipeline.
-
-        The one fact deliberately not re-derived is the market regime: it comes
-        from an assessment made during the scan, and re-running it here would
-        mean a second round of vendor calls on a human's click. Unknown skips
-        that check, which is the same behaviour the gate has always had.
-
-        A failure to build the context is not a pass. The engine is handed an
-        empty one, which under the default limits refuses the entry.
+        A card can sit for an hour. Regime, book, and calendar must be re-checked.
+        Unknown or missing regime is fail-closed — never treated as permission.
         """
+        from agents.market.agent import assess_market
+        from trading.market_gate import evaluate_market_gate
+
+        now = self._clock()
+        market = await assess_market(get_settings().fred_api_key, now=now)
+        gate = evaluate_market_gate(
+            market,
+            now=now,
+            sector_label=market.sector_label,
+            sector_tradable=market.sector_tradable,
+            require_sector=True,
+        )
+        regime: bool | None
+        if gate.status is DataHealthStatus.HEALTHY:
+            regime = gate.tradable_long
+        else:
+            regime = None
         try:
             built = await build_risk_context(
-                symbol,
+                candidate.symbol.upper(),
                 broker=self.broker,
                 market_data=self.market_data,
                 finnhub_api_key=get_settings().finnhub_api_key,
-                now=self._clock(),
+                regime_tradable=regime,
+                now=now,
             )
         except Exception as exc:  # noqa: BLE001 — refuse rather than guess
-            return RiskContext(now=self._clock()), [f"risk context unavailable: {exc!r}"]
-        return built.context, built.notes
+            return RiskContext(now=now), [f"risk context unavailable: {exc!r}"]
+        notes = [*built.notes, *gate.reason_codes]
+        return built.context, notes
 
     async def decide(
         self,
@@ -369,7 +377,7 @@ class ExecutionService:
 
         portfolio = await self.broker.get_portfolio()
         portfolio = portfolio.model_copy(update={"kill_switch": is_kill_switch_on()})
-        context, context_notes = await self._risk_context(opp.candidate.symbol)
+        context, context_notes = await self._risk_context(opp.candidate)
 
         risk = self.risk.evaluate(
             opp.candidate,
@@ -417,6 +425,92 @@ class ExecutionService:
                 pipeline_run_id=opp.candidate.pipeline_run_id,
             )
             raise RuntimeError(f"LIQUIDITY_GATE_REJECTED:{','.join(pricing.reasons)}")
+
+        from trading.final_admission import build_and_evaluate_final_admission
+        from trading.final_pretrade import PretradeRejection
+
+        # Legacy cards may be shown, but execution still requires a fresh full
+        # approval admission below — that IS the required re-check. Do not refuse
+        # before final admission solely for missing creation_admission_record_id.
+
+        if quote is None:
+            self._release_opportunity(opp, risk)
+            await self.audit.append(
+                "PretradeValidationRejected",
+                "execution",
+                {
+                    "opportunity_id": str(opp.id),
+                    "code": "BUY_REJECTED_STALE_DATA",
+                    "detail": "QUOTE_REQUIRED",
+                },
+                pipeline_run_id=opp.candidate.pipeline_run_id,
+            )
+            raise RuntimeError("BUY_REJECTED_STALE_DATA:QUOTE_REQUIRED")
+
+        if self.market_data is None:
+            self._release_opportunity(opp, risk)
+            raise RuntimeError("LIQUIDITY_GATE_REJECTED:MARKET_DATA_NOT_CONFIGURED")
+
+        evaluated_at = self._clock()
+        from agents.market.agent import assess_market
+
+        fresh_market = await assess_market(get_settings().fred_api_key, now=evaluated_at)
+        try:
+            final_eval = await build_and_evaluate_final_admission(
+                priced,
+                quote=quote,
+                market_data=self.market_data,
+                now=evaluated_at,
+                market=fresh_market,
+                sector_label=fresh_market.sector_label,
+                sector_tradable=fresh_market.sector_tradable,
+                require_sector=True,
+            )
+            approval_admission = final_eval.admission
+        except PretradeRejection as exc:
+            self._release_opportunity(opp, risk)
+            await self.audit.append(
+                "PretradeValidationRejected",
+                "execution",
+                {
+                    "opportunity_id": str(opp.id),
+                    "code": exc.code,
+                    "detail": exc.detail,
+                    "evaluated_at": evaluated_at.isoformat(),
+                    "quote_ts": quote.ts.isoformat() if quote.ts else None,
+                },
+                pipeline_run_id=opp.candidate.pipeline_run_id,
+            )
+            raise RuntimeError(f"{exc.code}:{exc.detail}") from exc
+
+        from trading.admission_records import persist_admission
+
+        approval_record = persist_admission(
+            symbol=priced.symbol,
+            admission=approval_admission,
+            opportunity_id=opp.id,
+            pipeline_run_id=opp.candidate.pipeline_run_id,
+            context={
+                "source": "approval",
+                "phase": "approval",
+                "evaluated_at": evaluated_at.isoformat(),
+                "effective_rr": approval_admission.effective_rr,
+                "spread_bps": final_eval.market_gate.model_dump(mode="json")
+                if final_eval.market_gate
+                else None,
+            },
+            geometry_hash=final_eval.geometry_hash,
+            quote_ts=quote.ts,
+            market_gate_ts=final_eval.market_gate.regime_ts,
+            phase="approval",
+        )
+        opp = opp.model_copy(
+            update={
+                "approval_admission_record_id": approval_record.id,
+                "geometry_hash": final_eval.geometry_hash or opp.geometry_hash,
+            }
+        )
+        self.store.update(opp)
 
         # Sizing is re-derived at the price we will actually pay. Crossing the
         # spread shortens the distance to the stop, so the same dollar limit
@@ -1902,7 +1996,7 @@ class ExecutionService:
                     and order.broker_order_id not in to_cancel
                 ):
                     to_cancel.append(order.broker_order_id)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.warning(
                 "execution: could not list open orders while freeing %s for exit",
                 symbol,

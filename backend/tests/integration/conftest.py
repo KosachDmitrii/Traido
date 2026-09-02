@@ -195,21 +195,32 @@ class ScriptedMarketData:
             raise RuntimeError("scripted market-data outage")
         if not self.bars_available:
             return []
-        base = self._now() - timedelta(days=self.bar_count + self.bar_age_days)
-        return [
-            Bar(
-                symbol=symbol.upper(),
-                timeframe=Timeframe.D1,
-                ts=base + timedelta(days=i),
-                open=self.price,
-                high=self.price * 1.01,
-                low=self.price * 0.99,
-                close=self.price,
-                volume=self.volume,
-                source="scripted",
+        now = self._now()
+        # D1 series can be aged for liquidity-gate tests. Exec timeframes (H1…)
+        # must end at "now" so final admission is not confounded with ADV age.
+        if timeframe == Timeframe.D1:
+            stale = timedelta(days=self.bar_age_days)
+            step = timedelta(days=1)
+        else:
+            stale = timedelta(0)
+            step = timedelta(hours=1)
+        bars: list[Bar] = []
+        for i in range(self.bar_count):
+            ts = now - stale - step * (self.bar_count - 1 - i)
+            bars.append(
+                Bar(
+                    symbol=symbol.upper(),
+                    timeframe=timeframe,
+                    ts=ts,
+                    open=self.price,
+                    high=self.price * 1.01,
+                    low=self.price * 0.99,
+                    close=self.price,
+                    volume=self.volume,
+                    source="scripted",
+                )
             )
-            for i in range(self.bar_count)
-        ]
+        return bars
 
     async def get_last_price(self, symbol: str) -> float:
         return self.price

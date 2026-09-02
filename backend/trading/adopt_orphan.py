@@ -6,9 +6,9 @@ import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
-
 from uuid import UUID
 
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.config import Settings, get_settings
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 _ORPHAN_PREFIX = "orphan:"
 
 
-def _session_factory(engine=None) -> sessionmaker[Session]:
+def _session_factory(engine: Engine | None = None) -> sessionmaker[Session]:
     return session_factory(engine)
 
 
@@ -136,6 +136,7 @@ async def adopt_orphan_position(
     )
 
     candidate = (opp_row.payload or {}).get("candidate") if opp_row is not None else None
+    target_price: Decimal | None
     if isinstance(candidate, dict):
         stop_price = stop_price or Decimal(str(candidate["stop"]))
         target_price = Decimal(str(candidate["target"]))

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
+from typing import Any
 
 from trading.entry_watches import ENTRY_WATCHES
 from trading.historical_mfe import sample_counts
@@ -14,10 +15,10 @@ SHADOW_PATH = ROOT / "data" / "shadow_entry_policy.jsonl"
 REPORT_PATH = ROOT / "data" / "f3_forward_report.json"
 
 
-def _read_jsonl(path: Path) -> list[dict]:
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
-    rows: list[dict] = []
+    rows: list[dict[str, Any]] = []
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line:
@@ -29,7 +30,7 @@ def _read_jsonl(path: Path) -> list[dict]:
     return rows
 
 
-def build_f3_diagnostics() -> dict:
+def build_f3_diagnostics() -> dict[str, Any]:
     shadows = _read_jsonl(SHADOW_PATH)
     old = Counter(r.get("old_policy") for r in shadows)
     new = Counter(r.get("new_policy") for r in shadows)
@@ -52,10 +53,10 @@ def build_f3_diagnostics() -> dict:
     open_watches = ENTRY_WATCHES.list_open()
     watch_status = ENTRY_WATCHES.status_counts()
 
-    qualities = [r.get("entry_quality") for r in shadows if r.get("entry_quality") is not None]
+    qualities = [int(r["entry_quality"]) for r in shadows if r.get("entry_quality") is not None]
     avg_quality = round(sum(qualities) / len(qualities), 1) if qualities else None
 
-    chase = Counter()
+    chase: Counter[str] = Counter()
     for r in shadows:
         for code in r.get("chase_reasons") or []:
             chase[code] += 1
@@ -110,7 +111,7 @@ def build_f3_diagnostics() -> dict:
     }
 
 
-def write_forward_report(path: Path | None = None) -> dict:
+def write_forward_report(path: Path | None = None) -> dict[str, Any]:
     """Persist latest F3 diagnostics for continuous Paper measurement."""
     payload = build_f3_diagnostics()
     out = path or REPORT_PATH

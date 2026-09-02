@@ -5,10 +5,12 @@ Disarms ATR via a fake thresholds object; the ATR code must disappear.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from core.enums import EntryDecision, InstrumentThesis, MarketRegimeLabel
 from core.schemas import MarketAssessment
 from tests.unit.test_entry_timing_f3 import _snap
-from trading.entry_policy import EntryThresholds, thresholds_for
+from trading.entry_policy import thresholds_for
 from trading.entry_quality import decide_entry
 from trading.entry_timing import detect_chasing, evaluate_timing
 
@@ -34,14 +36,12 @@ def test_extension_veto_red_without_fix() -> None:
     )
 
     base = thresholds_for(0)
-    disarmed = EntryThresholds(
-        aggressiveness=0,
+    disarmed = replace(
+        base,
         vwap_ext_pct=99.0,
         ema_ext_pct=99.0,
         atr_ext_max=99.0,
-        impulse_atr_max=base.impulse_atr_max,
         drift_high_pct=99.0,
-        min_buy_quality=base.min_buy_quality,
         zone_gap_frac=0.0,
         allow_soft_chase_buy=False,
     )

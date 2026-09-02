@@ -179,8 +179,10 @@ class RiskEngine:
         reasons.extend(self._event_risk(candidate, ctx))
         reasons.extend(self._concentration(candidate, ctx))
 
-        if ctx.regime_tradable is False:
-            reasons.append("REGIME_NOT_TRADABLE")
+        if ctx.regime_tradable is not True:
+            reasons.append(
+                "REGIME_NOT_TRADABLE" if ctx.regime_tradable is False else "REGIME_MISSING"
+            )
 
         risk_per_share = candidate.entry - candidate.stop
         if risk_per_share <= 0:

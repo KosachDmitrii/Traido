@@ -8,6 +8,7 @@ from core.enums import Timeframe
 from core.schemas import Bar, FeatureSnapshot
 from quant.candlestick_patterns import detect_candles
 from quant.chart_patterns import detect_chart_patterns
+from quant.impulse_pullback import compute_impulse_pullback, metrics_to_indicators
 from quant.indicators import (
     atr,
     bollinger,
@@ -50,6 +51,12 @@ def compute_features(symbol: str, timeframe: Timeframe, bars: list[Bar]) -> Feat
     momentum = compute_momentum(bars)
     volatility = compute_volatility(bars)
     regime = classify(bars)
+
+    atr_v = last(atr_s)
+    vwap_v = last(vwap_s)
+    anchor = vwap_v if isinstance(vwap_v, (int, float)) else last(sma20)
+    leg = compute_impulse_pullback(bars, atr_v if isinstance(atr_v, (int, float)) else None, anchor=anchor)
+    leg_ind = metrics_to_indicators(leg)
 
     e50 = last(ema50)
     e200 = last(ema200)
@@ -94,6 +101,7 @@ def compute_features(symbol: str, timeframe: Timeframe, bars: list[Bar]) -> Feat
         "regime": regime.label.value,
         "regime_trend_strength_pct": regime.trend_strength_pct,
         "regime_tradable_long": regime.is_tradable_long,
+        **leg_ind,
     }
 
     candles = detect_candles(o, h, l, c)

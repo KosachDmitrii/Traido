@@ -44,7 +44,7 @@ async def main(symbols: list[str]) -> None:
             try:
                 result = await run_symbol_pipeline(symbol, publish=False, context=ctx)
                 status = result.status
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 status = f"EXC {type(exc).__name__}"
             dt = time.monotonic() - t0
             hosts = ", ".join(f"{h.split('.')[-2]}={n}" for h, n in sorted(REQUESTS.items()))

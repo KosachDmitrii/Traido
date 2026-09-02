@@ -13,9 +13,11 @@ from core.schemas import (
 from trading.entry_policy import SOFT_CHASE_CODES, get_entry_thresholds
 from trading.entry_timing import (
     ATR_EXTENSION_HIGH,
+    PULLBACK_TOO_DEEP,
     detect_chasing,
     zone_from_facts,
 )
+from trading.setup_quality import score_setup_quality
 
 
 def _clamp(n: int) -> int:
@@ -28,7 +30,7 @@ def score_entry_quality(
     market: MarketAssessment | None = None,
     technical_score: int | None = None,
 ) -> EntryQualityBreakdown:
-    # Price location vs SMA20/EMA
+    """Entry timing quality — whether the current price is a good entry."""
     if facts.distance_from_fast_ema_pct is None:
         price_loc = 50
     elif facts.distance_from_fast_ema_pct <= 0.5:
@@ -62,11 +64,23 @@ def score_entry_quality(
     else:
         atr_sc = 15
 
-    if facts.pullback_depth_pct is None:
+    if facts.pullback_depth_pct is None and facts.retracement_pct is None:
         pullback = 40
-    elif 0.3 <= facts.pullback_depth_pct <= 2.5:
+    elif facts.retracement_pct is not None:
+        r = facts.retracement_pct
+        if 0.38 <= r <= 0.62:
+            pullback = 90
+        elif 0.30 <= r < 0.38 or 0.62 < r <= 0.78:
+            pullback = 65
+        elif r > 0.786:
+            pullback = 15
+        elif r < 0.20:
+            pullback = 40
+        else:
+            pullback = 50
+    elif facts.pullback_depth_pct is not None and 0.3 <= facts.pullback_depth_pct <= 2.5:
         pullback = 85
-    elif facts.pullback_depth_pct < 0.3:
+    elif facts.pullback_depth_pct is not None and facts.pullback_depth_pct < 0.3:
         pullback = 45
     else:
         pullback = 30
@@ -105,18 +119,9 @@ def score_entry_quality(
         if -0.5 <= facts.short_term_momentum_pct <= 1.5:
             mom = 75
         elif facts.short_term_momentum_pct > 2.5:
-            mom = 25  # already ran
+            mom = 25
         else:
             mom = 55
-
-    vol = 50
-    if facts.relative_volume is not None:
-        if facts.relative_volume >= 1.5:
-            vol = 85
-        elif facts.relative_volume >= 1.0:
-            vol = 65
-        else:
-            vol = 40
 
     market_al = 70
     if market is not None:
@@ -140,9 +145,13 @@ def score_entry_quality(
     else:
         drift = 15
 
-    # Mild boost from technical score without letting it override location.
     if technical_score is not None:
         price_loc = _clamp(round(0.85 * price_loc + 0.15 * technical_score))
+
+    # Legacy breakdown fields retained for API compat; setup uses SetupQualityBreakdown.
+    impulse_q = 50
+    retrace_q = pullback
+    vol = 50
 
     return EntryQualityBreakdown(
         price_location=_clamp(price_loc),
@@ -156,7 +165,25 @@ def score_entry_quality(
         volume_confirmation=_clamp(vol),
         market_alignment=_clamp(market_al),
         signal_drift=_clamp(drift),
+        impulse_quality=_clamp(impulse_q),
+        retracement_quality=_clamp(retrace_q),
     )
+
+
+def entry_quality_total(breakdown: EntryQualityBreakdown) -> int:
+    """Entry-only score — never averaged with setup quality."""
+    vals = [
+        breakdown.price_location,
+        breakdown.vwap_location,
+        breakdown.atr_extension,
+        breakdown.pullback_quality,
+        breakdown.remaining_reward,
+        breakdown.short_term_momentum,
+        breakdown.signal_drift,
+        breakdown.resistance_structure,
+        breakdown.liquidity_spread,
+    ]
+    return round(sum(vals) / len(vals)) if vals else 0
 
 
 def decide_entry(
@@ -165,14 +192,19 @@ def decide_entry(
     *,
     market: MarketAssessment | None = None,
     technical_score: int | None = None,
+    news_score: int | None = None,
     target: TargetPlan | None = None,
     stop_price: float | None = None,
 ) -> EntryDecisionBundle:
-    """BULLISH != BUY_NOW. Chase codes and low quality force WAIT/NO_TRADE."""
+    """Legacy candidate generator — TradeAdmission is the BUY authority."""
     th = get_entry_thresholds()
-    min_quality = th.min_buy_quality
+    min_quality = th.min_entry_quality
+    setup_breakdown = score_setup_quality(
+        facts, market=market, technical_score=technical_score, news_score=news_score
+    )
     breakdown = score_entry_quality(facts, market=market, technical_score=technical_score)
-    quality = breakdown.total
+    setup_quality = setup_breakdown.total
+    quality = entry_quality_total(breakdown)
     chase = detect_chasing(facts, thresholds=th)
     reasons = list(chase)
 
@@ -186,13 +218,18 @@ def decide_entry(
         soft_only = bool(chase) and set(chase) <= SOFT_CHASE_CODES
         aggressive_ok = th.allow_soft_chase_buy and soft_only and quality >= min_quality
 
-        if ATR_EXTENSION_HIGH in chase and quality < 70 and not aggressive_ok:
-            decision = EntryDecision.WAIT_FOR_ENTRY
-        elif chase and quality < min_quality + 15 and not aggressive_ok:
+        if ATR_EXTENSION_HIGH in chase and quality < th.atr_extension_min_quality and not aggressive_ok or (
+            chase
+            and quality < min_quality + th.chase_wait_quality_buffer
+            and not aggressive_ok
+        ):
             decision = EntryDecision.WAIT_FOR_ENTRY
         elif quality < min_quality:
             decision = EntryDecision.WAIT_FOR_ENTRY
             reasons.append("ENTRY_QUALITY_BELOW_THRESHOLD")
+        elif setup_quality < th.min_setup_quality:
+            decision = EntryDecision.WAIT_FOR_ENTRY
+            reasons.append("SETUP_QUALITY_BELOW_THRESHOLD")
         elif chase and not aggressive_ok:
             decision = EntryDecision.WAIT_FOR_ENTRY
         else:
@@ -203,11 +240,18 @@ def decide_entry(
                 else "ENTRY_QUALITY_ACCEPTABLE"
             )
 
-    # Hard NO_TRADE when reward already gone and resistance is in the face.
-    hard = {"REWARD_ALREADY_CONSUMED", "ASYMMETRIC_DOWNSIDE"}
-    if thesis is InstrumentThesis.BULLISH and hard.issubset(set(chase)):
+    if thesis is InstrumentThesis.BULLISH and {"REWARD_ALREADY_CONSUMED", "ASYMMETRIC_DOWNSIDE"}.issubset(
+        set(chase)
+    ):
         decision = EntryDecision.NO_TRADE
         reasons.append("NO_EDGE_LEFT_AT_PRICE")
+    elif thesis is InstrumentThesis.BULLISH and PULLBACK_TOO_DEEP in chase:
+        if th.pullback_deep_no_trade:
+            decision = EntryDecision.NO_TRADE
+            reasons.append("PULLBACK_STRUCTURE_BROKEN")
+        else:
+            decision = EntryDecision.WAIT_FOR_ENTRY
+            reasons.append("PULLBACK_DEEP_WAIT")
 
     from decimal import Decimal
 
@@ -215,6 +259,8 @@ def decide_entry(
         thesis=thesis,
         entry_decision=decision,
         entry_quality=quality,
+        setup_quality=setup_quality,
+        setup_breakdown=setup_breakdown,
         breakdown=breakdown,
         chase_reasons=chase,
         facts=facts,

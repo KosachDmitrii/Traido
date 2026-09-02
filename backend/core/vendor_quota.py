@@ -22,8 +22,9 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 from core.concurrency import RateLimiter
 
@@ -98,7 +99,7 @@ def wait_seconds_from_headers(
 def fallback_429_wait(attempt: int) -> float:
     """When the vendor omits Reset/Retry-After — exponential with jitter."""
     base = _FALLBACK_429_BASE_SEC * (2 ** max(0, attempt))
-    return min(_MAX_HEADER_WAIT_SEC, base + random.uniform(0.0, base * 0.25))
+    return float(min(_MAX_HEADER_WAIT_SEC, base + random.uniform(0.0, base * 0.25)))
 
 
 class AccountQuota:

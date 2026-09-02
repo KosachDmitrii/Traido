@@ -122,6 +122,34 @@ def evaluate_timing(
     # market unused for numeric facts; alignment scored in quality
     del market
 
+    anchor_px = None
+    if isinstance(vwap, (int, float)) and float(vwap) > 0:
+        anchor_px = float(vwap)
+    elif isinstance(ema_fast, (int, float)) and float(ema_fast) > 0:
+        anchor_px = float(ema_fast)
+
+    def _leg(key: str) -> float | None:
+        v = _ind(exec_snap, key)
+        return float(v) if isinstance(v, (int, float)) else None
+
+    def _leg_int(key: str) -> int | None:
+        v = _ind(exec_snap, key)
+        if isinstance(v, bool):
+            return None
+        if isinstance(v, int):
+            return v
+        if isinstance(v, float):
+            return int(v)
+        return None
+
+    def _leg_str(key: str) -> str | None:
+        v = _ind(exec_snap, key)
+        return v if isinstance(v, str) else None
+
+    retracement = _leg("retracement_pct")
+    if retracement is not None:
+        pullback = retracement * 100.0
+
     return EntryTimingFacts(
         current_price=price,
         signal_price=signal_price,
@@ -145,6 +173,16 @@ def evaluate_timing(
         stop_distance_pct=stop_dist_pct,
         stop_distance_atr=stop_dist_atr,
         session_cohort=session_cohort(now),
+        anchor_price=anchor_px,
+        impulse_low=_leg("impulse_low"),
+        impulse_high=_leg("impulse_high"),
+        impulse_range_atr=_leg("impulse_range_atr"),
+        impulse_bars=_leg_int("impulse_bars"),
+        impulse_grade=_leg_str("impulse_grade"),
+        retracement_pct=retracement,
+        pullback_bars=_leg_int("pullback_bars"),
+        pullback_vol_ratio=_leg("pullback_vol_ratio"),
+        pullback_index=_leg_int("pullback_index"),
     )
 
 
@@ -159,6 +197,17 @@ REWARD_ALREADY_CONSUMED = "REWARD_ALREADY_CONSUMED"
 ASYMMETRIC_DOWNSIDE = "ASYMMETRIC_DOWNSIDE"
 SIGNAL_TO_ENTRY_DRIFT_HIGH = "SIGNAL_TO_ENTRY_DRIFT_HIGH"
 NORMAL_RETRACE_EXCEEDS_STOP = "NORMAL_RETRACE_EXCEEDS_STOP"
+IMPULSE_WEAK = "IMPULSE_WEAK"
+PULLBACK_TOO_DEEP = "PULLBACK_TOO_DEEP"
+PULLBACK_TOO_SHALLOW = "PULLBACK_TOO_SHALLOW"
+PULLBACK_EXHAUSTED = "PULLBACK_EXHAUSTED"
+PULLBACK_VOL_HEAVY = "PULLBACK_VOL_HEAVY"
+
+# Professional VWAP pullback zone defaults (aggressiveness 0).
+ZONE_ATR_UNDERCUT = 0.5
+ZONE_ATR_BUFFER = 0.20
+FIB_RETRACE_LOW = 0.382
+FIB_RETRACE_HIGH = 0.618
 
 # Frozen F3 initial policy — aggressiveness 0. Raised via entry_policy.
 VWAP_EXT_PCT = 1.0
@@ -185,6 +234,14 @@ def detect_chasing(
     atr_ext = float(getattr(th, "atr_ext_max", ATR_EXT_MAX))
     impulse_max = float(getattr(th, "impulse_atr_max", IMPULSE_ATR_MAX))
     drift_high = float(getattr(th, "drift_high_pct", DRIFT_HIGH_PCT))
+    resistance_close = float(getattr(th, "resistance_close_pct", RESISTANCE_TOO_CLOSE_PCT))
+    reward_frac = float(getattr(th, "reward_consumed_frac", REWARD_CONSUMED_FRAC))
+    retrace_deep = float(getattr(th, "retrace_deep_pct", 0.786))
+    retrace_shallow = float(getattr(th, "retrace_shallow_pct", 0.20))
+    retrace_shallow_vwap = float(getattr(th, "retrace_shallow_vwap_pct", 0.30))
+    pullback_vol_max = float(getattr(th, "pullback_vol_max", 1.0))
+    pullback_index_max = int(getattr(th, "pullback_index_max", 3))
+    flag_impulse_weak = bool(getattr(th, "flag_impulse_weak", True))
 
     reasons: list[str] = []
     if facts.distance_from_vwap_pct is not None and facts.distance_from_vwap_pct > vwap_ext:
@@ -197,7 +254,7 @@ def detect_chasing(
         reasons.append(IMPULSE_ALREADY_MATURE)
     if (
         facts.distance_to_resistance_pct is not None
-        and facts.distance_to_resistance_pct < RESISTANCE_TOO_CLOSE_PCT
+        and facts.distance_to_resistance_pct < resistance_close
     ):
         reasons.append(RESISTANCE_TOO_CLOSE)
     if (
@@ -205,7 +262,7 @@ def detect_chasing(
         and facts.remaining_expected_reward_pct is not None
         and facts.remaining_expected_reward_pct > 0
         and facts.signal_to_current_drift_pct
-        >= REWARD_CONSUMED_FRAC * facts.remaining_expected_reward_pct
+        >= reward_frac * facts.remaining_expected_reward_pct
     ):
         reasons.append(REWARD_ALREADY_CONSUMED)
     if facts.signal_to_current_drift_pct is not None and facts.signal_to_current_drift_pct > drift_high:
@@ -222,6 +279,25 @@ def detect_chasing(
         and facts.distance_to_resistance_pct < facts.stop_distance_pct
     ):
         reasons.append(ASYMMETRIC_DOWNSIDE)
+
+    if flag_impulse_weak and facts.impulse_grade == "C" and facts.impulse_range_atr is not None:
+        reasons.append(IMPULSE_WEAK)
+
+    if facts.retracement_pct is not None:
+        if facts.retracement_pct > retrace_deep:
+            reasons.append(PULLBACK_TOO_DEEP)
+        elif facts.retracement_pct < retrace_shallow and (
+            facts.distance_from_vwap_pct is not None
+            and facts.distance_from_vwap_pct > retrace_shallow_vwap
+        ):
+            reasons.append(PULLBACK_TOO_SHALLOW)
+
+    if facts.pullback_index is not None and facts.pullback_index >= pullback_index_max:
+        reasons.append(PULLBACK_EXHAUSTED)
+
+    if facts.pullback_vol_ratio is not None and facts.pullback_vol_ratio > pullback_vol_max:
+        reasons.append(PULLBACK_VOL_HEAVY)
+
     return reasons
 
 
@@ -235,37 +311,67 @@ def primary_exec_snap(
     )
 
 
+def _resolve_anchor(facts: EntryTimingFacts) -> float:
+    price = facts.current_price
+    if facts.anchor_price is not None and facts.anchor_price > 0:
+        return facts.anchor_price
+    if facts.distance_from_vwap_pct is not None and facts.distance_from_vwap_pct > 0:
+        return price / (1 + facts.distance_from_vwap_pct / 100.0)
+    if facts.distance_from_fast_ema_pct is not None and facts.distance_from_fast_ema_pct > 0:
+        return price / (1 + facts.distance_from_fast_ema_pct / 100.0)
+    return price
+
+
 def zone_from_facts(
     facts: EntryTimingFacts,
     *,
-    atr_mult_low: float = 0.3,
-    atr_mult_high: float = 0.05,
     thresholds: Any | None = None,
 ) -> tuple[Decimal, Decimal]:
-    """Preferred pullback zone near VWAP/SMA when extended.
+    """Institutional VWAP pullback zone with optional fib overlap.
 
-    Aggressiveness lifts `zone_gap_frac`: zone high moves toward the live price
-    so a WAIT does not demand a full trip back to SMA20.
+    Desk convention: allow ~0.5 ATR undercut below VWAP, ~0.20 ATR above before
+    chase. When impulse leg geometry is known, intersect with the 38–62% fib band.
+    Aggressiveness widens the upper band toward live price via zone_gap_frac.
     """
     from trading.entry_policy import get_entry_thresholds
 
     th = thresholds if thresholds is not None else get_entry_thresholds()
     gap_frac = float(getattr(th, "zone_gap_frac", 0.0))
+    undercut = float(getattr(th, "zone_atr_undercut", ZONE_ATR_UNDERCUT))
+    buffer = float(getattr(th, "zone_atr_buffer", ZONE_ATR_BUFFER))
 
     price = facts.current_price
     atr = facts.atr or (price * 0.01)
-    anchor = price
-    if facts.distance_from_vwap_pct is not None and facts.distance_from_vwap_pct > 0:
-        vwap_px = price / (1 + facts.distance_from_vwap_pct / 100.0)
-        anchor = vwap_px
-    elif facts.distance_from_fast_ema_pct is not None and facts.distance_from_fast_ema_pct > 0:
-        ema_px = price / (1 + facts.distance_from_fast_ema_pct / 100.0)
-        anchor = ema_px
-    low = Decimal(str(round(anchor - atr_mult_low * atr, 4)))
+    anchor = _resolve_anchor(facts)
+
+    vwap_low = anchor - undercut * atr
     toward_price = max(0.0, price - anchor) * gap_frac
-    high = Decimal(
-        str(round(min(price, anchor + atr_mult_high * atr + toward_price), 4))
-    )
+    vwap_high = anchor + buffer * atr + toward_price
+
+    low = Decimal(str(round(vwap_low, 4)))
+    high = Decimal(str(round(min(price, vwap_high), 4)))
+
+    impulse_high = facts.impulse_high
+    impulse_low = facts.impulse_low
+    if (
+        impulse_high is not None
+        and impulse_low is not None
+        and impulse_high > impulse_low
+        and (impulse_high - impulse_low) >= atr * 0.3
+    ):
+        impulse_range = impulse_high - impulse_low
+        fib_low = impulse_high - FIB_RETRACE_HIGH * impulse_range
+        fib_high = impulse_high - FIB_RETRACE_LOW * impulse_range
+        overlap_low = max(vwap_low, fib_low)
+        overlap_high = min(vwap_high, fib_high, price)
+        if overlap_low < overlap_high:
+            low = Decimal(str(round(overlap_low, 4)))
+            high = Decimal(str(round(overlap_high, 4)))
+
     if low >= high:
         high = Decimal(str(round(float(low) + max(atr * 0.1, price * 0.001), 4)))
+        low = Decimal(str(round(low, 4)))
+    else:
+        low = Decimal(str(round(low, 4)))
+        high = Decimal(str(round(high, 4)))
     return low, high

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import httpx
 
 from core.enums import AssessmentKind, MarketRegimeLabel
@@ -10,7 +12,17 @@ from core.schemas import MarketAssessment
 PROMPT_VERSION = "market@0.1.0"
 
 
-async def assess_market(fred_api_key: str | None = None) -> MarketAssessment:
+async def assess_market(
+    fred_api_key: str | None = None,
+    *,
+    now: datetime | None = None,
+) -> MarketAssessment:
+    evaluated_at = now or datetime.now(UTC)
+    if evaluated_at.tzinfo is None:
+        evaluated_at = evaluated_at.replace(tzinfo=UTC)
+    else:
+        evaluated_at = evaluated_at.astimezone(UTC)
+
     if not fred_api_key:
         return MarketAssessment(
             kind=AssessmentKind.MARKET,
@@ -19,6 +31,10 @@ async def assess_market(fred_api_key: str | None = None) -> MarketAssessment:
             risk_posture="neutral",
             reasons=["FRED key not configured — neutral stub"],
             macro_notes=[],
+            evaluated_at=evaluated_at,
+            benchmark="SPY",
+            sector_label="unknown",
+            sector_tradable=True,
         )
 
     # 10Y yield (DGS10) and unemployment (UNRATE) — simple regime proxy
@@ -58,6 +74,10 @@ async def assess_market(fred_api_key: str | None = None) -> MarketAssessment:
         risk_posture=posture,
         reasons=["FRED macro snapshot"] + notes,
         macro_notes=notes,
+        evaluated_at=evaluated_at,
+        benchmark="FRED:DGS10+UNRATE",
+        sector_label="unknown",
+        sector_tradable=True,
     )
 
 

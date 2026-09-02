@@ -7,10 +7,10 @@ from uuid import uuid4
 
 from core.enums import EntryDecision, EntryWatchStatus, InstrumentThesis, TradeAction
 from core.schemas import TradeCandidate
+from tests.unit.test_entry_timing_f3 import _snap
 from trading.entry_quality import decide_entry
 from trading.entry_timing import evaluate_timing
 from trading.entry_watches import EntryWatchStore
-from tests.unit.test_entry_timing_f3 import _snap
 
 
 def _bundle_and_candidate(symbol: str, *, quality_score: int = 88):

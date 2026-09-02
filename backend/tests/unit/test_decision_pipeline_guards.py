@@ -39,10 +39,9 @@ def test_new_exposure_gate_order_is_complete() -> None:
 
 
 def test_intent_transition_from_is_compare_and_swap() -> None:
-    from core.enums import IntentStatus
+    from core.enums import IntentStatus, OrderSide, OrderType
     from trading.intents import MemoryOrderIntentStore
     from trading.order_intent import OrderIntent
-    from core.enums import OrderSide, OrderType
 
     store = MemoryOrderIntentStore()
     intent = OrderIntent(

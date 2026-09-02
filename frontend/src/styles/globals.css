@@ -1215,8 +1215,180 @@ h1, h2, h3, p {
    the rail (the book can come back) but visually quieter so BUY is not the
    loudest thing on a card that cannot currently place. */
 .block.accent.block--waiting {
-  background: #f8fafc;
+  background: var(--td-surface, #faf9f7);
   border-color: var(--td-border);
+}
+
+.rail-wait {
+  gap: 10px;
+}
+
+.rail-wait__zone {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--td-radius-md);
+  background: color-mix(in srgb, var(--td-ink) 5%, var(--td-surface, #faf9f7));
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--td-text);
+}
+
+.rail-wait__status {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--td-text-muted);
+}
+
+.rail-wait__status--passed {
+  color: color-mix(in srgb, var(--td-accent-ink, #201f1e) 78%, #b45309);
+}
+
+.rail-wait__note {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--td-text-muted);
+}
+
+.rail-wait__note--meta {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.9;
+}
+
+.rail-wait--approaching {
+  border-color: color-mix(in srgb, var(--td-accent, #ffcf88) 55%, var(--td-border));
+}
+
+.rail-wait--blocked {
+  border-color: color-mix(in srgb, #c2410c 35%, var(--td-border));
+}
+
+.rail-wait__likelihood {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--td-text);
+}
+
+.rail-wait__likelihood strong {
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.rail-wait__ttl {
+  color: var(--td-text-muted);
+  font-weight: 500;
+}
+
+.rail-wait__arrival {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--td-text);
+}
+
+.rail-wait__status--blocked {
+  color: #b45309;
+}
+
+.rail-wait__reasons {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--td-text-muted);
+}
+
+.rail-wait__footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.rail-wait-explain {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--td-surface, #fff) 88%, var(--td-accent, #ffcf88));
+  border: 1px solid var(--td-border);
+}
+
+.rail-wait-explain__headline {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--td-text);
+}
+
+.rail-wait-explain__fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.rail-wait-explain__field {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 11px;
+}
+
+.rail-wait-explain__field dt {
+  color: var(--td-text-muted);
+  font-weight: 500;
+}
+
+.rail-wait-explain__field dd {
+  margin: 0;
+  font-weight: 600;
+  font-family: var(--td-font-mono, ui-monospace, monospace);
+}
+
+.rail-wait-explain__field--pass dd {
+  color: #15803d;
+}
+
+.rail-wait-explain__field--warn dd {
+  color: #b45309;
+}
+
+.rail-wait-explain__field--fail dd {
+  color: #b91c1c;
+}
+
+.rail-wait-explain__field--info dd {
+  color: var(--td-text);
+}
+
+.rail-wait-explain__codes {
+  margin: 8px 0 0;
+  padding-left: 1.1rem;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--td-text-muted);
+}
+
+.rail-wait-explain__loading,
+.rail-wait-explain__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-muted);
+}
+
+.rail-wait-explain__error {
+  color: #b91c1c;
+}
+
+.rail-wait-explain__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 
 .rail-opp {

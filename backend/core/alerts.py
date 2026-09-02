@@ -76,7 +76,7 @@ class AlertBus:
         )
         try:
             await self._deliver(alert)
-        except Exception:  # noqa: BLE001 — never break the caller
+        except Exception:
             logger.exception("alert delivery failed for %s", alert.key)
         return True
 

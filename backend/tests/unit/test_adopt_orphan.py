@@ -82,7 +82,7 @@ async def test_adopt_orphan_writes_ledger_from_broker_and_card(monkeypatch, tmp_
             broker="AlpacaPaperBroker",
             symbol="LLY",
             side=OrderSide.SELL,
-            requested_qty=Decimal("4"),
+            requested_qty=Decimal(4),
             order_type=OrderType.STOP,
             purpose=IntentPurpose.PROTECTIVE_EXIT,
             status=IntentStatus.ACKNOWLEDGED,
@@ -97,7 +97,7 @@ async def test_adopt_orphan_writes_ledger_from_broker_and_card(monkeypatch, tmp_
                 Position(
                     id=uuid4(),
                     symbol="LLY",
-                    qty=Decimal("4"),
+                    qty=Decimal(4),
                     avg_entry=Decimal("1168.47"),
                     status=PositionStatus.OPEN,
                     opened_at=datetime.now(UTC),
@@ -113,7 +113,7 @@ async def test_adopt_orphan_writes_ledger_from_broker_and_card(monkeypatch, tmp_
                     symbol="LLY",
                     side=OrderSide.SELL,
                     order_type=OrderType.STOP,
-                    qty=Decimal("4"),
+                    qty=Decimal(4),
                     status=OrderStatus.ACCEPTED,
                     stop_price=Decimal("1153.26"),
                 )

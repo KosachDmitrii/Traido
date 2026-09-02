@@ -9,16 +9,25 @@ from core.activity import BOARD
 from core.audit import create_audit
 from core.config import Settings, get_settings
 from core.desk_bus import DESK_BUS
-from core.enums import EntryDecision, MarketRegimeLabel, RiskVerdict, SessionCohort, Timeframe
-from core.schemas import MarketAssessment, PipelineResult, RiskDecision
+from core.enums import (
+    AdmissionDecision,
+    EntryDecision,
+    MarketRegimeLabel,
+    RiskVerdict,
+    SessionCohort,
+    Timeframe,
+)
+from core.schemas import MarketAssessment, PipelineResult, Quote, RiskDecision, TradeAdmissionResult
+from database.session import session_factory
 from notifications.telegram import get_notifier
 from risk.context_builder import build_risk_context
 from risk.limits import default_risk_limits
 from risk.risk_engine import RiskEngine
 from trading.entry_watches import ENTRY_WATCHES
-from trading.opportunities import OPPORTUNITIES
+from trading.opportunities import OPPORTUNITIES, _write_payload
 from trading.scan_context import ScanContext, open_scan_context
 from trading.shadow_policy import record_shadow_async
+from trading.trade_admission import evaluate_trade_admission
 
 UNTRADABLE_REGIMES = {
     MarketRegimeLabel.BEARISH,
@@ -95,19 +104,81 @@ async def run_symbol_pipeline(
         BOARD.set_agent("risk", status="idle", detail="No candidate")
         return result
 
+    candidate = result.candidate
+
+    bundle = result.entry_decision
+    quote: Quote | None = None
+    if context.market_data is not None and hasattr(context.market_data, "get_quote"):
+        try:
+            get_quote = getattr(context.market_data, "get_quote", None)
+            if get_quote is not None:
+                quote = await get_quote(symbol)
+        except Exception:  # noqa: BLE001
+            quote = None
+
+    admission = None
+    if bundle is not None:
+        admission = evaluate_trade_admission(
+            bundle=bundle,
+            candidate=candidate,
+            quote=quote,
+            target_plan=bundle.target,
+        )
+        from trading.admission_records import persist_admission
+
+        persist_admission(
+            symbol=symbol,
+            admission=admission,
+            pipeline_run_id=result.pipeline_run_id,
+            context={"source": "pipeline"},
+        )
+        snap = admission.snapshot
+        candidate = candidate.model_copy(
+            update={
+                "setup_quality": admission.setup_quality,
+                "admission_version": admission.admission_version,
+                "effective_rr_at_creation": admission.effective_rr,
+                "admission_snapshot": snap.model_dump(mode="json") if snap else {},
+            }
+        )
+        result = result.model_copy(update={"candidate": candidate})
+
     # F3: shadow OLD (legacy would publish a BUY card) vs NEW entry decision.
     # Never places a second broker order.
-    new_decision = result.candidate.entry_decision or EntryDecision.BUY_NOW
-    if result.candidate.thesis is not None:
+    new_decision = candidate.entry_decision or EntryDecision.BUY_NOW
+    if admission is not None:
+        if admission.decision is AdmissionDecision.BUY_ALLOWED:
+            new_decision = EntryDecision.BUY_NOW
+        elif admission.decision is AdmissionDecision.WAIT:
+            new_decision = EntryDecision.WAIT_FOR_ENTRY
+        elif admission.decision is AdmissionDecision.DATA_BLOCKED:
+            BOARD.set_agent(
+                "risk",
+                status="done",
+                detail="DATA_BLOCKED (admission)",
+                symbol=symbol,
+            )
+            BOARD.log(
+                "strategy",
+                f"DATA_BLOCKED · {','.join(admission.reason_codes[:4])}",
+                symbol=symbol,
+                level="warn",
+            )
+            return result.model_copy(update={"status": "data_blocked", "opportunity": None})
+        else:
+            new_decision = EntryDecision.NO_TRADE
+        candidate = candidate.model_copy(update={"entry_decision": new_decision})
+        result = result.model_copy(update={"candidate": candidate})
+    if candidate.thesis is not None:
         await record_shadow_async(
-            candidate=result.candidate,
+            candidate=candidate,
             old_policy=EntryDecision.BUY_NOW,
             new_policy=new_decision,
-            thesis=result.candidate.thesis,
-            session_cohort=result.candidate.session_cohort or SessionCohort.UNKNOWN,
-            entry_quality=result.candidate.entry_quality,
-            chase_reasons=list(result.candidate.chase_reasons),
-            reasons=list(result.candidate.reasons[:8]),
+            thesis=candidate.thesis,
+            session_cohort=candidate.session_cohort or SessionCohort.UNKNOWN,
+            entry_quality=candidate.entry_quality,
+            chase_reasons=list(candidate.chase_reasons),
+            reasons=list(candidate.reasons[:8]),
         )
 
     if new_decision is EntryDecision.NO_TRADE:
@@ -119,7 +190,26 @@ async def run_symbol_pipeline(
         bundle = result.entry_decision
         watch = None
         if bundle is not None:
-            watch = ENTRY_WATCHES.create_from_bundle(result.candidate, bundle)
+            watch = ENTRY_WATCHES.create_from_bundle(candidate, bundle)
+            from trading.admission_records import persist_admission
+            from trading.shadow_outcomes import SHADOW_OUTCOMES
+
+            adm_rec = None
+            if admission is not None:
+                adm_rec = persist_admission(
+                    symbol=symbol,
+                    admission=admission,
+                    watch_id=watch.id,
+                    pipeline_run_id=result.pipeline_run_id,
+                    context={"source": "watch_created"},
+                )
+            SHADOW_OUTCOMES.begin_from_watch(
+                watch,
+                origin="pipeline",
+                entry_decision=EntryDecision.WAIT_FOR_ENTRY,
+                admission=admission,
+                admission_record_id=adm_rec.id if adm_rec else None,
+            )
             audit = create_audit()
             await audit.append(
                 "EntryWatchCreated",
@@ -132,12 +222,12 @@ async def run_symbol_pipeline(
         BOARD.set_agent(
             "risk",
             status="done",
-            detail=f"WAIT quality {result.candidate.entry_quality}",
+            detail=f"WAIT quality {candidate.entry_quality}",
             symbol=symbol,
         )
         BOARD.log(
             "strategy",
-            f"WAIT_FOR_ENTRY · quality {result.candidate.entry_quality}/100 · "
+            f"WAIT_FOR_ENTRY · quality {candidate.entry_quality}/100 · "
             f"no BUY card",
             symbol=symbol,
         )
@@ -182,7 +272,7 @@ async def run_symbol_pipeline(
         BOARD.log("risk", note, symbol=symbol, level="warn")
 
     risk = RiskEngine(default_risk_limits()).evaluate(
-        result.candidate, portfolio, context=built.context
+        candidate, portfolio, context=built.context
     )
 
     await audit.append(
@@ -222,7 +312,9 @@ async def run_symbol_pipeline(
             update={"status": "risk_passed", "risk": risk, "opportunity": None}
         )
 
-    return await publish_opportunity(result, risk, settings=settings)
+    return await publish_opportunity(
+        result, risk, settings=settings, admission=admission, quote=quote
+    )
 
 
 async def publish_opportunity(
@@ -230,6 +322,8 @@ async def publish_opportunity(
     risk: RiskDecision,
     *,
     settings: Settings | None = None,
+    admission: TradeAdmissionResult | None = None,
+    quote: Quote | None = None,
 ) -> PipelineResult:
     """Put a risk-passed evaluation on the desk as something the human can act on.
 
@@ -255,7 +349,56 @@ async def publish_opportunity(
             }
         )
 
+    from core.enums import DataHealthStatus
+    from trading.trade_admission import evaluate_trade_admission
+
+    adm = admission
+    bundle = result.entry_decision
+    if adm is None and bundle is not None:
+        adm = evaluate_trade_admission(
+            bundle=bundle,
+            candidate=result.candidate,
+            quote=quote,
+            target_plan=bundle.target,
+        )
+    if adm is None:
+        return result.model_copy(update={"status": "admission_required", "opportunity": None})
+    if (
+        adm.decision is not AdmissionDecision.BUY_ALLOWED
+        or not adm.admitted
+        or adm.data_status is DataHealthStatus.UNHEALTHY
+    ):
+        return result.model_copy(update={"status": "admission_blocked", "opportunity": None})
+
     opp = OPPORTUNITIES.create(result.candidate, risk, settings.trading_mode)
+    from trading.admission_records import persist_admission
+    from trading.entry_policy import get_entry_thresholds
+    from trading.geometry_hash import geometry_hash_from_candidate
+
+    gh = geometry_hash_from_candidate(result.candidate)
+    th = get_entry_thresholds()
+    rec = persist_admission(
+        symbol=symbol,
+        admission=adm,
+        opportunity_id=opp.id,
+        pipeline_run_id=result.pipeline_run_id,
+        context={"source": "publish_opportunity", "phase": "creation"},
+        geometry_hash=gh,
+        quote_ts=quote.ts if quote else None,
+        phase="creation",
+    )
+    # Link opportunity row metadata (legacy=False for new cards).
+    SessionLocal = session_factory()
+    with SessionLocal() as session:
+        _write_payload(
+            session,
+            opp,
+            creation_admission_record_id=rec.id,
+            geometry_hash=gh,
+            policy_version=th.policy_version if hasattr(th, "policy_version") else "entry_policy@1",
+            legacy=False,
+        )
+        session.commit()
     DESK_BUS.bump_desk(
         kind="opportunity",
         symbol=opp.candidate.symbol,

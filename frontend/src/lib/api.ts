@@ -157,6 +157,7 @@ export type BuyOpportunity = {
     entry_zone_high?: string | null;
     target_model?: string | null;
     target_reachability?: string | null;
+    admission_version?: string | null;
   };
   risk?: {
     sized_qty?: string | null;
@@ -170,6 +171,20 @@ export type BuyOpportunity = {
   executed_qty?: string | null;
   /** Live book vs the card. Absent only on older payloads; treat missing as unverified. */
   viability?: BuyViability;
+  /** True when created before admission control (DB flag). */
+  legacy?: boolean;
+  creation_admission_record_id?: string | null;
+  creation_admission_version?: string | null;
+  creation_geometry_hash?: string | null;
+};
+
+export type EntryLikelihood = {
+  classification: "LOW" | "MODERATE" | "HIGH";
+  score: number;
+  distance_pct: number | null;
+  distance_atr: number | null;
+  time_remaining_minutes: number;
+  reason_codes: string[];
 };
 
 export type EntryWatchCard = {
@@ -178,19 +193,57 @@ export type EntryWatchCard = {
   /** Full company name from Finnhub profile2, when available. */
   name?: string | null;
   status: string;
+  ui_state?: "WAITING" | "APPROACHING" | "IN_ZONE" | "TRIGGERED";
+  status_label?: string;
   thesis: string;
+  setup_type?: string;
+  setup_quality?: number | null;
+  entry_quality?: number | null;
   entry_quality_at_creation: number;
+  setup_quality_at_creation?: number;
   signal_price: string;
   current_price_at_creation: string;
+  /** Live tick from the watch loop; falls back to creation price in UI. */
+  last_price?: string | null;
+  last_observed_at?: string | null;
+  created_at?: string;
   entry_zone_low: string;
   entry_zone_high: string;
   planned_entry: string;
   planned_stop: string;
   planned_target: string;
+  planned_risk_reward?: number | null;
   required_conditions: string[];
   reasons?: string[];
   valid_until: string;
   chase_reasons?: string[];
+  entry_likelihood?: EntryLikelihood | null;
+  distance_to_zone_pct?: number | null;
+  distance_to_zone_atr?: number | null;
+  zone_arrival_quality?: number | null;
+  zone_arrival_type?: string | null;
+  arrival_reason_codes?: string[];
+  buy_blocked?: boolean;
+};
+
+export type AdmissionExplainField = {
+  label: string;
+  value: string;
+  status: "pass" | "warn" | "fail" | "info";
+};
+
+export type TradeAdmissionExplain = {
+  entity_type: string;
+  entity_id: string;
+  symbol: string;
+  headline: string;
+  decision: string;
+  admitted: boolean;
+  fields: AdmissionExplainField[];
+  vetoes: string[];
+  reason_codes: string[];
+  admission_version: string;
+  recorded_at: string | null;
 };
 
 export type SellOpportunity = {
@@ -445,6 +498,19 @@ export async function decideSell(id: string, decision: "sell" | "hold") {
     throw new Error(parseApiError(data, res.statusText || "exit_failed"));
   }
   return data;
+}
+
+export async function fetchAdmissionExplain(watchId: string): Promise<TradeAdmissionExplain> {
+  const q = new URLSearchParams({ watch_id: watchId });
+  const res = await fetch(apiUrl(`/api/v1/admission/explain?${q}`), {
+    headers: apiHeaders(),
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(parseApiError(data, res.statusText || "admission_explain_failed"));
+  }
+  return data as TradeAdmissionExplain;
 }
 
 /** Flatten a position on demand, without waiting for an agent to propose it. */

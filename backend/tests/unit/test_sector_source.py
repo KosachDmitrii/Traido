@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from core.enums import EarningsCheck, NewsCheck, SectorCheck, TradeAction
-from core.schemas import PortfolioSnapshot, RiskLimits, TradeCandidate
+from core.schemas import PortfolioSnapshot, TradeCandidate
 from core.universe import Universe
 from market_data.providers.sector import (
     SectorResolver,

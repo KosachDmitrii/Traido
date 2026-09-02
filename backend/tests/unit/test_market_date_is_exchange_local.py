@@ -20,7 +20,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from core.clock import market_date
-from core.enums import SectorCheck,  EarningsCheck, NewsCheck, RiskVerdict, TradeAction
+from core.enums import EarningsCheck, NewsCheck, RiskVerdict, SectorCheck, TradeAction
 from core.schemas import PortfolioSnapshot, TradeCandidate
 from market_data.providers.earnings import parse_earnings_payload
 from risk.risk_engine import RiskContext, RiskEngine
@@ -71,6 +71,7 @@ def _verdict(next_earnings: date | None) -> tuple[RiskVerdict, list[str]]:
             sector_check=SectorCheck.CHECKED,
             sector="technology",
             next_earnings=next_earnings,
+            regime_tradable=True,
             now=_EVENING_ET,
         ),
     )

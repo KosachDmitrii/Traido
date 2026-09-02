@@ -60,8 +60,8 @@ def retry_delay_seconds(exc: BaseException, *, attempt: int, base_delay: float) 
         header_wait = wait_seconds_from_headers(parsed)
         if header_wait is not None:
             return max(0.0, header_wait)
-        return fallback_429_wait(attempt)
-    return base_delay * (2**attempt)
+        return float(fallback_429_wait(attempt))
+    return float(base_delay * (2**attempt))
 
 
 async def get_with_retry(

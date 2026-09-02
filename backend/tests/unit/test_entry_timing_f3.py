@@ -252,7 +252,7 @@ def test_wait_revalidation_without_quote_is_no_trade() -> None:
     watch = ENTRY_WATCHES.create_from_bundle(cand, bundle)
     watch = observe_price(watch, float(bundle.entry_zone_low))
     assert watch.status is EntryWatchStatus.TRIGGERED
-    decision = revalidate_triggered_watch(watch, exec_snap=_snap(), quote=None)
+    decision, _admission = revalidate_triggered_watch(watch, exec_snap=_snap(), quote=None)
     assert decision is EntryDecision.NO_TRADE
 
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Sequence
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -100,7 +100,7 @@ def set_account_limiter(limiter: RateLimiter) -> None:
     global _quota, _quota_rpm
     rpm = float(max(1, get_settings().market_data_requests_per_minute))
     q = AccountQuota(rpm)
-    q._bucket = limiter  # noqa: SLF001 — test seam
+    q._bucket = limiter
     _quota = q
     _quota_rpm = rpm
 
@@ -121,7 +121,7 @@ def market_data_cooldown_seconds() -> float:
 
 def _account_limiter() -> RateLimiter:
     """Deprecated seam — returns the floor bucket inside the shared quota."""
-    return account_quota()._bucket  # noqa: SLF001
+    return account_quota()._bucket
 
 
 async def _paced_get(
@@ -244,10 +244,41 @@ def _snapshot_from_alpaca(symbol: str, raw: dict[str, Any]) -> Snapshot:
 class AlpacaMarketData:
     source = "alpaca"
 
-    def __init__(self, api_key: str, api_secret: str, base_url: str) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        api_secret: str,
+        base_url: str,
+        *,
+        feed: str = "iex",
+    ) -> None:
         self._key = api_key
         self._secret = api_secret
         self._base = base_url.rstrip("/")
+        self._feed = feed.strip().lower() or "iex"
+
+    async def _resolve_feed(
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        *,
+        params: dict[str, Any],
+    ) -> tuple[str, httpx.Response]:
+        """Use configured feed; on 403 (e.g. SIP without subscription) fall back to IEX."""
+        feeds = [self._feed]
+        if self._feed != "iex":
+            feeds.append("iex")
+        for feed in feeds:
+            req = {**params, "feed": feed}
+            try:
+                resp = await _paced_get(client, url, headers=self._headers(), params=req)
+                resp.raise_for_status()
+                return feed, resp
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 403 and feed != feeds[-1]:
+                    continue
+                raise
+        raise RuntimeError("alpaca feed fetch exhausted")
 
     def _headers(self) -> dict[str, str]:
         return {
@@ -276,15 +307,24 @@ class AlpacaMarketData:
             "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
             "adjustment": "raw",
-            "feed": "iex",
             "limit": 10000,
         }
         url = f"{self._base}/v2/stocks/{symbol}/bars"
         out: list[Bar] = []
         async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
             page = dict(params)
+            working_feed: str | None = None
             for _ in range(_MAX_BAR_PAGES):
-                resp = await _paced_get(client, url, headers=self._headers(), params=page)
+                if working_feed is None:
+                    working_feed, resp = await self._resolve_feed(client, url, params=page)
+                else:
+                    resp = await _paced_get(
+                        client,
+                        url,
+                        headers=self._headers(),
+                        params={**page, "feed": working_feed},
+                    )
+                    resp.raise_for_status()
                 payload = resp.json()
 
                 for row in payload.get("bars") or []:
@@ -332,10 +372,19 @@ class AlpacaMarketData:
         out: dict[str, Snapshot] = {}
         url = f"{self._base}/v2/stocks/snapshots"
         async with httpx.AsyncClient(timeout=30.0, trust_env=False) as client:
+            working_feed: str | None = None
             for chunk in _chunks(wanted, SNAPSHOT_BATCH):
-                params = {"symbols": ",".join(chunk), "feed": "iex"}
-                resp = await _paced_get(client, url, params=params, headers=self._headers())
-                resp.raise_for_status()
+                params = {"symbols": ",".join(chunk)}
+                if working_feed is None:
+                    working_feed, resp = await self._resolve_feed(client, url, params=params)
+                else:
+                    resp = await _paced_get(
+                        client,
+                        url,
+                        params={**params, "feed": working_feed},
+                        headers=self._headers(),
+                    )
+                    resp.raise_for_status()
                 payload = resp.json()
                 # Alpaca has served this either bare or wrapped in "snapshots"
                 # depending on endpoint version; accept both rather than return
@@ -367,6 +416,7 @@ class AlpacaMarketData:
         out: dict[str, list[Bar]] = {}
         url = f"{self._base}/v2/stocks/bars"
         async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
+            working_feed: str | None = None
             for chunk in _chunks(wanted, BARS_BATCH):
                 params: dict[str, str | int] = {
                     "symbols": ",".join(chunk),
@@ -374,13 +424,23 @@ class AlpacaMarketData:
                     "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "adjustment": "raw",
-                    "feed": "iex",
                     "limit": 10000,
                 }
                 page = dict(params)
+                chunk_feed: str | None = None
                 for _ in range(_MAX_BAR_PAGES):
-                    resp = await _paced_get(client, url, params=page, headers=self._headers())
-                    resp.raise_for_status()
+                    if chunk_feed is None:
+                        chunk_feed, resp = await self._resolve_feed(client, url, params=page)
+                        if working_feed is None:
+                            working_feed = chunk_feed
+                    else:
+                        resp = await _paced_get(
+                            client,
+                            url,
+                            params={**page, "feed": chunk_feed},
+                            headers=self._headers(),
+                        )
+                        resp.raise_for_status()
                     payload = resp.json()
                     for symbol, rows in (payload.get("bars") or {}).items():
                         bucket = out.setdefault(str(symbol).upper(), [])
@@ -398,6 +458,12 @@ class AlpacaMarketData:
             bars.sort(key=lambda b: b.ts)
         return out
 
+    async def _get_json(self, url: str, *, params: dict[str, str] | None = None) -> dict[str, Any]:
+        """Fetch JSON, falling back to IEX when a premium feed returns 403."""
+        async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
+            _, resp = await self._resolve_feed(client, url, params=params or {})
+            return cast(dict[str, Any], resp.json())
+
     async def get_quote(self, symbol: str) -> Quote | None:
         """Live top of book — the only input a spread check may be built on.
 
@@ -407,12 +473,7 @@ class AlpacaMarketData:
         """
         symbol = symbol.upper()
         url = f"{self._base}/v2/stocks/{symbol}/quotes/latest"
-        async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
-            # Retried like everything else, and for the sharpest reason: the
-            # liquidity gate fails closed on a missing quote, so a dropped
-            # request here is a refused trade rather than a missing number.
-            resp = await _paced_get(client, url, headers=self._headers(), params={"feed": "iex"})
-            payload = resp.json()
+        payload = await self._get_json(url)
 
         raw = payload.get("quote") or {}
         bid, ask = raw.get("bp"), raw.get("ap")
@@ -431,7 +492,5 @@ class AlpacaMarketData:
     async def get_last_price(self, symbol: str) -> float:
         symbol = symbol.upper()
         url = f"{self._base}/v2/stocks/{symbol}/trades/latest"
-        async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
-            resp = await _paced_get(client, url, headers=self._headers(), params={"feed": "iex"})
-            payload = resp.json()
+        payload = await self._get_json(url)
         return float(payload["trade"]["p"])

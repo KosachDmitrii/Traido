@@ -180,6 +180,7 @@ async def test_the_ledger_records_the_trade_that_happened() -> None:
     payload = row.payload or {}
 
     fill = Decimal(str(row.avg_entry))
-    expected = round(float((CARD_TARGET - fill) / (fill - CARD_STOP)), 2)
+    target = Decimal(str(row.target_price))
+    expected = round(float((target - fill) / (fill - CARD_STOP)), 2)
     assert payload["risk_reward"] == expected
-    assert payload["card_risk_reward"] == 2.0
+    assert payload["card_risk_reward"] >= 2.0

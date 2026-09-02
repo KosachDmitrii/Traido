@@ -9,7 +9,7 @@ from __future__ import annotations
 from decimal import Decimal
 from uuid import UUID
 
-from core.enums import InstrumentThesis, Timeframe, TradeAction
+from core.enums import InstrumentThesis, SetupType, Timeframe, TradeAction
 from core.schemas import (
     EntryDecisionBundle,
     FeatureSnapshot,
@@ -226,9 +226,12 @@ def propose_with_entry_timing(
         facts,
         market=market,
         technical_score=technical.score,
+        news_score=news.score,
         target=target_plan,
         stop_price=float(stop),
     )
+
+    setup_type = SetupType.PULLBACK_CONTINUATION
 
     target = target_plan.price
     rr = float((target - entry) / risk)
@@ -242,7 +245,8 @@ def propose_with_entry_timing(
         f"News {news.sentiment} ({news.score}/100)",
         f"Market {market.regime.value} / {market.risk_posture}",
         f"Overall {overall}/100",
-        f"Thesis BULLISH · entry {bundle.entry_decision.value} · quality {bundle.entry_quality}/100",
+        (f"Thesis BULLISH · entry {bundle.entry_decision.value} · "
+        f"setup {bundle.setup_quality}/100 · entry {bundle.entry_quality}/100"),
         f"Target model {target_plan.model} · {target_plan.reachability.value}",
         *conf_reasons[:4],
         *bundle.chase_reasons[:3],
@@ -268,6 +272,9 @@ def propose_with_entry_timing(
         thesis=InstrumentThesis.BULLISH,
         entry_decision=bundle.entry_decision,
         entry_quality=bundle.entry_quality,
+        setup_type=setup_type,
+        setup_quality=bundle.setup_quality,
+        setup_quality_breakdown=bundle.setup_breakdown.as_dict() if bundle.setup_breakdown else {},
         entry_quality_breakdown=bundle.breakdown.as_dict(),
         chase_reasons=list(bundle.chase_reasons),
         signal_price=signal_price,

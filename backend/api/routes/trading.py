@@ -13,7 +13,7 @@ from core.audit import create_audit
 from core.config import get_settings
 from core.desk_bus import DESK_BUS
 from core.enums import UserDecision
-from core.schemas import PortfolioSnapshot, TradeOpportunity
+from core.schemas import PortfolioSnapshot, TradeAdmissionExplain, TradeOpportunity
 from notifications.telegram import get_notifier
 from risk.kill_switch import get_kill_switch_state, is_kill_switch_on, set_kill_switch
 from trading.opportunities import OPPORTUNITIES
@@ -47,6 +47,29 @@ async def get_opportunity(opportunity_id: UUID) -> TradeOpportunity:
     if opp is None:
         raise HTTPException(status_code=404, detail="opportunity_not_found")
     return opp
+
+
+@router.get("/admission/explain", response_model=TradeAdmissionExplain)
+async def admission_explain(
+    watch_id: UUID | None = None,
+    opportunity_id: UUID | None = None,
+    admission_record_id: UUID | None = None,
+) -> TradeAdmissionExplain:
+    from trading.explain_trade_admission import explain_trade_admission
+
+    if not any([watch_id, opportunity_id, admission_record_id]):
+        raise HTTPException(
+            status_code=400,
+            detail="provide watch_id, opportunity_id, or admission_record_id",
+        )
+    result = explain_trade_admission(
+        watch_id=watch_id,
+        opportunity_id=opportunity_id,
+        admission_record_id=admission_record_id,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="admission_explain_not_found")
+    return result
 
 
 @router.post("/opportunities/{opportunity_id}/decide", response_model=TradeOpportunity)

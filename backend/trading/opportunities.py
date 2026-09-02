@@ -26,7 +26,7 @@ def _from_row(row: OpportunityRow) -> TradeOpportunity:
     return TradeOpportunity.model_validate(row.payload)
 
 
-def _write_payload(session: Session, opp: TradeOpportunity) -> OpportunityRow:
+def _write_payload(session: Session, opp: TradeOpportunity, **columns: Any) -> OpportunityRow:
     row = session.get(OpportunityRow, opp.id)
     data = opp.model_dump(mode="json")
     if row is None:
@@ -47,6 +47,9 @@ def _write_payload(session: Session, opp: TradeOpportunity) -> OpportunityRow:
         row.created_at = opp.created_at
         row.expires_at = opp.expires_at
         row.payload = data
+    for key, val in columns.items():
+        if hasattr(row, key):
+            setattr(row, key, val)
     return row
 
 

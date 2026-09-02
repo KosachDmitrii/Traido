@@ -74,7 +74,7 @@ class Outcome:
 
 
 def _parse_ts(raw: str) -> datetime:
-    dt = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    dt = datetime.fromisoformat(raw)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(UTC)
@@ -502,7 +502,7 @@ async def fetch_bars(
                 bars = await md.get_bars(sym, Timeframe.M5, start, end)
                 out[sym] = bars
                 print(f"  bars {sym}: {len(bars)}", flush=True)
-            except Exception as exc:  # noqa: BLE001 — diagnosis must continue
+            except Exception as exc:
                 print(f"  bars {sym}: FAILED {exc}", flush=True)
                 out[sym] = []
 

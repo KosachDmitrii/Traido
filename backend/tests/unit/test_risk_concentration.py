@@ -73,7 +73,12 @@ def test_a_caller_that_supplies_no_context_is_refused_the_entry() -> None:
     """
     decision = RiskEngine().evaluate(_candidate(), _portfolio())
     assert decision.verdict is RiskVerdict.REJECT
-    assert decision.reasons == ["EARNINGS_UNVERIFIED", "NEWS_UNVERIFIED", "SECTOR_UNVERIFIED"]
+    assert decision.reasons == [
+        "EARNINGS_UNVERIFIED",
+        "NEWS_UNVERIFIED",
+        "SECTOR_UNVERIFIED",
+        "REGIME_MISSING",
+    ]
 
 
 def test_missing_correlation_data_is_skipped_rather_than_refused() -> None:
@@ -98,6 +103,7 @@ def test_duplicate_sector_exposure_is_rejected() -> None:
         sector_check=SectorCheck.CHECKED,
         open_symbols=["AMD"],
         correlations=_correlated_matrix("NVDA", "AMD"),
+        regime_tradable=True,
         now=_NOW,
     )
     decision = RiskEngine().evaluate(_candidate("NVDA"), _portfolio(), context=ctx)
@@ -112,6 +118,7 @@ def test_uncorrelated_addition_is_allowed() -> None:
         sector_check=SectorCheck.CHECKED,
         open_symbols=["KO"],
         correlations=_uncorrelated_matrix(),
+        regime_tradable=True,
         now=_NOW,
     )
     decision = RiskEngine().evaluate(_candidate("NVDA"), _portfolio(), context=ctx)
@@ -125,6 +132,7 @@ def test_correlation_threshold_is_configurable() -> None:
         sector_check=SectorCheck.CHECKED,
         open_symbols=["AMD"],
         correlations=_correlated_matrix("NVDA", "AMD"),
+        regime_tradable=True,
         now=_NOW,
     )
     permissive = RiskEngine(RiskLimits(max_correlation=1.0))
@@ -138,6 +146,7 @@ def test_book_of_clones_trips_diversification_check() -> None:
         sector_check=SectorCheck.CHECKED,
         open_symbols=["AMD", "INTC", "AVGO"],
         correlations=_correlated_matrix("NVDA", "AMD", "INTC", "AVGO"),
+        regime_tradable=True,
         now=_NOW,
     )
     decision = RiskEngine(RiskLimits(max_correlation=1.0)).evaluate(
@@ -155,6 +164,7 @@ def test_earnings_tomorrow_blocks_the_trade() -> None:
         earnings=EarningsCheck.CHECKED,
         sector_check=SectorCheck.CHECKED,
         next_earnings=_TODAY + timedelta(days=1),
+        regime_tradable=True,
         now=_NOW,
     )
     decision = RiskEngine().evaluate(_candidate(), _portfolio(), context=ctx)
@@ -167,6 +177,7 @@ def test_earnings_far_away_does_not_block() -> None:
         earnings=EarningsCheck.CHECKED,
         sector_check=SectorCheck.CHECKED,
         next_earnings=_TODAY + timedelta(days=45),
+        regime_tradable=True,
         now=_NOW,
     )
     assert (
@@ -189,6 +200,7 @@ def test_earnings_window_is_configurable() -> None:
         earnings=EarningsCheck.CHECKED,
         sector_check=SectorCheck.CHECKED,
         next_earnings=_TODAY + timedelta(days=10),
+        regime_tradable=True,
         now=_NOW,
     )
     wide = RiskEngine(RiskLimits(block_days_before_earnings=14))
@@ -210,6 +222,7 @@ def test_past_earnings_date_in_next_field_is_ignored() -> None:
         earnings=EarningsCheck.CHECKED,
         sector_check=SectorCheck.CHECKED,
         next_earnings=date(2020, 1, 1),
+        regime_tradable=True,
         now=_NOW,
     )
     assert (
@@ -245,6 +258,7 @@ def test_sector_cap_blocks_an_overweight_sector() -> None:
         sector_check=SectorCheck.CHECKED,
         sector="technology",
         sector_exposure={"technology": Decimal(24000)},
+        regime_tradable=True,
         now=_NOW,
     )
     engine = RiskEngine(RiskLimits(max_sector_pct=25.0))
@@ -259,6 +273,7 @@ def test_sector_cap_allows_room_in_an_empty_sector() -> None:
         sector_check=SectorCheck.CHECKED,
         sector="staples",
         sector_exposure={},
+        regime_tradable=True,
         now=_NOW,
     )
     assert (

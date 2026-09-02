@@ -11,6 +11,7 @@ import statistics
 import threading
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 _LOCK = threading.Lock()
 _PATH = Path(__file__).resolve().parents[1] / "data" / "historical_mfe.jsonl"
@@ -39,10 +40,10 @@ def record_mfe(
             fh.write(json.dumps(row) + "\n")
 
 
-def _load_rows() -> list[dict]:
+def _load_rows() -> list[dict[str, Any]]:
     if not _PATH.exists():
         return []
-    out: list[dict] = []
+    out: list[dict[str, Any]] = []
     with _PATH.open(encoding="utf-8") as fh:
         for line in fh:
             line = line.strip()
@@ -121,7 +122,7 @@ def sync_from_paper_journal(*, limit: int = 200) -> int:
 
         ledger = PositionLedger()
         closed = ledger.list_closed_journal(limit=limit)
-    except Exception:
+    except Exception:  # noqa: BLE001
         return 0
     existing = {
         (r.get("symbol"), r.get("strategy_version"), round(float(r["mfe_pct"]), 4))
@@ -147,7 +148,7 @@ def sync_from_paper_journal(*, limit: int = 200) -> int:
     return n
 
 
-def sample_counts() -> dict:
+def sample_counts() -> dict[str, Any]:
     rows = _load_rows()
     by_h: dict[str, int] = {}
     by_src: dict[str, int] = {}

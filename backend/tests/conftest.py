@@ -23,6 +23,25 @@ RTH_INSTANT = datetime(2026, 3, 10, 11, 0, tzinfo=ET)
 
 
 @pytest.fixture(autouse=True)
+def isolated_default_journal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep get_sync_engine() / DbAudit / watch persistence off the real journal.
+
+    LEDGER/OPPORTUNITIES/EXITS are already repointed per-store; anything that
+    still calls `get_sync_engine()` (API lifespan, DbAudit, watch CAS) must not
+    touch `data/traido_journal.db`.
+    """
+    from database import session as session_mod
+    from database.session import get_sync_engine, init_db
+
+    url = f"sqlite:///{tmp_path / 'unit_journal.db'}"
+    monkeypatch.setenv("TRAIDO_JOURNAL_DATABASE_URL", url)
+    session_mod.get_sync_engine.cache_clear()
+    init_db(get_sync_engine())
+    yield
+    session_mod.get_sync_engine.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def frozen_market_clock(monkeypatch: pytest.MonkeyPatch) -> Iterator[datetime]:
     """Make execution see a deterministic open market unless a test says otherwise."""
     from trading import execution
@@ -199,6 +218,43 @@ def keyless_earnings_calendar(
 
 
 @pytest.fixture(autouse=True)
+def isolated_admission_and_watches(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep admission records, watches, and shadow outcomes out of the journal DB."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.pool import StaticPool
+
+    from database import models as _models  # noqa: F401
+    from database.base import Base
+    from trading import admission_records as adm_mod
+    from trading import shadow_outcomes as shadow_mod
+    from trading.entry_watches import ENTRY_WATCHES
+
+    engine = create_engine(
+        "sqlite://",
+        future=True,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(engine)
+    store = adm_mod.AdmissionRecordStore(engine=engine)
+    shadow = shadow_mod.ShadowOutcomeStore(engine=engine)
+    monkeypatch.setattr(adm_mod, "ADMISSION_RECORDS", store)
+    monkeypatch.setattr(shadow_mod, "SHADOW_OUTCOMES", shadow)
+
+    from trading.entry_watch_persistence import (
+        configure_entry_watch_persistence,
+        persistence_enabled,
+    )
+
+    prev_persistence = persistence_enabled()
+    configure_entry_watch_persistence(enabled=False)
+    ENTRY_WATCHES.clear()
+    yield
+    ENTRY_WATCHES.clear()
+    configure_entry_watch_persistence(enabled=prev_persistence)
+
+
+@pytest.fixture(autouse=True)
 def isolated_ledger(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Keep every test's positions out of the developer's journal database.
 
@@ -218,6 +274,7 @@ def isolated_ledger(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     from sqlalchemy import create_engine
     from sqlalchemy.pool import StaticPool
 
+    from database.session import init_db
     from trading.ledger import LEDGER
 
     engine = create_engine(
@@ -228,6 +285,7 @@ def isolated_ledger(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    init_db(engine)
     monkeypatch.setattr(LEDGER, "_engine", engine)
     yield
     engine.dispose()
@@ -239,22 +297,12 @@ def isolated_desk_stores(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
     `EXITS` and `OPPORTUNITIES` are module-level singletons bound to the same
     journal database, and nothing was repointing them — so a test that reached
-    either one wrote cards the desk cannot distinguish from real ones. It shows:
-    the journal holds 83 AAPL positions and 180 AAPL opportunities priced at
-    100.00, and the Review panel reports them to the operator as an 86-trade
-    history with a 0% win rate.
-
-    Worse than the noise is the state. Exit cards leaked in every status the
-    machine has, including `approving` — a fabricated symbol sitting in the
-    middle of the sell path.
-
-    Repointing `_engine` rather than replacing the singletons, for the reason
-    given above: `api.routes.desk`, the position agent and `trading.execution`
-    all bind these names at import time.
+    either one wrote cards the desk cannot distinguish from real ones.
     """
     from sqlalchemy import create_engine
     from sqlalchemy.pool import StaticPool
 
+    from database.session import init_db
     from trading.exits import EXITS
     from trading.opportunities import OPPORTUNITIES
 
@@ -264,7 +312,51 @@ def isolated_desk_stores(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
+    init_db(engine)
     monkeypatch.setattr(EXITS, "_engine", engine)
     monkeypatch.setattr(OPPORTUNITIES, "_engine", engine)
     yield
     engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def isolated_audit_jsonl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Keep DbAudit JSONL mirrors out of the real audit file."""
+    from core import audit as audit_mod
+
+    path = tmp_path / "events.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.touch()
+
+    orig_init = audit_mod.DbAudit.__init__
+
+    def _init(self, engine=None, *, mirror_jsonl: bool = True):
+        orig_init(self, engine, mirror_jsonl=mirror_jsonl)
+        if mirror_jsonl:
+            self._jsonl_path = path
+
+    monkeypatch.setattr(audit_mod.DbAudit, "__init__", _init)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def admission_ready_on_store_create(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Ensure bare test candidates carry admission metadata at store.create.
+
+    Does not monkeypatch ExecutionService.decide or invent RR on the capital
+    path — tests still form geometry; we only attach required admission facts.
+    """
+    from tests.support import ensure_admission_ready
+    from trading.opportunities import MemoryOpportunityStore, OpportunityStore
+
+    def _wrap(cls):
+        orig = cls.create
+
+        def create(self, candidate, risk, mode, *args, **kwargs):
+            return orig(self, ensure_admission_ready(candidate), risk, mode, *args, **kwargs)
+
+        monkeypatch.setattr(cls, "create", create)
+
+    _wrap(MemoryOpportunityStore)
+    _wrap(OpportunityStore)
+    yield

@@ -74,6 +74,16 @@ async def lifespan(_app: FastAPI):
     assert_single_worker()
     assert_implemented_trading_mode()
     init_db()
+    from trading.entry_watch_persistence import (
+        configure_entry_watch_persistence,
+        hydrate_entry_watches,
+        patch_entry_watch_store,
+    )
+    from trading.entry_watches import ENTRY_WATCHES
+
+    configure_entry_watch_persistence(enabled=True)
+    patch_entry_watch_store(ENTRY_WATCHES)
+    hydrate_entry_watches()
     logger.info(
         "Traido API starting",
         extra={

@@ -22,8 +22,6 @@ from agents.scanner.agent import (
     load_watchlist,
     request_rescan,
     resolve_universe,
-    start_scanner,
-    wake_scanner,
 )
 from api.deps import build_execution_service
 from broker.factory import create_broker
@@ -44,6 +42,7 @@ from trading.pricing import round_equity_price
 from trading.reconcile import reconcile_positions
 from trading.reconcile_supervisor import RECONCILE
 from trading.session_hours import ET, SessionPhase, session_close, session_phase
+from trading.watch_enrichment import desk_payload
 
 logger = logging.getLogger(__name__)
 
@@ -179,7 +178,7 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
             "market_data_quota": _market_data_quota_payload(),
         },
         "buy_opportunities": buys,
-        "entry_watches": [w.model_dump(mode="json") for w in ENTRY_WATCHES.list_open()],
+        "entry_watches": [desk_payload(w) for w in ENTRY_WATCHES.list_for_desk()],
         "sell_opportunities": [s.model_dump(mode="json") for s in sells],
         "positions": positions_out,
         "review": review.to_dict(),
