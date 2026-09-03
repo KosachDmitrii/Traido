@@ -33,9 +33,7 @@ export function AppShell() {
             />
           ) : null}
         </div>
-        {isDesk ? (
-          <ToastStack toasts={toasts} onDismiss={dismissFlash} onHold={holdFlash} />
-        ) : null}
+        <ToastStack toasts={toasts} onDismiss={dismissFlash} onHold={holdFlash} />
       </div>
     </TooltipProvider>
   );

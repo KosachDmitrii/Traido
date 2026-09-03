@@ -1,10 +1,11 @@
-import { runScanner, invalidateDeskEtag, setEntryPolicy, setKillSwitch } from "@/lib/api";
+import { runScanner, invalidateDeskEtag, setBrokerBackend, setEntryPolicy, setKillSwitch } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Locale, MessageKey } from "@/i18n";
+import type { Vars } from "@/i18n/store";
 import { Button, Input, SegmentedControl, SwitchControl } from "@/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Gauge, KeyRound, Languages, ScanSearch, ShieldAlert } from "lucide-react";
+import { Gauge, KeyRound, Languages, ScanSearch, ShieldAlert, Building2 } from "lucide-react";
 
 /** Five production desk steps — Сильно → Слабо. Values match backend ENTRY_LEVELS. */
 const ENTRY_STEPS = [
@@ -13,6 +14,11 @@ const ENTRY_STEPS = [
   { value: 50, key: "settings.entry.medium" as const },
   { value: 75, key: "settings.entry.softer" as const },
   { value: 100, key: "settings.entry.weak" as const },
+] as const;
+
+const BROKER_STEPS = [
+  { value: "alpaca", key: "settings.broker.alpaca" as const },
+  { value: "ibkr", key: "settings.broker.ibkr" as const },
 ] as const;
 
 function snapEntryStep(n: number): number {
@@ -28,6 +34,39 @@ function entryLabelKey(aggressiveness: number): MessageKey {
   return step?.key ?? "settings.entry.strong";
 }
 
+function brokerLabelKey(backend: string): MessageKey {
+  return backend === "ibkr" ? "settings.broker.ibkr" : "settings.broker.alpaca";
+}
+
+type Translate = (key: MessageKey, vars?: Vars) => string;
+
+function brokerConnectionStateLabel(t: Translate, state: string | undefined): string {
+  const raw = (state ?? "").trim().toUpperCase();
+  if (!raw) return "—";
+  if (raw === "READY") return t("settings.broker.state.ready");
+  if (raw === "DISCONNECTED") return t("settings.broker.state.disconnected");
+  if (raw === "DEGRADED") return t("settings.broker.state.degraded");
+  if (raw === "CONNECTING") return t("settings.broker.state.connecting");
+  if (raw === "RECONNECTING") return t("settings.broker.state.reconnecting");
+  return t("settings.broker.state.unknown", { state: state ?? raw });
+}
+
+function brokerBlockedReasonLabel(t: Translate, reason: string): string {
+  const openPos = /^open_positions:(.+)$/i.exec(reason);
+  if (openPos) {
+    return t("settings.broker.blocked.openPositions", { symbols: openPos[1] });
+  }
+  const unknown = /^unknown_intents:(\d+)$/i.exec(reason);
+  if (unknown) {
+    return t("settings.broker.blocked.unknownIntents", { n: Number(unknown[1]) });
+  }
+  const openIntents = /^open_intents:(\d+)$/i.exec(reason);
+  if (openIntents) {
+    return t("settings.broker.blocked.openIntents", { n: Number(openIntents[1]) });
+  }
+  return reason;
+}
+
 export function SettingsPage() {
   const { desk, refreshAll, showFlash, killSwitch: kill, refreshKillSwitch } = useDesk();
   const { t, locale, setLocale } = useI18n();
@@ -38,7 +77,11 @@ export function SettingsPage() {
   const [aggressiveness, setAggressiveness] = useState(
     () => snapEntryStep(desk?.entry_policy?.aggressiveness ?? 0),
   );
+  const [brokerBackend, setBrokerBackendState] = useState(
+    () => desk?.broker_backend?.backend ?? "alpaca",
+  );
   const entrySaveGen = useRef(0);
+  const brokerSaveGen = useRef(0);
 
   useEffect(() => {
     const n = desk?.entry_policy?.aggressiveness;
@@ -46,6 +89,12 @@ export function SettingsPage() {
     if (entrySaveGen.current !== 0) return;
     if (typeof n === "number") setAggressiveness(snapEntryStep(n));
   }, [desk?.entry_policy?.aggressiveness]);
+
+  useEffect(() => {
+    const b = desk?.broker_backend?.backend;
+    if (brokerSaveGen.current !== 0) return;
+    if (b === "alpaca" || b === "ibkr") setBrokerBackendState(b);
+  }, [desk?.broker_backend?.backend]);
 
   const saveKey = useCallback(() => {
     if (apiKey.trim()) {
@@ -126,6 +175,35 @@ export function SettingsPage() {
       }
     },
     [refreshAll, showFlash, t],
+  );
+
+  const commitBrokerBackend = useCallback(
+    async (value: string) => {
+      const backend = value === "ibkr" ? "ibkr" : "alpaca";
+      const gen = ++brokerSaveGen.current;
+      try {
+        const next = await setBrokerBackend(backend);
+        setBrokerBackendState(next.backend === "ibkr" ? "ibkr" : "alpaca");
+        invalidateDeskEtag();
+        showFlash({
+          kind: "ok",
+          title: t("settings.broker.flash.title"),
+          detail: t("settings.broker.flash.detail", { n: t(brokerLabelKey(next.backend)) }),
+        });
+        await refreshAll();
+      } catch (err) {
+        showFlash({
+          kind: "error",
+          title: t("settings.broker.flash.failed"),
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        const current = desk?.broker_backend?.backend;
+        if (current === "alpaca" || current === "ibkr") setBrokerBackendState(current);
+      } finally {
+        if (brokerSaveGen.current === gen) brokerSaveGen.current = 0;
+      }
+    },
+    [desk?.broker_backend?.backend, refreshAll, showFlash, t],
   );
 
   const scanNow = useCallback(async () => {
@@ -229,6 +307,54 @@ export function SettingsPage() {
               }}
               options={ENTRY_STEPS.map((step) => ({
                 value: String(step.value),
+                label: t(step.key),
+              }))}
+            />
+          </div>
+        </div>
+      </article>
+
+      <article className="settings-card">
+        <div className="settings-card__icon" aria-hidden>
+          <Building2 size={20} strokeWidth={1.5} absoluteStrokeWidth />
+        </div>
+        <div className="settings-card__body">
+          <div className="settings-card__head">
+            <h3>{t("settings.broker.title")}</h3>
+            <span className="settings-badge">{t(brokerLabelKey(brokerBackend))}</span>
+          </div>
+          <p className="settings-card__lead">{t("settings.broker.lead")}</p>
+          <ul className="settings-points">
+            <li>{t("settings.broker.what")}</li>
+            <li>{t("settings.broker.keeps")}</li>
+            <li>{t("settings.broker.hint")}</li>
+          </ul>
+          <p className="settings-card__lead">
+            {t("settings.broker.status", {
+              state: brokerConnectionStateLabel(t, desk?.broker_backend?.connection_state),
+            })}
+            {desk?.broker_backend?.account_id
+              ? ` · ${t("settings.broker.account", { id: desk.broker_backend.account_id })}`
+              : null}
+          </p>
+          {desk?.broker_backend?.switch_blocked_reason ? (
+            <p className="settings-card__lead">
+              {t("settings.broker.blocked", {
+                reason: brokerBlockedReasonLabel(t, desk.broker_backend.switch_blocked_reason),
+              })}
+            </p>
+          ) : null}
+          <div className="settings-entry-steps">
+            <SegmentedControl
+              wide
+              ariaLabel={t("settings.broker.title")}
+              value={brokerBackend}
+              onChange={(v) => {
+                setBrokerBackendState(v);
+                void commitBrokerBackend(v);
+              }}
+              options={BROKER_STEPS.map((step) => ({
+                value: step.value,
                 label: t(step.key),
               }))}
             />

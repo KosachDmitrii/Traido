@@ -409,6 +409,31 @@ export const en = {
   "settings.entry.flash.detailAbort": "{n} · previous scan stopped, new one started.",
   "settings.entry.flash.failed": "Could not save entry conditions",
 
+  "settings.broker.title": "Execution broker",
+  "settings.broker.lead": "Where confirmed orders go — paper only. Market data stays on Alpaca.",
+  "settings.broker.what":
+    "Alpaca Paper uses the REST paper API. IBKR Paper needs IB Gateway running locally on port 4002.",
+  "settings.broker.keeps":
+    "Switching is blocked while positions are open or order intents are unresolved (including UNKNOWN).",
+  "settings.broker.hint": "Live trading is never selectable here.",
+  "settings.broker.alpaca": "Alpaca Paper",
+  "settings.broker.ibkr": "IBKR Paper",
+  "settings.broker.status": "Status: {state}",
+  "settings.broker.account": "Account {id}",
+  "settings.broker.state.ready": "Ready",
+  "settings.broker.state.disconnected": "Disconnected",
+  "settings.broker.state.degraded": "Degraded",
+  "settings.broker.state.connecting": "Connecting",
+  "settings.broker.state.reconnecting": "Reconnecting",
+  "settings.broker.state.unknown": "{state}",
+  "settings.broker.blocked": "Switch locked: {reason}",
+  "settings.broker.blocked.openPositions": "open positions ({symbols})",
+  "settings.broker.blocked.unknownIntents": "unresolved UNKNOWN intents ({n})",
+  "settings.broker.blocked.openIntents": "unresolved order intents ({n})",
+  "settings.broker.flash.title": "Execution broker updated",
+  "settings.broker.flash.detail": "Now using {n}.",
+  "settings.broker.flash.failed": "Could not switch execution broker",
+
   "settings.api.title": "Desk API key",
   "settings.api.lead": "Password for this browser → Traido API (not Alpaca).",
   "settings.api.what":
@@ -440,7 +465,7 @@ export const en = {
 
   "settings.about.title": "About",
   "settings.about.body":
-    "Traido confirmation desk — Vite + React frontend, FastAPI backend, Alpaca paper only in V1. Agents propose; Risk decides; you or autopilot authorize; the broker executes.",
+    "Traido confirmation desk — Vite + React frontend, FastAPI backend. Market data on Alpaca; execution on Alpaca Paper or IBKR Paper. Agents propose; Risk decides; you or autopilot authorize; the broker executes.",
 
   "eval.picker.search": "Search symbol…",
   "eval.picker.aria": "Search symbol",
@@ -505,6 +530,7 @@ export const en = {
   "eval.regime.title": "By market regime",
   "eval.regime.sub": "A strategy that only works in one regime is not finished",
   "eval.regime.col.regime": "Regime",
+  "eval.regime.col.bars": "Bars",
   "eval.regime.col.return": "Return",
   "eval.regime.col.trades": "Trades",
   "eval.regime.col.dd": "Drawdown",
@@ -530,6 +556,13 @@ export const en = {
   "toast.error.dataBlocked.title": "Required data missing",
   "toast.error.dataBlocked.detail":
     "Market, sector, news, or earnings facts are missing or stale. No order was sent.",
+  "toast.error.paperBroker.title": "Paper broker required",
+  "toast.error.paperBroker.detail":
+    "Entry was refused because the broker environment is not paper.",
+  "toast.error.tradeNotAllowed.title": "Trade not allowed",
+  "toast.error.waitAdmission.title": "Waiting for a better entry",
+  "toast.error.approvalIdentity.detail":
+    "Approve requires a request id and decision version.",
   "toast.error.server500.title": "API connection dropped",
   "toast.error.server500.detail":
     "Outside US session a fill wait can outlive the proxy. The card should return — press BUY again or refresh the desk.",

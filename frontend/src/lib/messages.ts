@@ -79,21 +79,21 @@ export function humanizeError(raw: string): FlashMessage {
   if (upper.includes("BROKER_ENVIRONMENT_BLOCKED")) {
     return {
       kind: "error",
-      title: "Paper broker required",
-      detail: "Entry was refused because the broker environment is not paper.",
+      title: t("toast.error.paperBroker.title"),
+      detail: t("toast.error.paperBroker.detail"),
     };
   }
   if (upper.includes("NO_TRADE") || upper.includes("SECTOR_BLOCKED") || upper.includes("TARGET_UNREALISTIC")) {
     return {
       kind: "error",
-      title: "Trade not allowed",
+      title: t("toast.error.tradeNotAllowed.title"),
       detail: text,
     };
   }
   if (upper.includes("WAIT") && upper.includes("ADMISSION")) {
     return {
       kind: "info",
-      title: "Waiting for better entry",
+      title: t("toast.error.waitAdmission.title"),
       detail: text,
     };
   }
@@ -101,7 +101,7 @@ export function humanizeError(raw: string): FlashMessage {
     return {
       kind: "error",
       title: t("toast.error.staleDecision.title"),
-      detail: "Approve requires request id and decision version.",
+      detail: t("toast.error.approvalIdentity.detail"),
     };
   }
   if (upper.includes("INTERNAL SERVER ERROR") || text.includes("500")) {

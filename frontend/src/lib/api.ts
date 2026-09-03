@@ -338,10 +338,22 @@ export type EntryPolicy = {
   rescan?: { aborted?: boolean; requested?: boolean; cycle?: number; running?: boolean };
 };
 
+export type BrokerBackend = {
+  backend: "alpaca" | "ibkr" | string;
+  environment?: string;
+  connection_state?: string;
+  account_id?: string | null;
+  broker_class?: string;
+  switch_blocked_reason?: string | null;
+  note?: string;
+  error?: string;
+};
+
 export type DeskLight = {
   mode: string;
   session?: SessionState;
   entry_policy?: EntryPolicy;
+  broker_backend?: BrokerBackend;
   scanner: {
     enabled?: boolean;
     running?: boolean;
@@ -613,6 +625,27 @@ export async function setEntryPolicy(aggressiveness: number): Promise<EntryPolic
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(parseApiError(data, "entry_policy_failed"));
   return data as EntryPolicy;
+}
+
+export async function fetchBrokerBackend(): Promise<BrokerBackend> {
+  const res = await fetch(apiUrl("/api/v1/broker-backend"), {
+    headers: apiHeaders(),
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(data, "broker_backend_failed"));
+  return data as BrokerBackend;
+}
+
+export async function setBrokerBackend(backend: "alpaca" | "ibkr"): Promise<BrokerBackend> {
+  const res = await fetch(apiUrl("/api/v1/broker-backend"), {
+    method: "PUT",
+    headers: apiHeaders(true),
+    body: JSON.stringify({ backend }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(data, "broker_backend_failed"));
+  return data as BrokerBackend;
 }
 
 export type RegimeResult = {

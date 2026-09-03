@@ -449,7 +449,7 @@ export function EvaluationPage() {
                 <thead>
                   <tr>
                     <th>{t("eval.regime.col.regime")}</th>
-                    <th>Bars</th>
+                    <th>{t("eval.regime.col.bars")}</th>
                     <th>{t("eval.regime.col.trades")}</th>
                     <th>{t("eval.regime.col.return")}</th>
                     <th>{t("eval.oos.winRate")}</th>

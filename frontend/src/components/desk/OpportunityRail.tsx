@@ -368,7 +368,7 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
                   <div className="title">{w.symbol}</div>
                   {w.name ? <div className="rail-opp__name">{w.name}</div> : null}
                 </div>
-                <span className="rail-opp__age">WAIT</span>
+                <span className="rail-opp__age">{t("rail.wait.badge")}</span>
               </div>
             </header>
 
