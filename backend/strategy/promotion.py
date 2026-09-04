@@ -71,7 +71,13 @@ def _backtest_stats(session, key: str) -> dict[str, Any]:
         .order_by(BacktestRunRow.created_at.desc())
     ).all()
     if not rows:
-        return {"trade_count": 0, "return_pct": None, "runs": 0, "pass": False, "reasons": ["no_backtest_runs"]}
+        return {
+            "trade_count": 0,
+            "return_pct": None,
+            "runs": 0,
+            "pass": False,
+            "reasons": ["no_backtest_runs"],
+        }
     best = max(rows, key=lambda r: (r.return_pct, r.trade_count))
     return {
         "trade_count": best.trade_count,
@@ -144,7 +150,11 @@ def _apply_thresholds(
     ret = backtest.get("return_pct")
     if ret is None or float(ret) <= thr.min_backtest_return_pct:
         bt_reasons.append("min_backtest_return_pct")
-    backtest = {**backtest, "pass": not bt_reasons and backtest["trade_count"] > 0, "reasons": bt_reasons}
+    backtest = {
+        **backtest,
+        "pass": not bt_reasons and backtest["trade_count"] > 0,
+        "reasons": bt_reasons,
+    }
 
     oos_reasons: list[str] = []
     if oos["oos_trades"] < thr.min_oos_trades:
@@ -313,9 +323,7 @@ def promote_to_production(version_id: UUID | str, *, actor: str) -> dict[str, An
 
             return _row_to_dict(row)
         if row.stage != StrategyPromotionStage.HUMAN_APPROVED.value:
-            raise PromotionError(
-                f"production requires human_approved (stage={row.stage})"
-            )
+            raise PromotionError(f"production requires human_approved (stage={row.stage})")
         row.stage = StrategyPromotionStage.PRODUCTION.value
         row.updated_at = datetime.now(UTC)
         evidence = dict(row.evidence or {})
@@ -338,7 +346,9 @@ def reject_version(version_id: UUID | str, *, actor: str, reason: str) -> dict[s
         if row is None:
             raise PromotionError("strategy version not found")
         if row.stage == StrategyPromotionStage.PRODUCTION.value:
-            raise PromotionError("production versions cannot be rejected in place; register a successor")
+            raise PromotionError(
+                "production versions cannot be rejected in place; register a successor"
+            )
         row.stage = StrategyPromotionStage.REJECTED.value
         row.rejected_at = datetime.now(UTC)
         row.rejected_reason = f"{actor}: {reason}"[:2000]

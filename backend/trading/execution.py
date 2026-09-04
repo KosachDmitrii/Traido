@@ -1206,13 +1206,17 @@ class ExecutionService:
         from core.config import get_settings
         from market_data.factory import resolve_alpaca_data_feed
 
-        return quote, measure_spread(
+        return (
             quote,
-            now=self._clock(),
-            max_age_sec=self.liquidity_policy.max_quote_age_sec,
-            last_price=last_price,
-            feed=resolve_alpaca_data_feed(get_settings()),
-        ), last_price
+            measure_spread(
+                quote,
+                now=self._clock(),
+                max_age_sec=self.liquidity_policy.max_quote_age_sec,
+                last_price=last_price,
+                feed=resolve_alpaca_data_feed(get_settings()),
+            ),
+            last_price,
+        )
 
     async def _pre_trade_gates(
         self,

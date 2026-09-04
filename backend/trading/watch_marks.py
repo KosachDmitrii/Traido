@@ -143,6 +143,8 @@ async def refresh_stale_desk_marks(
     try:
         await asyncio.wait_for(refresh_all_watch_marks(md, stale), timeout=timeout_sec)
     except TimeoutError:
-        logger.warning("desk mark refresh timed out after %.1fs (%d symbols)", timeout_sec, len(stale))
+        logger.warning(
+            "desk mark refresh timed out after %.1fs (%d symbols)", timeout_sec, len(stale)
+        )
         return 0
     return len(stale)

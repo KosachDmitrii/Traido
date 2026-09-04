@@ -27,9 +27,7 @@ MIN_H1_BARS = 40
 MIN_M15_BARS = 40
 
 
-def _stale_result(
-    bundle: TraderBundle, *, timeframe: Timeframe, newest: object
-) -> StepResult:
+def _stale_result(bundle: TraderBundle, *, timeframe: Timeframe, newest: object) -> StepResult:
     """Refuse the desk when a series used for structure/entry has stopped."""
     result = StepResult(
         step=TraderStep.UNIVERSE,
@@ -130,9 +128,7 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
             # Stage 8: 4H from H1 aggregation (same series, no extra vendor call).
             h4_bars = aggregate_bars(h1_bars, Timeframe.H4, source_label="agg:1h")
             if len(h4_bars) >= 30:
-                bundle.features[Timeframe.H4] = compute_features(
-                    symbol, Timeframe.H4, h4_bars
-                )
+                bundle.features[Timeframe.H4] = compute_features(symbol, Timeframe.H4, h4_bars)
                 reasons.append("tf=H4")
     except Exception:  # noqa: BLE001, S110 — H1 optional when vendor thin
         pass
@@ -143,9 +139,7 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
         if len(m15_bars) >= MIN_M15_BARS:
             m15_fresh = check_bar_freshness(symbol, m15_bars, now=end)
             if m15_fresh.passed:
-                bundle.features[Timeframe.M15] = compute_features(
-                    symbol, Timeframe.M15, m15_bars
-                )
+                bundle.features[Timeframe.M15] = compute_features(symbol, Timeframe.M15, m15_bars)
                 reasons.append("tf=M15")
     except Exception:  # noqa: BLE001, S110
         pass

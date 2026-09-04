@@ -60,13 +60,16 @@ def compute_effective_rr(
             )
             # Inside the printed ±0.2 ATR cushion, score R:R at the planned entry —
             # the desk explicitly allows fills there; do not chase-penalize the band.
-            if price_within_zone_cushion(
-                price=ask,
-                zone_low=zone_low,
-                zone_high=zone_high,
-                atr=atr,
-                cushion_atr=cushion_atr,
-            ) and ask > stop_f:
+            if (
+                price_within_zone_cushion(
+                    price=ask,
+                    zone_low=zone_low,
+                    zone_high=zone_high,
+                    atr=atr,
+                    cushion_atr=cushion_atr,
+                )
+                and ask > stop_f
+            ):
                 effective_entry = entry_f * (1.0 + slippage_bps / 10000.0)
             # Ask only counts as the fill when it sits above the stop. A WAIT plan
             # whose zone is still above the tape must be scored at planned entry.
@@ -109,9 +112,7 @@ def required_admission_rr(
 ) -> float:
     """Formal exceptional path — not 'company looks strong'."""
     floor = min_rr_floor if min_rr_floor is not None else DEFAULT_ADMISSION_RR_FLOOR
-    weak_floor = (
-        weak_setup_rr_floor if weak_setup_rr_floor is not None else WEAK_SETUP_RR_FLOOR
-    )
+    weak_floor = weak_setup_rr_floor if weak_setup_rr_floor is not None else WEAK_SETUP_RR_FLOOR
     exceptional = (
         setup_quality >= 85
         and entry_quality >= 80

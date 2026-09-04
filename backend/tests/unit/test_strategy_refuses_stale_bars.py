@@ -69,7 +69,8 @@ async def test_an_hourly_series_weeks_behind_fails_the_scan() -> None:
     now = datetime.now(UTC)
     bundle = TraderBundle(symbol="AAPL")
     step = await run_universe(
-        bundle, _Feed(hourly_newest=now - timedelta(weeks=7), now=now)  # type: ignore[arg-type]
+        bundle,
+        _Feed(hourly_newest=now - timedelta(weeks=7), now=now),  # type: ignore[arg-type]
     )
 
     assert step.ok is False
@@ -83,7 +84,8 @@ async def test_a_current_hourly_series_is_not_refused() -> None:
     now = datetime.now(UTC)
     bundle = TraderBundle(symbol="AAPL")
     step = await run_universe(
-        bundle, _Feed(hourly_newest=now, now=now)  # type: ignore[arg-type]
+        bundle,
+        _Feed(hourly_newest=now, now=now),  # type: ignore[arg-type]
     )
 
     assert step.ok is True, step.reasons
@@ -96,7 +98,8 @@ async def test_a_weekend_gap_is_not_staleness() -> None:
     now = datetime.now(UTC)
     bundle = TraderBundle(symbol="AAPL")
     step = await run_universe(
-        bundle, _Feed(hourly_newest=now - timedelta(days=3), now=now)  # type: ignore[arg-type]
+        bundle,
+        _Feed(hourly_newest=now - timedelta(days=3), now=now),  # type: ignore[arg-type]
     )
 
     assert step.ok is True, step.reasons

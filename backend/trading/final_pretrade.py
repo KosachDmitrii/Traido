@@ -215,8 +215,15 @@ def final_pretrade_validation(
         raise PretradeRejection("BUY_REJECTED_STALE_DATA", "LIVE_QUOTE_REQUIRED")
     if "QUOTE_STALE" in spread_gate.reason_codes:
         raise PretradeRejection("BUY_REJECTED_STALE_DATA", "QUOTE_STALE")
-    if "SPREAD_TOO_WIDE" in spread_gate.reason_codes or "EXTREME_SPREAD" in spread_gate.reason_codes:
-        detail = f"spread_bps={spread_gate.bps:.1f}" if spread_gate.bps is not None else "SPREAD_TOO_WIDE"
+    if (
+        "SPREAD_TOO_WIDE" in spread_gate.reason_codes
+        or "EXTREME_SPREAD" in spread_gate.reason_codes
+    ):
+        detail = (
+            f"spread_bps={spread_gate.bps:.1f}"
+            if spread_gate.bps is not None
+            else "SPREAD_TOO_WIDE"
+        )
         raise PretradeRejection("BUY_REJECTED_SPREAD", detail)
 
     mid = (bid + ask) / 2

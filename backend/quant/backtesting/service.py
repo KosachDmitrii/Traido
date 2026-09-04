@@ -78,7 +78,9 @@ def default_factory(params: Mapping[str, Any]) -> Strategy:
     return desk_factory(params)
 
 
-def resolve_strategy_kind(kind: StrategyKind | None) -> tuple[StrategyKind, Any, dict[str, list[Any]]]:
+def resolve_strategy_kind(
+    kind: StrategyKind | None,
+) -> tuple[StrategyKind, Any, dict[str, list[Any]]]:
     """Return (kind, factory, walk-forward grid)."""
     resolved = (kind or "desk").strip().lower()
     if resolved in {"stub", "ema", "ema_trend_stub", "research"}:
@@ -155,7 +157,6 @@ class EvaluationResult:
             "verdict": self.verdict,
         }
         return data
-
 
 
 @dataclass
@@ -385,9 +386,7 @@ def _evaluate(
         benchmark_max_drawdown_pct=bench_dd,
         excess_return_pct=excess,
         beats_benchmark=excess > 0,
-        by_regime=_by_regime(
-            symbol, timeframe, bars, costs, starting_equity, factory=factory
-        ),
+        by_regime=_by_regime(symbol, timeframe, bars, costs, starting_equity, factory=factory),
         warnings=warnings,
     )
 

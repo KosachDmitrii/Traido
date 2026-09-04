@@ -6,7 +6,13 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from core.enums import AdmissionDecision, EntryDecision, EntryWatchStatus, SetupType, TargetReachabilityClass
+from core.enums import (
+    AdmissionDecision,
+    EntryDecision,
+    EntryWatchStatus,
+    SetupType,
+    TargetReachabilityClass,
+)
 from core.schemas import (
     Bar,
     EntryWatch,
@@ -153,6 +159,7 @@ def revalidate_triggered_watch_full(
         _release_revalidating(watch.id, reason="REVALIDATE_STILL_CLAIMED")
     return result
 
+
 def _release_revalidating(watch_id, *, reason: str) -> None:
     if ENTRY_WATCHES.mark(watch_id, EntryWatchStatus.TRIGGERED, reason=reason) is not None:
         return
@@ -192,11 +199,7 @@ def _revalidate_after_claim(
     )
     # Admission / RR still use the ask; zone membership must match the mark that
     # triggered WAIT (last trade), or ask-above-zone flaps reset every pass.
-    mark_price = (
-        float(watch.last_price)
-        if watch.last_price is not None
-        else float(quote.ask)
-    )
+    mark_price = float(watch.last_price) if watch.last_price is not None else float(quote.ask)
     atr_v = facts.atr
     if watch.admission_snapshot and watch.admission_snapshot.atr_at_creation:
         atr_v = atr_v or watch.admission_snapshot.atr_at_creation
@@ -254,9 +257,7 @@ def _revalidate_after_claim(
     if pending:
         reason = "TRIGGERED_CONDITIONS_PENDING:" + ",".join(pending[:4])
         stay_triggered = set(pending).issubset(TRANSIENT_TRIGGER_CONDITIONS)
-        next_status = (
-            EntryWatchStatus.TRIGGERED if stay_triggered else EntryWatchStatus.WAITING
-        )
+        next_status = EntryWatchStatus.TRIGGERED if stay_triggered else EntryWatchStatus.WAITING
         if ENTRY_WATCHES.mark(watch.id, next_status, reason=reason) is None:
             ENTRY_WATCHES.update(
                 watch.model_copy(

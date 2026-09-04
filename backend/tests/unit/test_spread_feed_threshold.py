@@ -26,7 +26,9 @@ def test_get_entry_thresholds_respects_feed(monkeypatch) -> None:
 
     get_settings.cache_clear()
     th_sip = get_entry_thresholds()
-    assert th_sip.max_spread_bps == pytest.approx(thresholds_for(th_sip.aggressiveness).max_spread_bps)
+    assert th_sip.max_spread_bps == pytest.approx(
+        thresholds_for(th_sip.aggressiveness).max_spread_bps
+    )
 
     monkeypatch.setenv("ALPACA_DATA_FEED", "iex")
     get_settings.cache_clear()

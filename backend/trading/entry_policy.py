@@ -455,9 +455,7 @@ def thresholds_for(aggressiveness: int) -> EntryThresholds:
         require_vol_digest=bool(_step_value(_STEP_REQUIRE_VOL_DIGEST, a)),
         allow_sell_off_arrival=bool(_step_value(_STEP_ALLOW_SELL_OFF, a)),
         min_sell_off_arrival_quality=int(_step_value(_STEP_MIN_SELL_OFF_ARRIVAL, a)),
-        min_fast_pullback_arrival_quality=int(
-            _step_value(_STEP_MIN_FAST_PULLBACK_ARRIVAL, a)
-        ),
+        min_fast_pullback_arrival_quality=int(_step_value(_STEP_MIN_FAST_PULLBACK_ARRIVAL, a)),
         structural_arrival_hard=bool(_step_value(_STEP_STRUCTURAL_ARRIVAL_HARD, a)),
         quote_max_age_sec=float(_step_value(_STEP_QUOTE_MAX_AGE_SEC, a)),
         zone_min_width_atr=float(_step_value(_STEP_ZONE_MIN_WIDTH_ATR, a)),
@@ -554,7 +552,9 @@ def _heal_redis_from_file(
     _write_redis(aggressiveness, actor=actor or "user", updated_at=ts.isoformat())
 
 
-def _write_file(aggressiveness: int, *, actor: str, thresholds: EntryThresholds, updated_at: str) -> None:
+def _write_file(
+    aggressiveness: int, *, actor: str, thresholds: EntryThresholds, updated_at: str
+) -> None:
     POLICY_PATH.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "aggressiveness": aggressiveness,

@@ -76,9 +76,7 @@ def run_structure(bundle: TraderBundle) -> StepResult:
     score = max(0, min(100, score))
     trend = "bullish" if ok else "bearish" if structure == "downtrend" else "neutral"
 
-    breakout = bool(ind.get("pa_breakout")) or bool(
-        d1.chart_patterns.get("triangle_ascending")
-    )
+    breakout = bool(ind.get("pa_breakout")) or bool(d1.chart_patterns.get("triangle_ascending"))
     rsi_v = ind.get("rsi_14")
     rvol = ind.get("relative_volume")
     pattern_flags = {

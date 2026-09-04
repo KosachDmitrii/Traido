@@ -47,7 +47,9 @@ _DISPLAY_KEYS = frozenset(
 )
 
 
-def _spread_display(quote: Quote | None, *, last_price: float | None = None) -> dict[str, float | bool]:
+def _spread_display(
+    quote: Quote | None, *, last_price: float | None = None
+) -> dict[str, float | bool]:
     if quote is None or quote.bid is None or quote.ask is None:
         return {}
     from trading import execution as execution_mod
@@ -188,7 +190,9 @@ def desk_payload(watch: EntryWatch) -> dict[str, Any]:
     # Live mark always wins; re-derive ui_state so a stale TRIGGERED cache cannot
     # claim "in zone" while last_price sits above the band.
     px = float(watch.last_price or watch.current_price_at_creation)
-    base["last_price"] = str(watch.last_price) if watch.last_price is not None else base.get("last_price")
+    base["last_price"] = (
+        str(watch.last_price) if watch.last_price is not None else base.get("last_price")
+    )
     if watch.last_observed_at is not None:
         base["last_observed_at"] = watch.last_observed_at.isoformat().replace("+00:00", "Z")
     # Desk must not stick on revalidating — treat as triggered for display when

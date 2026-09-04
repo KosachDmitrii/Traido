@@ -159,9 +159,7 @@ def _watch_funnel_payload(entry_watches: list[dict]) -> dict:
         "waiting": sum(1 for w in entry_watches if (w.get("status") or "").lower() == "waiting"),
         "triggered": sum(1 for w in entry_watches if (w.get("status") or "").lower() in triggered),
         "admitted": sum(1 for w in entry_watches if (w.get("status") or "").lower() in admitted),
-        "in_zone": sum(
-            1 for w in entry_watches if w.get("ui_state") in {"IN_ZONE", "TRIGGERED"}
-        ),
+        "in_zone": sum(1 for w in entry_watches if w.get("ui_state") in {"IN_ZONE", "TRIGGERED"}),
         "blocked_in_zone": sum(1 for w in entry_watches if w.get("buy_blocked")),
     }
 

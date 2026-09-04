@@ -67,6 +67,7 @@ def test_medium_matches_historical_production_soft_end() -> None:
     assert th.allow_fast_pullback is True
     assert th.pullback_deep_no_trade is False
 
+
 def test_five_rung_gradation_tables() -> None:
     strong = thresholds_for(0)
     weak = thresholds_for(100)

@@ -51,7 +51,9 @@ def test_set_persists_to_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert raw["actor"] == "test"
 
 
-def test_user_file_beats_test_redis_even_when_redis_is_newer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_user_file_beats_test_redis_even_when_redis_is_newer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "auto_trigger.json"
     path.write_text(
         json.dumps(

@@ -108,9 +108,7 @@ def test_ttl_expiry_persists_so_new_wait_does_not_integrity_error(engine) -> Non
         store._rows[first.id] = stale
         # DB still has the active waiting row (bypass patched update).
         persist_watch(
-            first.model_copy(
-                update={"valid_until": datetime.now(UTC) - timedelta(minutes=5)}
-            ),
+            first.model_copy(update={"valid_until": datetime.now(UTC) - timedelta(minutes=5)}),
             engine=engine,
         )
 

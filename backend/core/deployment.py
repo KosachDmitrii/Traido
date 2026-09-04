@@ -134,4 +134,3 @@ def assert_live_requires_production_strategy() -> None:
         "(proposal → backtest → OOS → walk-forward → paper → human approve → "
         "production). None is approved yet."
     )
-

@@ -86,7 +86,9 @@ async def run_watch_pass() -> dict[str, int]:
                 quote = None
             if price is None:
                 end = datetime.now(UTC)
-                bars = await md.get_bars(current.symbol, Timeframe.M5, end - timedelta(hours=2), end)
+                bars = await md.get_bars(
+                    current.symbol, Timeframe.M5, end - timedelta(hours=2), end
+                )
                 if bars:
                     price = float(bars[-1].close)
                     current = stamp_watch_price(current, price)

@@ -36,7 +36,9 @@ def _watch(*, status: EntryWatchStatus, lease_expired_ago: float | None = 30.0) 
         setup_type=SetupType.PULLBACK_CONTINUATION,
         entry_quality_at_creation=65,
         setup_quality_at_creation=59,
-        claimed_at=claimed if status in {EntryWatchStatus.REVALIDATING, EntryWatchStatus.CONVERTING} else None,
+        claimed_at=claimed
+        if status in {EntryWatchStatus.REVALIDATING, EntryWatchStatus.CONVERTING}
+        else None,
         claim_token="abc" if status is EntryWatchStatus.REVALIDATING else None,
         claim_owner_id="abc" if status is EntryWatchStatus.REVALIDATING else None,
         lease_expires_at=lease if status is EntryWatchStatus.REVALIDATING else None,
@@ -47,9 +49,7 @@ def _watch(*, status: EntryWatchStatus, lease_expired_ago: float | None = 30.0) 
 def test_lease_expired_helper() -> None:
     stuck = _watch(status=EntryWatchStatus.REVALIDATING, lease_expired_ago=10)
     assert lease_expired(stuck) is True
-    live = stuck.model_copy(
-        update={"lease_expires_at": datetime.now(UTC) + timedelta(seconds=60)}
-    )
+    live = stuck.model_copy(update={"lease_expires_at": datetime.now(UTC) + timedelta(seconds=60)})
     assert lease_expired(live) is False
 
 
