@@ -49,7 +49,7 @@ WATCHLIST_PATH = Path(__file__).resolve().parents[2] / "configs" / "watchlist.js
 
 FALLBACK_WATCHLIST = {
     "universe": ["AAPL", "MSFT", "NVDA"],
-    "timeframes": ["1d", "1h"],
+    "timeframes": ["1d", "4h", "1h", "15m"],
     "scan_interval_seconds": 300,
     "max_open_buy_opportunities": 5,
     "enabled": True,
@@ -304,7 +304,7 @@ def abort_scan_cycle() -> bool:
     BOARD.log(
         "scanner",
         "Aborting in-flight cycle for a fresh pass",
-        level="warn",
+        level="info",
     )
     return True
 
@@ -352,7 +352,7 @@ async def run_scan_cycle() -> ScannerStatus:
         if parent is not None and parent.cancelling():
             raise
         STATUS.error = "superseded"
-        BOARD.log("scanner", f"Cycle {STATUS.cycle} superseded", level="warn")
+        BOARD.log("scanner", f"Cycle {STATUS.cycle} superseded", level="info")
         return STATUS
     finally:
         if _cycle_task is task:
@@ -394,6 +394,9 @@ async def _scan_once() -> ScannerStatus:
             max_open=max_open,
             scheduled_at=datetime.now(UTC),
         )
+    except asyncio.CancelledError:
+        STATUS.error = "superseded"
+        raise
     except Exception as exc:  # noqa: BLE001
         STATUS.error = str(exc)
         BOARD.set_agent("scanner", status="error", detail=str(exc)[:80])

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from core.enums import InstrumentThesis
@@ -21,9 +23,10 @@ def test_zero_matches_shipped_f3_floors() -> None:
     assert th.aggressiveness == 0
     assert th.ema_ext_pct == pytest.approx(2.5)
     assert th.vwap_ext_pct == pytest.approx(1.0)
-    assert th.min_buy_quality == 55
     assert th.min_setup_quality == 60
     assert th.min_entry_quality == 55
+    assert th.require_uptrend is True
+    assert th.rsi_overbought == pytest.approx(70.0)
     assert th.max_spread_bps == pytest.approx(30.0)
     assert th.zone_gap_frac == pytest.approx(0.0)
     assert th.allow_soft_chase_buy is False
@@ -64,6 +67,28 @@ def test_medium_matches_historical_production_soft_end() -> None:
     assert th.allow_fast_pullback is True
     assert th.pullback_deep_no_trade is False
 
+def test_five_rung_gradation_tables() -> None:
+    strong = thresholds_for(0)
+    weak = thresholds_for(100)
+    assert strong.min_effective_rr == pytest.approx(2.0)
+    assert weak.min_effective_rr == pytest.approx(1.45)
+    assert strong.min_zone_arrival_quality == 60
+    assert weak.min_zone_arrival_quality == 35
+    assert strong.require_vwap_hold is True
+    assert weak.require_vwap_hold is False
+    assert strong.require_vol_digest is True
+    assert weak.require_vol_digest is False
+    assert thresholds_for(75).require_vwap_hold is False
+    assert thresholds_for(50).require_vwap_hold is True
+    assert strong.allow_sell_off_arrival is False
+    assert weak.allow_sell_off_arrival is True
+    assert weak.min_sell_off_arrival_quality == 8
+    assert strong.structural_arrival_hard is True
+    assert weak.structural_arrival_hard is False
+    assert strong.quote_max_age_sec == pytest.approx(15.0)
+    assert weak.quote_max_age_sec == pytest.approx(90.0)
+
+
 def test_weak_extends_past_medium() -> None:
     mid = thresholds_for(50)
     weak = thresholds_for(100)
@@ -71,8 +96,8 @@ def test_weak_extends_past_medium() -> None:
     assert weak.vwap_ext_pct > mid.vwap_ext_pct
     assert weak.wait_ttl_minutes == 150
     assert weak.zone_gap_frac == pytest.approx(0.82)
-    assert weak.zone_atr_buffer == pytest.approx(0.55)
-    assert weak.zone_atr_undercut == pytest.approx(0.45)
+    assert weak.zone_atr_buffer == pytest.approx(0.45)
+    assert weak.zone_atr_undercut == pytest.approx(0.55)
     assert weak.zone_max_width_atr == pytest.approx(2.5)
     assert weak.zone_gap_frac > mid.zone_gap_frac
     assert weak.require_momentum_flip is False
@@ -88,7 +113,7 @@ def test_weak_zone_is_closer_and_width_capped() -> None:
     lo, hi = float(low), float(high)
     atr = 2.0
     # High should cover most of the extension toward price (gap_frac 0.82).
-    assert hi >= 100.0 + 0.55 * atr + 0.80 * (110.0 - 100.0) - 1e-6
+    assert hi >= 100.0 + 0.45 * atr + 0.82 * (110.0 - 100.0) - 1e-6
     assert hi <= 110.0
     assert (hi - lo) / atr <= 2.5 + 1e-6
     # Still a pullback plan: high stays at/under last.
@@ -220,6 +245,51 @@ def test_newer_file_beats_stale_redis(tmp_path, monkeypatch) -> None:
     set_entry_aggressiveness(100, actor="test")
     entry_policy.reset_entry_policy_cache()
     assert entry_policy.get_entry_aggressiveness() == 100
+
+
+def test_user_file_beats_test_redis_even_when_redis_is_newer(tmp_path, monkeypatch) -> None:
+    """Shared dev Redis must not keep strict floors after the operator chose weak."""
+    from trading import entry_policy
+
+    path = tmp_path / "entry_policy.json"
+    path.write_text(
+        json.dumps(
+            {
+                "aggressiveness": 100,
+                "actor": "user",
+                "updated_at": "2026-09-03T15:56:52+00:00",
+                "thresholds": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    store: dict[str, dict[str, str]] = {
+        entry_policy.REDIS_KEY: {
+            "aggressiveness": "0",
+            "actor": "test",
+            "updated_at": "2026-09-03T16:10:37+00:00",
+        }
+    }
+
+    class _FakeRedis:
+        def hget(self, key, field):
+            raw = store.get(key, {}).get(field)
+            return raw.encode() if raw is not None else None
+
+        def hset(self, key, mapping):
+            store[key] = {str(k): str(v) for k, v in mapping.items()}
+            return True
+
+        def ping(self):
+            return True
+
+    monkeypatch.setattr(entry_policy, "POLICY_PATH", path)
+    monkeypatch.setenv("REDIS_URL", "redis://test")
+    monkeypatch.setattr(entry_policy, "_redis_client", lambda: _FakeRedis())
+    entry_policy.reset_entry_policy_cache()
+    assert entry_policy.get_entry_aggressiveness() == 100
+    assert store[entry_policy.REDIS_KEY]["aggressiveness"] == "100"
+    assert store[entry_policy.REDIS_KEY]["actor"] == "user"
 
 
 def test_desk_etag_includes_entry_policy() -> None:

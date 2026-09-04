@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, cast
 
@@ -178,7 +178,14 @@ def _ts(value: Any) -> datetime | None:
     if not value:
         return None
     try:
-        return datetime.fromisoformat(str(value))
+        raw = str(value)
+        if raw.endswith("Z"):
+            ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        else:
+            ts = datetime.fromisoformat(raw)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+        return ts.astimezone(UTC)
     except ValueError:
         return None
 
@@ -479,18 +486,43 @@ class AlpacaMarketData:
         bid, ask = raw.get("bp"), raw.get("ap")
         if not bid or not ask:
             return None
+        raw_t = str(raw["t"])
+        if raw_t.endswith("Z"):
+            ts = datetime.fromisoformat(raw_t.replace("Z", "+00:00"))
+        else:
+            ts = datetime.fromisoformat(raw_t)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
         return Quote(
             symbol=symbol,
             bid=Decimal(str(bid)),
             ask=Decimal(str(ask)),
             bid_size=Decimal(str(raw["bs"])) if raw.get("bs") is not None else None,
             ask_size=Decimal(str(raw["as"])) if raw.get("as") is not None else None,
-            ts=datetime.fromisoformat(raw["t"]),
+            ts=ts,
             source=self.source,
         )
 
     async def get_last_price(self, symbol: str) -> float:
+        trade = await self.get_latest_trade(symbol)
+        if trade is None:
+            raise RuntimeError(f"ALPACA_NO_LAST_TRADE:{symbol.upper()}")
+        return trade[0]
+
+    async def get_latest_trade(self, symbol: str) -> tuple[float, datetime] | None:
         symbol = symbol.upper()
         url = f"{self._base}/v2/stocks/{symbol}/trades/latest"
         payload = await self._get_json(url)
-        return float(payload["trade"]["p"])
+        raw = payload.get("trade") or {}
+        price = raw.get("p")
+        raw_t = raw.get("t")
+        if price is None or not raw_t:
+            return None
+        raw_t = str(raw_t)
+        if raw_t.endswith("Z"):
+            ts = datetime.fromisoformat(raw_t.replace("Z", "+00:00"))
+        else:
+            ts = datetime.fromisoformat(raw_t)
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=UTC)
+        return float(price), ts

@@ -21,7 +21,8 @@ from quant.indicators import (
     vwap,
 )
 from quant.market_regime import classify
-from quant.momentum import compute_momentum
+from quant.momentum import compute_momentum, rate_of_change
+from quant.price_action import detect_price_action
 from quant.series import closes, highs, lows, opens, volumes
 from quant.support_resistance import support_resistance
 from quant.volatility import average_dollar_volume, compute_volatility, volume_trend
@@ -80,6 +81,7 @@ def compute_features(symbol: str, timeframe: Timeframe, bars: list[Bar]) -> Feat
         "relative_volume": rvol,
         "ema50_above_ema200": None if e50 is None or e200 is None else e50 > e200,
         # Momentum
+        "roc_10": rate_of_change(c, 10),
         "roc_21": momentum.roc.get(21),
         "roc_63": momentum.roc.get(63),
         "roc_126": momentum.roc.get(126),
@@ -108,6 +110,10 @@ def compute_features(symbol: str, timeframe: Timeframe, bars: list[Bar]) -> Feat
 
     candles = detect_candles(o, h, l, c)
     charts = detect_chart_patterns(h, l, c)
+    pa = detect_price_action(o, h, l, c)
+    for k, v in pa.as_flags().items():
+        indicators[f"pa_{k}"] = v
+    indicators["pa_reasons"] = "|".join(pa.reasons)
     support, resistance = support_resistance(h, l)
 
     notes: list[str] = []
@@ -121,6 +127,7 @@ def compute_features(symbol: str, timeframe: Timeframe, bars: list[Bar]) -> Feat
             notes.append("RSI overbought zone")
         elif rsi_v <= 30:
             notes.append("RSI oversold zone")
+    notes.extend(pa.reasons)
     notes.extend(momentum.reasons)
     notes.extend(volatility.reasons)
     notes.extend(regime.reasons)

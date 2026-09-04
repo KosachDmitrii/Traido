@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/v1", tags=["scan"])
 
 class ScanRequest(BaseModel):
     symbol: str = Field(min_length=1, max_length=16)
-    timeframes: list[str] = Field(default_factory=lambda: ["1d", "1h"])
+    timeframes: list[str] = Field(default_factory=lambda: ["1d", "4h", "1h", "15m"])
 
 
 async def _run_scan(symbol: str, timeframes: list[str]) -> PipelineResult:

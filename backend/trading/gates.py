@@ -21,6 +21,7 @@ from typing import Any
 
 from core.enums import BrokerConnectionState
 from core.schemas import Bar, Quote
+from market_data.entry_spread import spread_bps_for_entry
 from quant.filters import TradabilityLimits, check_tradability
 from quant.volatility import average_dollar_volume
 from trading.session_hours import SessionPhase, session_phase
@@ -86,21 +87,30 @@ class SpreadReading:
 SPREAD_UNAVAILABLE = SpreadReading(source=SpreadSource.UNAVAILABLE)
 
 
-def measure_spread(quote: Quote | None, *, now: datetime, max_age_sec: float) -> SpreadReading:
+def measure_spread(
+    quote: Quote | None,
+    *,
+    now: datetime,
+    max_age_sec: float,
+    last_price: float | None = None,
+    feed: str | None = None,
+) -> SpreadReading:
     """Turn a top-of-book snapshot into a spread, or say why it could not.
 
     A quote older than `max_age_sec` is reported STALE rather than used: in a
     fast tape a two-minute-old spread describes a market that no longer exists.
+
+    When ``last_price`` is supplied on IEX, spread uses buy-side friction vs
+    the last print when it sits inside the book (see ``entry_spread``).
     """
     if quote is None:
         return SPREAD_UNAVAILABLE
 
     age = (now - quote.ts).total_seconds()
-    mid = (quote.bid + quote.ask) / 2
-    if quote.bid <= 0 or quote.ask <= 0 or mid <= 0 or quote.ask < quote.bid:
+    bps = spread_bps_for_entry(quote, last_price=last_price, feed=feed)
+    if bps is None:
         return SPREAD_UNAVAILABLE
 
-    bps = float((quote.ask - quote.bid) / mid) * 10_000.0
     if age > max_age_sec or age < -max_age_sec:
         return SpreadReading(source=SpreadSource.STALE, bps=bps, age_sec=age)
     return SpreadReading(source=SpreadSource.LIVE, bps=bps, age_sec=age)

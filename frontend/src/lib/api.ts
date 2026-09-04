@@ -217,6 +217,9 @@ export type EntryWatchCard = {
   created_at?: string;
   entry_zone_low: string;
   entry_zone_high: string;
+  /** Printed zone ±0.2 ATR — trigger/admission band (may extend above planned entry). */
+  entry_zone_trigger_low?: string | number | null;
+  entry_zone_trigger_high?: string | number | null;
   planned_entry: string;
   planned_stop: string;
   planned_target: string;
@@ -232,6 +235,14 @@ export type EntryWatchCard = {
   zone_arrival_type?: string | null;
   arrival_reason_codes?: string[];
   buy_blocked?: boolean;
+  /** Human-readable block reason when in zone but not admissible. */
+  desk_block_reason?: string | null;
+  /** Latest admission/trigger failure while revalidating (spread, R:R, chase…). */
+  desk_revalidation_hint?: string | null;
+  /** Live top-of-book spread from the watch loop (IEX/SIP). */
+  live_spread_bps?: number | null;
+  max_spread_bps?: number | null;
+  spread_acceptable?: boolean | null;
 };
 
 export type AdmissionExplainField = {
@@ -349,10 +360,24 @@ export type BrokerBackend = {
   error?: string;
 };
 
+export type WatchFunnel = {
+  waiting?: number;
+  triggered?: number;
+  admitted?: number;
+  in_zone?: number;
+  blocked_in_zone?: number;
+};
+
+export type AutoTrigger = {
+  enabled: boolean;
+  note?: string;
+};
+
 export type DeskLight = {
   mode: string;
   session?: SessionState;
   entry_policy?: EntryPolicy;
+  auto_trigger?: AutoTrigger;
   broker_backend?: BrokerBackend;
   scanner: {
     enabled?: boolean;
@@ -374,6 +399,7 @@ export type DeskLight = {
   };
   buy_opportunities: BuyOpportunity[];
   entry_watches?: EntryWatchCard[];
+  watch_funnel?: WatchFunnel;
   sell_opportunities: SellOpportunity[];
   positions: DeskPosition[];
   review: ReviewPayload;
@@ -588,6 +614,31 @@ export function subscribeDeskEvents(
   return () => es.close();
 }
 
+export type LogEventsResponse = {
+  events: ActivityEvent[];
+  retention_days: number;
+  has_more: boolean;
+};
+
+export async function fetchLogEvents(params?: {
+  limit?: number;
+  before?: string;
+  agent?: string;
+}): Promise<LogEventsResponse> {
+  const q = new URLSearchParams();
+  if (params?.limit) q.set("limit", String(params.limit));
+  if (params?.before) q.set("before", params.before);
+  if (params?.agent && params.agent !== "all") q.set("agent", params.agent);
+  const suffix = q.size ? `?${q.toString()}` : "";
+  const res = await fetch(apiUrl(`/api/v1/logs/events${suffix}`), {
+    headers: apiHeaders(),
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(data, "logs_failed"));
+  return data as LogEventsResponse;
+}
+
 export async function fetchReview(liveOnly = true): Promise<ReviewPayload> {
   const res = await fetch(apiUrl(`/api/v1/review?live_only=${liveOnly ? "true" : "false"}`), {
     headers: apiHeaders(),
@@ -616,6 +667,16 @@ export async function setKillSwitch(enabled: boolean): Promise<{ enabled: boolea
   return data as { enabled: boolean };
 }
 
+export async function fetchEntryPolicy(): Promise<EntryPolicy> {
+  const res = await fetch(apiUrl("/api/v1/entry-policy"), {
+    headers: apiHeaders(),
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(data, "entry_policy_failed"));
+  return data as EntryPolicy;
+}
+
 export async function setEntryPolicy(aggressiveness: number): Promise<EntryPolicy> {
   const res = await fetch(apiUrl("/api/v1/entry-policy"), {
     method: "PUT",
@@ -625,6 +686,24 @@ export async function setEntryPolicy(aggressiveness: number): Promise<EntryPolic
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(parseApiError(data, "entry_policy_failed"));
   return data as EntryPolicy;
+}
+
+export async function fetchAutoTrigger(): Promise<AutoTrigger> {
+  const res = await fetch(apiUrl("/api/v1/auto-trigger"), { headers: apiHeaders(), cache: "no-store" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(data, "auto_trigger_failed"));
+  return data as AutoTrigger;
+}
+
+export async function setAutoTrigger(enabled: boolean): Promise<AutoTrigger> {
+  const res = await fetch(apiUrl("/api/v1/auto-trigger"), {
+    method: "PUT",
+    headers: apiHeaders(true),
+    body: JSON.stringify({ enabled }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(data, "auto_trigger_failed"));
+  return data as AutoTrigger;
 }
 
 export async function fetchBrokerBackend(): Promise<BrokerBackend> {
@@ -701,9 +780,14 @@ export type EvaluationResult = {
 export async function fetchEvaluation(
   symbol: string,
   refresh = false,
+  strategy: "desk" | "stub" = "desk",
 ): Promise<EvaluationResult> {
+  const qs = new URLSearchParams({
+    refresh: String(refresh),
+    strategy,
+  });
   const res = await fetch(
-    apiUrl(`/api/v1/evaluation/${encodeURIComponent(symbol)}?refresh=${refresh}`),
+    apiUrl(`/api/v1/evaluation/${encodeURIComponent(symbol)}?${qs}`),
     { headers: apiHeaders(), cache: "no-store" },
   );
   const data = await res.json().catch(() => ({}));
@@ -753,3 +837,59 @@ export async function fetchF3Diagnostics(): Promise<F3Diagnostics> {
   if (!res.ok) throw new Error(parseApiError(data, "f3_diagnostics_failed"));
   return data as F3Diagnostics;
 }
+
+export type StrategyVersion = {
+  id: string;
+  key: string;
+  name: string;
+  version_tag: string;
+  parameter_hash: string;
+  parameters: Record<string, unknown>;
+  stage: string;
+  evidence: Record<string, unknown>;
+  created_at?: string | null;
+  updated_at?: string | null;
+  approved_at?: string | null;
+  approved_by?: string | null;
+  rejected_at?: string | null;
+  rejected_reason?: string | null;
+  notes?: string | null;
+};
+
+export type StrategiesPayload = {
+  thresholds: Record<string, number>;
+  versions: StrategyVersion[];
+  production: StrategyVersion[];
+};
+
+export async function fetchStrategies(): Promise<StrategiesPayload> {
+  const res = await fetch(apiUrl("/api/v1/strategies"), {
+    headers: apiHeaders(),
+    cache: "no-store",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(data, "strategies_failed"));
+  return data as StrategiesPayload;
+}
+
+async function strategyAction(
+  id: string,
+  action: "recompute" | "approve" | "promote" | "reject",
+  body?: Record<string, string>,
+): Promise<StrategyVersion> {
+  const res = await fetch(apiUrl(`/api/v1/strategies/${encodeURIComponent(id)}/${action}`), {
+    method: "POST",
+    headers: { ...apiHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(body ?? { actor: "operator" }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(data, `strategy_${action}_failed`));
+  return (data.version ?? data) as StrategyVersion;
+}
+
+export const recomputeStrategy = (id: string) => strategyAction(id, "recompute");
+export const approveStrategy = (id: string) => strategyAction(id, "approve");
+export const promoteStrategy = (id: string) => strategyAction(id, "promote");
+export const rejectStrategy = (id: string, reason: string) =>
+  strategyAction(id, "reject", { actor: "operator", reason });
+

@@ -15,8 +15,7 @@ from core.ports import MarketDataPort
 from core.schemas import NewsAssessment
 from core.vendor_http import describe_http_error, get_with_retry
 
-PROMPT_VERSION = "trader.checklist@1.0.0"
-MAX_SPREAD_BPS = 40.0
+PROMPT_VERSION = "trader.checklist@1.1.0"
 NEG_WORDS = ("downgrade", "probe", "lawsuit", "fraud", "recall", "bankrupt", "investigation")
 
 
@@ -152,10 +151,31 @@ async def run_checklist(
         bundle.record(result)
         return result
 
-    spread_bps = float((quote.ask - quote.bid) / mid * Decimal(10000))
+    from market_data.entry_spread import spread_bps_for_entry
+    from market_data.factory import resolve_alpaca_data_feed
+    from trading.entry_policy import get_entry_thresholds
+
+    th = get_entry_thresholds()
+    last_price: float | None = None
+    get_last = getattr(md, "get_last_price", None)
+    if get_last is not None:
+        try:
+            last_price = float(await get_last(bundle.symbol))
+        except Exception:  # noqa: BLE001
+            last_price = float(mid)
+    else:
+        last_price = float(mid)
+
+    spread_bps = spread_bps_for_entry(
+        quote,
+        last_price=last_price,
+        feed=resolve_alpaca_data_feed(settings),
+    )
+    if spread_bps is None:
+        spread_bps = float((quote.ask - quote.bid) / mid * Decimal(10000))
     bundle.quote_spread_bps = spread_bps
     reasons.append(f"spread_bps={spread_bps:.1f}")
-    if spread_bps > MAX_SPREAD_BPS:
+    if spread_bps > th.max_spread_bps:
         result = StepResult(
             step=TraderStep.CHECKLIST,
             ok=False,
@@ -168,7 +188,7 @@ async def run_checklist(
 
     if quote.ts is not None:
         age = datetime.now(UTC) - (quote.ts if quote.ts.tzinfo else quote.ts.replace(tzinfo=UTC))
-        if age > timedelta(minutes=5):
+        if age > timedelta(seconds=th.quote_max_age_sec):
             result = StepResult(
                 step=TraderStep.CHECKLIST,
                 ok=False,

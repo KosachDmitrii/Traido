@@ -1,8 +1,6 @@
 """Five desk steps (0/25/50/75/100) → Structure / Setup floors.
 
-Matches Settings «Сильно → Слабо». Risk, liquidity, RTH, earnings and news
-are unchanged. Floors are slightly looser than the first trader-desk cut so
-WAIT/BUY ideas can surface without disarming hard capital gates.
+Derived from ``EntryThresholds`` — one aggressiveness slider, one policy table.
 """
 
 from __future__ import annotations
@@ -10,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from trading.entry_policy import (
-    ENTRY_LEVELS,
+    ENTRY_LEVEL_LABELS,
     EntryThresholds,
     clamp_aggressiveness,
     get_entry_thresholds,
@@ -37,72 +35,20 @@ class TraderGatePolicy:
     allow_below_sma: bool
 
 
-# Explicit five rungs — do not collapse adjacent steps.
-_GATES: dict[int, TraderGatePolicy] = {
-    0: TraderGatePolicy(
-        aggressiveness=0,
-        label="strong",
-        require_uptrend=True,
-        allow_range=False,
-        require_ema_stack=True,
-        rsi_overbought=70.0,
-        chase_ext_frac=0.035,
-        near_sma_frac=0.025,
-        allow_below_sma=False,
-    ),
-    25: TraderGatePolicy(
-        aggressiveness=25,
-        label="firmer",
-        require_uptrend=True,
-        allow_range=False,
-        require_ema_stack=True,
-        rsi_overbought=72.0,
-        chase_ext_frac=0.040,
-        near_sma_frac=0.028,
-        allow_below_sma=True,
-    ),
-    50: TraderGatePolicy(
-        aggressiveness=50,
-        label="medium",
-        require_uptrend=False,
-        allow_range=True,
-        require_ema_stack=True,
-        rsi_overbought=74.0,
-        chase_ext_frac=0.048,
-        near_sma_frac=0.032,
-        allow_below_sma=True,
-    ),
-    75: TraderGatePolicy(
-        aggressiveness=75,
-        label="softer",
-        require_uptrend=False,
-        allow_range=True,
-        require_ema_stack=False,
-        rsi_overbought=77.0,
-        chase_ext_frac=0.055,
-        near_sma_frac=0.038,
-        allow_below_sma=True,
-    ),
-    100: TraderGatePolicy(
-        aggressiveness=100,
-        label="weak",
-        require_uptrend=False,
-        allow_range=True,
-        require_ema_stack=False,
-        rsi_overbought=80.0,
-        chase_ext_frac=0.070,
-        near_sma_frac=0.045,
-        allow_below_sma=True,
-    ),
-}
-
-assert set(_GATES) == set(ENTRY_LEVELS), "trader gates must cover every desk step"
-
-
 def trader_gates_for(th: EntryThresholds | None = None) -> TraderGatePolicy:
     th = th or get_entry_thresholds()
     a = clamp_aggressiveness(th.aggressiveness)
-    return _GATES[a]
+    return TraderGatePolicy(
+        aggressiveness=a,
+        label=ENTRY_LEVEL_LABELS.get(a, "strong"),
+        require_uptrend=th.require_uptrend,
+        allow_range=th.allow_range,
+        require_ema_stack=th.require_ema_stack,
+        rsi_overbought=th.rsi_overbought,
+        chase_ext_frac=th.chase_ext_frac,
+        near_sma_frac=th.near_sma_frac,
+        allow_below_sma=th.allow_below_sma,
+    )
 
 
 def structure_ok(

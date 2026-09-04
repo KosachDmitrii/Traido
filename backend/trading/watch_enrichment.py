@@ -9,7 +9,16 @@ from core.enums import EntryWatchStatus, Timeframe
 from core.schemas import Bar, EntryTimingFacts, EntryWatch, Quote
 from quant.engine import compute_features
 from trading.entry_timing import evaluate_timing
-from trading.watch_desk import derive_ui_state, enrich_watch_for_desk
+from trading.watch_desk import (
+    buy_blocked_from_arrival_dict,
+    desk_block_reason_from_arrival,
+    desk_revalidation_hint,
+    derive_ui_state,
+    enrich_watch_for_desk,
+    strip_resolved_spread_hints,
+)
+from trading.entry_policy import get_entry_thresholds
+from trading.entry_watches import price_in_zone, zone_trigger_bounds
 
 # Display-only keys cached on the watch. Machine state always comes from the row.
 _DISPLAY_KEYS = frozenset(
@@ -27,11 +36,36 @@ _DISPLAY_KEYS = frozenset(
         "zone_arrival_type",
         "arrival_reason_codes",
         "buy_blocked",
+        "desk_block_reason",
         "zone_touch_calibration",
         "enriched_at",
         "price_tick",
+        "live_spread_bps",
+        "max_spread_bps",
+        "spread_acceptable",
     }
 )
+
+
+def _spread_display(quote: Quote | None, *, last_price: float | None = None) -> dict[str, float | bool]:
+    if quote is None or quote.bid is None or quote.ask is None:
+        return {}
+    from trading import execution as execution_mod
+    from trading.entry_spread_gate import evaluate_entry_spread
+
+    spread_gate = evaluate_entry_spread(
+        quote,
+        now=execution_mod._utcnow(),
+        tape_last=last_price,
+        facts_price=last_price,
+    )
+    if spread_gate.bps is None:
+        return {}
+    return {
+        "live_spread_bps": round(spread_gate.bps, 1),
+        "max_spread_bps": spread_gate.max_bps,
+        "spread_acceptable": spread_gate.acceptable,
+    }
 
 
 def price_tick_from_move(prev: float | None, price: float) -> str:
@@ -54,13 +88,14 @@ async def refresh_watch_desk_cache(
     prev_price: float | None = None,
 ) -> EntryWatch:
     """Compute likelihood (+ arrival when in zone) and store display fields only."""
-    del quote  # quote reserved for future spread display; machine state ignores it
     bars: list[Bar] = []
     facts: EntryTimingFacts | None = None
     end = datetime.now(UTC)
 
-    in_zone = float(watch.entry_zone_low) <= price <= float(
-        watch.entry_zone_high
+    in_zone = price_in_zone(
+        price,
+        watch,
+        atr=watch.admission_snapshot.atr_at_creation if watch.admission_snapshot else None,
     ) or watch.status.value in {"triggered", "revalidating"}
 
     if md is not None and in_zone:
@@ -100,6 +135,7 @@ async def refresh_watch_desk_cache(
             tick = str(prior)
     display["price_tick"] = tick
     display["enriched_at"] = datetime.now(UTC).isoformat()
+    display.update(_spread_display(quote, last_price=price))
     return watch.model_copy(update={"desk_enrichment": display})
 
 
@@ -170,12 +206,52 @@ def desk_payload(watch: EntryWatch) -> dict[str, Any]:
     ui = derive_ui_state(display_watch, price=px, distance_atr=dist_f)
     base["ui_state"] = ui
     base["status_label"] = ui
-    lo = float(watch.entry_zone_low)
-    hi = float(watch.entry_zone_high)
-    if not (lo <= px <= hi):
+    atr_v = watch.admission_snapshot.atr_at_creation if watch.admission_snapshot else None
+    trig_lo, trig_hi = zone_trigger_bounds(watch, atr=atr_v)
+    base["entry_zone_trigger_low"] = round(trig_lo, 4)
+    base["entry_zone_trigger_high"] = round(trig_hi, 4)
+    in_zone = price_in_zone(px, watch, atr=atr_v)
+    if in_zone:
+        # Recompute against live entry policy — stale cache must not keep cards
+        # blocked after the operator loosens aggressiveness on Settings.
+        th = get_entry_thresholds()
+        base["buy_blocked"] = buy_blocked_from_arrival_dict(base, th)
+        raw = base.get("zone_arrival")
+        if isinstance(raw, dict):
+            try:
+                from trading.zone_arrival import ArrivalType, ZoneArrivalFacts
+
+                arrival = ZoneArrivalFacts(
+                    score=float(raw["score"]),
+                    arrival_type=ArrivalType(str(raw["arrival_type"])),
+                    arrival_speed_pct=raw.get("arrival_speed_pct"),  # type: ignore[arg-type]
+                    arrival_speed_atr=raw.get("arrival_speed_atr"),  # type: ignore[arg-type]
+                    atr_velocity=raw.get("atr_velocity"),  # type: ignore[arg-type]
+                    bars_to_zone=raw.get("bars_to_zone"),  # type: ignore[arg-type]
+                    red_bar_ratio=raw.get("red_bar_ratio"),  # type: ignore[arg-type]
+                    consecutive_red_bars=int(raw.get("consecutive_red_bars") or 0),
+                    largest_red_bar_atr=raw.get("largest_red_bar_atr"),  # type: ignore[arg-type]
+                    sell_volume_ratio=raw.get("sell_volume_ratio"),  # type: ignore[arg-type]
+                    volume_acceleration=raw.get("volume_acceleration"),  # type: ignore[arg-type]
+                    gap_down_pct=raw.get("gap_down_pct"),  # type: ignore[arg-type]
+                    crash_velocity=bool(raw.get("crash_velocity")),
+                    structural_damage=bool(raw.get("structural_damage")),
+                    reason_codes=list(raw.get("reason_codes") or []),
+                )
+                base["desk_block_reason"] = desk_block_reason_from_arrival(arrival, th)
+            except (KeyError, TypeError, ValueError):
+                base["desk_block_reason"] = None
+        elif not base.get("desk_block_reason"):
+            base["desk_block_reason"] = None
+    else:
         base["buy_blocked"] = False
+        base["desk_block_reason"] = None
         base["zone_arrival"] = None
         base["zone_arrival_quality"] = None
         base["zone_arrival_type"] = None
         base["arrival_reason_codes"] = []
+    base["desk_revalidation_hint"] = strip_resolved_spread_hints(
+        desk_revalidation_hint(watch),
+        spread_acceptable=base.get("spread_acceptable") is True,
+    )
     return base

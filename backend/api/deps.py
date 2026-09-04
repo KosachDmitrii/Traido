@@ -22,8 +22,10 @@ from core.audit import create_audit
 from core.config import get_settings
 from core.ports import AuditPort, BrokerPort
 from market_data.factory import create_market_data_port
+from trading.entry_policy import get_entry_thresholds
 from trading.execution import ExecutionService
 from trading.exits import EXITS
+from trading.gates import LiquidityPolicy
 from trading.opportunities import OPPORTUNITIES
 
 
@@ -38,12 +40,17 @@ def build_execution_service(
     is what makes the gates work.
     """
     settings = get_settings()
+    entry_th = get_entry_thresholds()
     return ExecutionService(
         broker=broker if broker is not None else create_broker(settings),
         audit=audit if audit is not None else create_audit(),
         store=OPPORTUNITIES,
         exit_store=EXITS,
         market_data=create_market_data_port(settings),
+        liquidity_policy=LiquidityPolicy(
+            max_spread_bps=entry_th.max_spread_bps,
+            max_quote_age_sec=entry_th.quote_max_age_sec,
+        ),
     )
 
 

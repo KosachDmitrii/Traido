@@ -199,11 +199,20 @@ def test_live_broker_environment_refuses_to_start() -> None:
         settings.assert_safe_startup()
 
 
-def test_live_trading_is_not_implemented_even_when_allowed() -> None:
+def test_live_trading_requires_production_then_still_blocks_v1(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live needs PRODUCTION (Stage 8); V1 still refuses even when that passes."""
     settings = Settings(
         TRAIDO_BROKER_ENV=BrokerEnvironment.LIVE,
         TRAIDO_ALLOW_LIVE_TRADING=True,
     )
+    with pytest.raises(RuntimeError, match="PRODUCTION"):
+        settings.assert_safe_startup()
+
+    import strategy.registry as registry
+
+    monkeypatch.setattr(registry, "has_production_strategy", lambda: True)
     with pytest.raises(RuntimeError, match="not implemented"):
         settings.assert_safe_startup()
 

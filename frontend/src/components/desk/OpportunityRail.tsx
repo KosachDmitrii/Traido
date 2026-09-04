@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { BuyOpportunity, BuyViability, DeskResponse, EntryWatchCard } from "@/lib/api";
 import { decideBuy, decideSell } from "@/lib/api";
 import { useT } from "@/i18n/I18nProvider";
@@ -14,6 +14,17 @@ import {
   type FlashMessage,
 } from "@/lib/messages";
 import type { FlashSlot } from "@/lib/toasts";
+import {
+  watchApproaching,
+  watchAboveStrictZone,
+  watchBelowStrictZone,
+  watchDistanceTie,
+  watchInOrNearZone,
+  watchInTriggerBand,
+  watchPipelineSortRank,
+  watchShowsTriggerBand,
+  waitPrice,
+} from "@/lib/watchGeometry";
 import { Button } from "@/ui";
 
 function formatOppQty(opp: BuyOpportunity): string {
@@ -48,10 +59,172 @@ function fmtPx(value: string | number | null | undefined): string {
   return n.toFixed(3);
 }
 
-function waitPrice(w: EntryWatchCard): number {
-  const raw = w.last_price ?? w.current_price_at_creation;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : 0;
+const WAIT_TRIGGER_CODES = new Set([
+  "PRICE_ENTERS_ZONE",
+  "ZONE_RECLAIM",
+  "VWAP_HOLDS",
+  "MOMENTUM_TURNS_POSITIVE",
+  "PULLBACK_VOL_DIGESTING",
+  "MARKET_ALIGNMENT_VALID",
+]);
+
+/** Stale geometry at cushion fill — not live quote gates like spread. */
+const CUSHION_SUPPRESSED_HINTS = new Set([
+  "EXTREME_CHASE",
+  "INVALID_STOP",
+  "TARGET_UNREALISTIC",
+  "ATR_ONLY_STOP",
+]);
+
+const SPREAD_HINT_CODES = new Set([
+  "SPREAD_ACCEPTABLE",
+  "SPREAD_TOO_WIDE",
+  "EXTREME_SPREAD",
+]);
+
+function filterResolvedSpreadHints(w: EntryWatchCard, hint: string | null): string | null {
+  if (!hint || w.spread_acceptable !== true) return hint;
+  const codes = hint
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .filter((c) => !SPREAD_HINT_CODES.has(c.split(":")[0] ?? c));
+  return codes.length > 0 ? codes.join(", ") : null;
+}
+
+function filterHintForCushion(w: EntryWatchCard, hint: string | null): string | null {
+  if (!hint || !watchInTriggerBand(w)) return hint;
+  const codes = hint
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .filter((c) => !CUSHION_SUPPRESSED_HINTS.has(c.split(":")[0] ?? c));
+  return codes.length > 0 ? codes.join(", ") : null;
+}
+
+function watchRevalidationHint(w: EntryWatchCard): string | null {
+  const price = waitPrice(w);
+  const trigHi = Number(w.entry_zone_trigger_high ?? w.entry_zone_high);
+  const trigLo = Number(w.entry_zone_trigger_low ?? w.entry_zone_low);
+  if (Number.isFinite(trigHi) && price > trigHi) return null;
+  if (Number.isFinite(trigLo) && price < trigLo) return null;
+
+  const machine = (w.status || "").toLowerCase();
+  if (machine === "waiting" && !watchInTriggerBand(w)) {
+    return null;
+  }
+  if (w.desk_revalidation_hint) {
+    const codes = w.desk_revalidation_hint.split(",").map((c) => c.trim());
+    const actionable = codes.filter((c) => !WAIT_TRIGGER_CODES.has(c.split(":")[0] ?? c));
+    if (actionable.length === 0) return null;
+    return filterResolvedSpreadHints(w, filterHintForCushion(w, actionable.join(", ")));
+  }
+  for (let i = (w.reasons?.length ?? 0) - 1; i >= 0; i--) {
+    const raw = w.reasons?.[i];
+    if (!raw) continue;
+    if (raw.startsWith("TRIGGERED_CONDITIONS_PENDING:")) {
+      const codes = (raw.split(":", 2)[1] ?? "")
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      const actionable = codes.filter((c) => !WAIT_TRIGGER_CODES.has(c.split(":")[0] ?? c));
+      if (actionable.length === 0) return null;
+      return filterResolvedSpreadHints(w, filterHintForCushion(w, actionable.join(", ")));
+    }
+    if (raw.includes(",")) {
+      const codes = raw
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      const actionable = codes.filter((c) => !WAIT_TRIGGER_CODES.has(c.split(":")[0] ?? c));
+      if (actionable.length > 0) {
+        return filterResolvedSpreadHints(w, filterHintForCushion(w, actionable.join(", ")));
+      }
+    }
+    if (
+      raw.startsWith("INSUFFICIENT_EFFECTIVE_RR:") ||
+      raw === "EXTREME_CHASE" ||
+      raw === "INVALID_STOP" ||
+      raw === "TARGET_UNREALISTIC" ||
+      raw === "EXTREME_SPREAD" ||
+      raw === "SPREAD_TOO_WIDE" ||
+      raw === "ZONE_ARRIVAL_MISSING" ||
+      raw === "INSUFFICIENT_BARS" ||
+      raw === "STALE_DATA" ||
+      raw === "STALE_BARS" ||
+      raw === "MARKET_DATA_UNHEALTHY" ||
+      raw === "DATA_BLOCKED" ||
+      raw === "SETUP_QUALITY_BELOW_THRESHOLD" ||
+      raw === "ENTRY_QUALITY_BELOW_THRESHOLD"
+    ) {
+      return filterResolvedSpreadHints(w, filterHintForCushion(w, raw));
+    }
+  }
+  return null;
+}
+
+function deskBlockReasonLabel(
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+  reason: string | null | undefined,
+  w?: EntryWatchCard,
+  entriesAllowed?: boolean,
+): string | null {
+  if (!reason) return null;
+  const first = reason.split(",")[0]?.trim() ?? reason;
+  const colon = first.indexOf(":");
+  const code = colon >= 0 ? first.slice(0, colon) : first;
+  const detail = colon >= 0 ? first.slice(colon + 1) : undefined;
+  if (code === "DATA_BLOCKED") {
+    const next = reason
+      .split(",")
+      .map((c) => c.trim())
+      .find((c) => c && c !== "DATA_BLOCKED");
+    if (next) return deskBlockReasonLabel(t, next, w, entriesAllowed);
+    return t("rail.wait.block.DATA_BLOCKED");
+  }
+  if (
+    (code === "STALE_DATA" ||
+      code === "STALE_BARS" ||
+      code === "MARKET_DATA_UNHEALTHY" ||
+      code === "QUOTE_TIMESTAMP_INVALID" ||
+      code === "BAR_TIMESTAMP_MISSING") &&
+    entriesAllowed === false
+  ) {
+    return t("rail.wait.block.STALE_DATA_AFTER_HOURS");
+  }
+  if (
+    (code === "SPREAD_ACCEPTABLE" || code === "EXTREME_SPREAD" || code === "SPREAD_TOO_WIDE") &&
+    w?.spread_acceptable === true
+  ) {
+    return null;
+  }
+  if (
+    (code === "SPREAD_ACCEPTABLE" || code === "EXTREME_SPREAD") &&
+    w?.live_spread_bps != null &&
+    w?.max_spread_bps != null
+  ) {
+    return t("rail.wait.block.SPREAD_DETAIL", {
+      bps: w.live_spread_bps,
+      max: w.max_spread_bps,
+    });
+  }
+  const key = `rail.wait.block.${code}` as MessageKey;
+  const translated = t(key);
+  if (translated !== key) {
+    return detail && translated.includes("{detail}")
+      ? translated.replace("{detail}", detail)
+      : translated;
+  }
+  return reason;
+}
+
+function waitBadgeKey(w: EntryWatchCard): MessageKey {
+  const machine = (w.status || "").toLowerCase();
+  if (machine === "triggered") return "rail.wait.badge.triggered";
+  if (machine === "revalidating") return "rail.wait.badge.revalidating";
+  if (machine === "admitted") return "rail.wait.badge.admitted";
+  if (machine === "converting") return "rail.wait.badge.converting";
+  return "rail.wait.badge";
 }
 
 function waitStatusKey(w: EntryWatchCard): MessageKey {
@@ -60,40 +233,53 @@ function waitStatusKey(w: EntryWatchCard): MessageKey {
   const zoneLo = Number(w.entry_zone_low);
   const zoneHi = Number(w.entry_zone_high);
   const target = Number(w.planned_target);
-  const inZone =
-    Number.isFinite(zoneLo) &&
-    Number.isFinite(zoneHi) &&
-    Number.isFinite(price) &&
-    price >= zoneLo &&
-    price <= zoneHi;
 
-  // Live geometry first — a stuck REVALIDATING lease must not hide "in zone".
-  if (inZone) {
-    if (w.buy_blocked) return "rail.wait.status.inZoneBlocked";
-    if (machine === "revalidating") return "rail.wait.status.inZone";
+  // Same geometry as SessionDecisionStrip (backend ui_state + ATR distance).
+  if (watchInOrNearZone(w)) {
+    const aboveCushion = watchAboveStrictZone(w);
+    const belowCushion = watchBelowStrictZone(w);
+    if (w.buy_blocked) {
+      if (aboveCushion) return "rail.wait.status.aboveZoneCushionBlocked";
+      if (belowCushion) return "rail.wait.status.belowZoneCushionBlocked";
+      return "rail.wait.status.inZoneBlocked";
+    }
+    if (machine === "revalidating") {
+      if (aboveCushion) return "rail.wait.status.aboveZoneCushion";
+      if (belowCushion) return "rail.wait.status.belowZoneCushion";
+      return "rail.wait.machine.revalidating";
+    }
+    if (machine === "triggered") return "rail.wait.machine.triggered";
     if (machine === "admitted") return "rail.wait.machine.admitted";
     if (machine === "converting") return "rail.wait.machine.converting";
     if (machine === "converted") return "rail.wait.machine.converted";
+    if (aboveCushion) return "rail.wait.status.aboveZoneCushion";
+    if (belowCushion) return "rail.wait.status.belowZoneCushion";
     return "rail.wait.status.inZone";
   }
 
   if (machine === "revalidating") return "rail.wait.machine.revalidating";
+  if (machine === "triggered") return "rail.wait.machine.triggered";
   if (machine === "admitted") return "rail.wait.machine.admitted";
   if (machine === "converting") return "rail.wait.machine.converting";
   if (machine === "converted") return "rail.wait.machine.converted";
 
-  if (Number.isFinite(target) && price >= target) return "rail.wait.status.passed";
-  if (Number.isFinite(zoneHi) && price > zoneHi) return "rail.wait.status.aboveZone";
-  if (Number.isFinite(zoneLo) && price < zoneLo) return "rail.wait.status.belowZone";
+  if (Number.isFinite(zoneHi) && price > zoneHi) {
+    if (watchInTriggerBand(w)) return "rail.wait.status.aboveZoneCushion";
+    return "rail.wait.status.aboveZone";
+  }
+  if (Number.isFinite(zoneLo) && price < zoneLo) {
+    if (watchInTriggerBand(w)) return "rail.wait.status.belowZoneCushion";
+    return "rail.wait.status.belowZone";
+  }
 
-  const ui = w.ui_state ?? w.status_label;
-  if (ui === "APPROACHING") return "rail.wait.status.approaching";
+  if (watchApproaching(w)) return "rail.wait.status.approaching";
+
+  if (Number.isFinite(target) && price >= target) return "rail.wait.status.passed";
   return "rail.wait.status.belowZone";
 }
 
 type Props = {
   desk: DeskResponse | null;
-  scannerLine: string;
   onFlash: (message: FlashMessage, replacing?: FlashSlot) => FlashSlot;
   onRefresh: () => Promise<void>;
 };
@@ -150,17 +336,44 @@ function buyEnabled(
   return viabilityView(opp.viability, t).buyable;
 }
 
-export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props) {
+type RailProposal =
+  | { kind: "buy"; opp: BuyOpportunity }
+  | { kind: "wait"; watch: EntryWatchCard };
+
+function sortRailProposals(
+  buys: BuyOpportunity[],
+  waits: EntryWatchCard[],
+  entriesAllowed: boolean,
+  t: (key: MessageKey) => string,
+): RailProposal[] {
+  const buyTie = (opp: BuyOpportunity) =>
+    entriesAllowed && viabilityView(opp.viability, t).buyable ? 0 : 1;
+
+  return [
+    ...buys.map((opp) => ({
+      proposal: { kind: "buy" as const, opp },
+      rank: 0,
+      tie: buyTie(opp),
+    })),
+    ...waits.map((watch) => ({
+      proposal: { kind: "wait" as const, watch },
+      rank: watchPipelineSortRank(watch),
+      tie: watchDistanceTie(watch),
+    })),
+  ]
+    .sort((a, b) => a.rank - b.rank || a.tie - b.tie)
+    .map(({ proposal }) => proposal);
+}
+
+export function OpportunityRail({ desk, onFlash, onRefresh }: Props) {
   const t = useT();
   const entriesAllowed = desk?.session?.entries_allowed !== false;
-  // Actionable BUY cards float above waits/locked proposals so the operator
-  // sees what can clear the book right now, not a stack of WAIT plans.
-  const buys = [...(desk?.buy_opportunities ?? [])].sort((a, b) => {
-    const aOk = entriesAllowed && viabilityView(a.viability, t).buyable ? 0 : 1;
-    const bOk = entriesAllowed && viabilityView(b.viability, t).buyable ? 0 : 1;
-    return aOk - bOk;
-  });
+  const buys = desk?.buy_opportunities ?? [];
   const waits = desk?.entry_watches ?? [];
+  const proposals = useMemo(
+    () => sortRailProposals(buys, waits, entriesAllowed, t),
+    [buys, waits, entriesAllowed, t],
+  );
   const sells = desk?.sell_opportunities ?? [];
   const [busyId, setBusyId] = useState<string | null>(null);
   /** Operator qty per card; defaults to Risk max until edited. */
@@ -236,11 +449,7 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
       <h2>{t("rail.title")}</h2>
       <p className="stage-note">{t("rail.subtitle")}</p>
 
-      <div className="stage-note" style={{ marginBottom: 12 }}>
-        {scannerLine}
-      </div>
-
-      {!buys.length && !waits.length && !sells.length ? (
+      {!proposals.length && !sells.length ? (
         <div className="block surface">
           <div className="title">{t("rail.empty.title")}</div>
           <div
@@ -252,7 +461,9 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
         </div>
       ) : null}
 
-      {buys.map((opp) => {
+      {proposals.map((item) => {
+        if (item.kind === "buy") {
+          const opp = item.opp;
         const c = opp.candidate;
         const busy = busyId === opp.id;
         const viability = viabilityView(opp.viability, t);
@@ -351,15 +562,17 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
             </footer>
           </div>
         );
-      })}
+        }
 
-      {waits.map((w) => {
+        const w = item.watch;
         const statusKey = waitStatusKey(w);
+        const inZone = watchInOrNearZone(w);
+        const approaching = watchApproaching(w);
         return (
           <div
             className={`block accent block--waiting rail-opp rail-wait${
-              w.buy_blocked ? " rail-wait--blocked" : ""
-            }`}
+              inZone ? " rail-wait--in-zone" : approaching ? " rail-wait--approaching" : ""
+            }${w.buy_blocked ? " rail-wait--blocked" : ""}`}
             key={w.id}
           >
             <header className="rail-opp__head">
@@ -368,7 +581,7 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
                   <div className="title">{w.symbol}</div>
                   {w.name ? <div className="rail-opp__name">{w.name}</div> : null}
                 </div>
-                <span className="rail-opp__age">{t("rail.wait.badge")}</span>
+                <span className="rail-opp__age">{t(waitBadgeKey(w))}</span>
               </div>
             </header>
 
@@ -409,6 +622,14 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
                 hi: fmtPx(w.entry_zone_high),
               })}
             </p>
+            {watchShowsTriggerBand(w) ? (
+              <p className="rail-wait__zone rail-wait__zone--trigger mono">
+                {t("rail.wait.zoneTrigger", {
+                  lo: fmtPx(w.entry_zone_trigger_low),
+                  hi: fmtPx(w.entry_zone_trigger_high),
+                })}
+              </p>
+            ) : null}
 
             <p
               className={`rail-wait__status${
@@ -417,6 +638,27 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
             >
               {t(statusKey)}
             </p>
+            {w.buy_blocked && w.desk_block_reason ? (
+              <p className="rail-wait__block-reason">
+                {deskBlockReasonLabel(t, w.desk_block_reason, w, entriesAllowed)}
+              </p>
+            ) : null}
+            {!w.buy_blocked && watchRevalidationHint(w) ? (
+              <p className="rail-wait__block-reason">
+                {deskBlockReasonLabel(t, watchRevalidationHint(w), w, entriesAllowed)}
+              </p>
+            ) : null}
+            {w.buy_blocked && !w.desk_block_reason && w.zone_arrival_quality != null ? (
+              <p className="rail-wait__block-reason">
+                {t("rail.wait.inZoneBlockedNote")} · {w.zone_arrival_quality}/100
+                {w.zone_arrival_type ? ` · ${w.zone_arrival_type}` : ""}
+              </p>
+            ) : null}
+            {!w.buy_blocked && inZone && (w.status || "").toLowerCase() === "waiting" ? (
+              <p className="rail-wait__block-reason rail-wait__block-reason--muted">
+                {t("rail.wait.inZonePendingNote")}
+              </p>
+            ) : null}
           </div>
         );
       })}

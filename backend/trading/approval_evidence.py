@@ -36,6 +36,7 @@ from core.schemas import (
 from trading.approval_errors import DataBlockedError, NoTradeError
 from trading.final_pretrade import require_final_admission
 from trading.trade_admission import evaluate_from_admission_input
+from trading.zone_arrival import ZoneArrivalFacts
 
 
 @dataclass(frozen=True)
@@ -272,6 +273,8 @@ def evaluate_final_approval(
     target_provenance: str = "plan",
     target_reachability: str | None = None,
     entry_quality: int = 0,
+    zone_arrival: ZoneArrivalFacts | None = None,
+    tape_last: float | None = None,
 ) -> FinalApprovalResult:
     """Sole capital-path gate that may mint BUY_ALLOWED ApprovalEvidence.
 
@@ -351,7 +354,9 @@ def evaluate_final_approval(
         raise NoTradeError(f"risk_{risk_verdict}")
 
     # Always re-evaluate — never trust a prior scanner/watch/pretrade admission.
-    admission = require_final_admission(evaluate_from_admission_input(sealed))
+    admission = require_final_admission(
+        evaluate_from_admission_input(sealed, zone_arrival=zone_arrival, tape_last=tape_last)
+    )
     if admission.decision is not AdmissionDecision.BUY_ALLOWED or not admission.admitted:
         raise NoTradeError(admission.decision.value)
     if admission.data_status is not DataHealthStatus.HEALTHY:

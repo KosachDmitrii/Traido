@@ -1,5 +1,6 @@
-import type { DeskResponse, EntryWatchCard } from "@/lib/api";
+import type { DeskResponse } from "@/lib/api";
 import { useT } from "@/i18n/I18nProvider";
+import { watchApproaching, watchInOrNearZone } from "@/lib/watchGeometry";
 
 /**
  * Session meaning without inventing BUY cards.
@@ -9,21 +10,6 @@ import { useT } from "@/i18n/I18nProvider";
  * watches, and what the last scan looked at.
  */
 
-function inOrNearZone(w: EntryWatchCard): boolean {
-  const ui = w.ui_state ?? w.status_label;
-  if (ui === "IN_ZONE" || ui === "TRIGGERED") return true;
-  const atr = w.distance_to_zone_atr;
-  return typeof atr === "number" && Number.isFinite(atr) && atr <= 0.2;
-}
-
-function approaching(w: EntryWatchCard): boolean {
-  if (inOrNearZone(w)) return false;
-  const ui = w.ui_state ?? w.status_label;
-  if (ui === "APPROACHING") return true;
-  const atr = w.distance_to_zone_atr;
-  return typeof atr === "number" && Number.isFinite(atr) && atr <= 0.5;
-}
-
 export function SessionDecisionStrip({ desk }: { desk: DeskResponse | null }) {
   const t = useT();
   if (!desk) return null;
@@ -31,9 +17,10 @@ export function SessionDecisionStrip({ desk }: { desk: DeskResponse | null }) {
   const buys = desk.buy_opportunities?.length ?? 0;
   const sells = desk.sell_opportunities?.length ?? 0;
   const plans = desk.entry_watches ?? [];
-  const inZone = plans.filter(inOrNearZone).length;
-  const near = plans.filter(approaching).length;
+  const inZone = plans.filter(watchInOrNearZone).length;
+  const near = plans.filter(watchApproaching).length;
   const funnel = desk.scanner?.funnel;
+  const watchFunnel = desk.watch_funnel;
   const deep = funnel?.deep_analysis_started ?? null;
   const published = funnel?.published ?? null;
 
@@ -47,6 +34,18 @@ export function SessionDecisionStrip({ desk }: { desk: DeskResponse | null }) {
         <span className="session-strip__k">{t("session.strip.plans")}</span>
         <b className="mono">{plans.length}</b>
       </span>
+      {watchFunnel?.triggered != null && watchFunnel.triggered > 0 ? (
+        <span className="session-strip__item">
+          <span className="session-strip__k">{t("session.strip.triggered")}</span>
+          <b className="mono">{watchFunnel.triggered}</b>
+        </span>
+      ) : null}
+      {watchFunnel?.admitted != null && watchFunnel.admitted > 0 ? (
+        <span className="session-strip__item">
+          <span className="session-strip__k">{t("session.strip.admitted")}</span>
+          <b className="mono">{watchFunnel.admitted}</b>
+        </span>
+      ) : null}
       <span className="session-strip__item">
         <span className="session-strip__k">{t("session.strip.inZone")}</span>
         <b className="mono">{inZone}</b>

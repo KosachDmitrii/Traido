@@ -111,7 +111,7 @@ def test_switch_blocked_with_unknown_intent(monkeypatch: pytest.MonkeyPatch) -> 
             status=IntentStatus.UNKNOWN,
         )
     )
-    monkeypatch.setattr(LEDGER, "get_open", lambda: [])
+    monkeypatch.setattr(LEDGER, "get_open", list)
     monkeypatch.setattr("broker.switch_guard.INTENTS", intents)
     reason = broker_switch_blocked_reason()
     assert reason is not None

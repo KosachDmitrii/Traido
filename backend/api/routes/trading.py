@@ -50,6 +50,10 @@ class BrokerBackendBody(BaseModel):
     backend: str = Field(description="alpaca or ibkr — paper execution only")
 
 
+class AutoTriggerBody(BaseModel):
+    enabled: bool = Field(description="Auto-approve BUY cards after TRIGGERED admission")
+
+
 @router.get("/opportunities", response_model=list[TradeOpportunity])
 async def list_opportunities() -> list[TradeOpportunity]:
     return OPPORTUNITIES.list_open()
@@ -213,6 +217,28 @@ async def put_entry_policy(body: EntryPolicyBody) -> dict:
     payload = policy_payload()
     payload["rescan"] = rescan
     return payload
+
+
+@router.get("/auto-trigger")
+async def get_auto_trigger() -> dict:
+    from trading.auto_trigger_policy import policy_payload
+
+    return policy_payload()
+
+
+@router.put("/auto-trigger")
+async def put_auto_trigger(body: AutoTriggerBody) -> dict:
+    from trading.auto_trigger_policy import policy_payload, set_auto_trigger_enabled
+
+    set_auto_trigger_enabled(body.enabled, actor="user")
+    audit = create_audit()
+    await audit.append(
+        "AutoTriggerUpdated",
+        "user",
+        {"enabled": body.enabled},
+    )
+    DESK_BUS.bump_desk()
+    return policy_payload()
 
 
 def _broker_backend_status() -> dict:

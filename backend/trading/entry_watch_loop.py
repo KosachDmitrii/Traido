@@ -34,11 +34,12 @@ from trading.pipeline import publish_opportunity
 from trading.scan_context import open_scan_context
 from trading.wait_plan import stale_invalidate_reason
 from trading.watch_enrichment import refresh_watch_desk_cache
+from trading.watch_desk import WATCH_POLL_COLD_SEC, watch_loop_interval_sec
 
 logger = logging.getLogger(__name__)
 
-WATCH_INTERVAL_SEC = 10.0
-_JOURNAL_SYNC_EVERY = 60  # passes ≈ 10 minutes at 10s
+WATCH_INTERVAL_SEC = WATCH_POLL_COLD_SEC  # default when adaptive scheduling is disabled
+_JOURNAL_SYNC_EVERY = 120  # passes ≈ 10 minutes at 5s hot cadence
 
 _loop_task: asyncio.Task[None] | None = None
 _pass_count = 0
@@ -51,6 +52,9 @@ async def run_watch_pass() -> dict[str, int]:
 
     recover_stale_leases()
     watches = ENTRY_WATCHES.list_actionable()
+    prev_by_id: dict[Any, float | None] = {
+        w.id: float(w.last_price) if w.last_price is not None else None for w in watches
+    }
     stats = {
         "checked": 0,
         "triggered": 0,
@@ -73,7 +77,7 @@ async def run_watch_pass() -> dict[str, int]:
         stats["checked"] += 1
         try:
             current = ENTRY_WATCHES.get(watch.id) or watch
-            prev_price = float(current.last_price) if current.last_price is not None else None
+            prev_price = prev_by_id.get(current.id)
             marked = marks.get(current.symbol)
             if marked is not None:
                 price, quote = marked
@@ -102,7 +106,12 @@ async def run_watch_pass() -> dict[str, int]:
                     DESK_BUS.bump_desk(kind="entry_watch_invalidated", symbol=current.symbol)
                     stats["invalidated"] += 1
                     continue
-                current = observe_price(current, price)
+                atr = (
+                    current.admission_snapshot.atr_at_creation
+                    if current.admission_snapshot
+                    else None
+                )
+                current = observe_price(current, price, atr=atr)
                 if current.status is EntryWatchStatus.EXPIRED:
                     from trading.shadow_outcomes import maybe_begin_shadow_for_terminal_watch
 
@@ -309,7 +318,10 @@ async def _convert_admitted_watch(
 
     from trading.market_gate import evaluate_market_gate_for_candidate
 
-    gate = evaluate_market_gate_for_candidate(forced)
+    from agents.market.agent import assess_market
+
+    fresh_market = await assess_market(settings.fred_api_key, now=datetime.now(UTC))
+    gate = evaluate_market_gate_for_candidate(forced, market=fresh_market)
     if not gate.tradable_long:
         ENTRY_WATCHES.mark(
             current.id,
@@ -362,6 +374,9 @@ async def _convert_admitted_watch(
                 converted_opportunity_id=published.opportunity.id,
             )
             stats["converted"] += 1
+            from trading.zone_geometry import reset_zone_touch
+
+            reset_zone_touch(current.id)
             BOARD.log(
                 "strategy",
                 f"WAIT→BUY_NOW published {forced.symbol}",
@@ -376,6 +391,13 @@ async def _convert_admitted_watch(
                     "opportunity_id": str(published.opportunity.id),
                     "symbol": forced.symbol,
                 },
+            )
+            from trading.auto_trigger_policy import maybe_auto_approve_opportunity
+
+            await maybe_auto_approve_opportunity(
+                published.opportunity.id,
+                audit=audit,
+                symbol=forced.symbol,
             )
         else:
             ENTRY_WATCHES.mark(current.id, EntryWatchStatus.ADMITTED, reason="PUBLISH_DEFERRED")
@@ -411,9 +433,19 @@ def _admission_from_record(watch: EntryWatch) -> TradeAdmissionResult:
     )
 
 
-async def _watch_forever(interval_sec: float) -> None:
+async def _watch_forever(fixed_interval_sec: float | None) -> None:
     global _pass_count
-    logger.info("entry watch loop: started, every %.0fs", interval_sec)
+    from trading.watch_desk import WATCH_POLL_HOT_SEC, WATCH_POLL_NEAR_SEC
+
+    if fixed_interval_sec is not None:
+        logger.info("entry watch loop: started, fixed every %.0fs", fixed_interval_sec)
+    else:
+        logger.info(
+            "entry watch loop: started, adaptive hot=%ss near=%ss cold=%ss",
+            WATCH_POLL_HOT_SEC,
+            WATCH_POLL_NEAR_SEC,
+            WATCH_POLL_COLD_SEC,
+        )
     try:
         n = ensure_seeded_from_aftermath()
         if n:
@@ -441,14 +473,18 @@ async def _watch_forever(interval_sec: float) -> None:
             raise
         except Exception:
             logger.warning("entry watch loop: pass failed", exc_info=True)
-        await asyncio.sleep(interval_sec)
+        if fixed_interval_sec is not None:
+            await asyncio.sleep(fixed_interval_sec)
+        else:
+            await asyncio.sleep(watch_loop_interval_sec(ENTRY_WATCHES.list_actionable()))
 
 
 def start_entry_watch_loop(*, interval_sec: float | None = None) -> None:
     global _loop_task
     if _loop_task is not None and not _loop_task.done():
         return
-    _loop_task = asyncio.create_task(_watch_forever(interval_sec or WATCH_INTERVAL_SEC))
+    # interval_sec set → fixed cadence (tests). None → adaptive hot/near/cold.
+    _loop_task = asyncio.create_task(_watch_forever(interval_sec))
 
 
 def stop_entry_watch_loop() -> None:

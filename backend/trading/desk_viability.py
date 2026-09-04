@@ -23,7 +23,7 @@ from typing import Any
 from core.config import get_settings
 from core.schemas import TradeOpportunity
 from market_data.factory import create_market_data_port
-from trading.gates import LiquidityPolicy, measure_spread
+from trading.entry_policy import get_entry_thresholds
 from trading.viability import UNVERIFIED, BuyViability, assess_buy_viability
 
 logger = logging.getLogger(__name__)
@@ -91,12 +91,31 @@ async def attach_buy_viability(
             payload["viability"] = viability
             return payload
 
-        spread = measure_spread(
+        th = get_entry_thresholds()
+        last_price: float | None = None
+        get_last = getattr(feed, "get_last_price", None)
+        if get_last is not None:
+            try:
+                last_price = float(await get_last(opp.candidate.symbol))
+            except Exception:
+                last_price = None
+        from trading import execution as execution_mod
+        from trading.entry_spread_gate import evaluate_entry_spread
+
+        spread_gate = evaluate_entry_spread(
             quote,
-            now=datetime.now(UTC),
-            max_age_sec=LiquidityPolicy().max_quote_age_sec,
+            now=execution_mod._utcnow(),
+            tape_last=last_price,
+            card_entry=float(opp.candidate.entry),
+            thresholds=th,
         )
-        reading = assess_buy_viability(opp.candidate, quote, spread=spread)
+        reading = assess_buy_viability(
+            opp.candidate,
+            quote,
+            spread=spread_gate.reading,
+            max_spread_bps=th.max_spread_bps,
+            max_quote_age_sec=th.quote_max_age_sec,
+        )
         viability = reading.as_dict()
         _cache[key] = (now_mono, viability)
         payload["viability"] = viability

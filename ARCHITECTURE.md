@@ -345,7 +345,7 @@ Conceptual freeze does not mean built. Verified against the tree, not assumed:
 | Agents: market, news | partial — degrade to neutral stubs without keys |
 | Agent: fundamental | missing |
 | Agent tool allowlist enforcement | missing — documented only |
-| Strategy registry / versioned promotion | missing — one hardcoded version |
+| Strategy registry / versioned promotion | built — `strategy_versions` + promotion gate (Stage 8) |
 | Risk Engine + sizing + limits + kill switch | built |
 | Risk: RTH gate | built — `trading/gates.py`, computed NYSE calendar with early closes |
 | Liquidity pre-trade gate | built — `trading/gates.py`, armed by `api/deps.py` and pinned there by test |

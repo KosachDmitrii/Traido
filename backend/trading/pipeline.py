@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from agents.supervisor.agent import build_supervisor
@@ -12,12 +13,22 @@ from core.desk_bus import DESK_BUS
 from core.enums import (
     AdmissionDecision,
     EntryDecision,
+    EntryWatchStatus,
+    InstrumentThesis,
     MarketRegimeLabel,
     RiskVerdict,
     SessionCohort,
     Timeframe,
 )
-from core.schemas import MarketAssessment, PipelineResult, Quote, RiskDecision, TradeAdmissionResult
+from core.schemas import (
+    AdmissionSnapshot,
+    MarketAssessment,
+    PipelineResult,
+    Quote,
+    RiskDecision,
+    TradeAdmissionResult,
+)
+from core.schemas import EntryWatch
 from database.session import session_factory
 from notifications.telegram import get_notifier
 from risk.context_builder import build_risk_context
@@ -36,16 +47,89 @@ UNTRADABLE_REGIMES = {
 }
 
 
-def regime_allows_long(market: MarketAssessment | None) -> bool | None:
+def regime_allows_long(
+    market: MarketAssessment | None,
+    *,
+    now: datetime | None = None,
+) -> bool | None:
     """
     Translate the Market Agent's read into a long-only go/no-go.
 
     Returns None when there is no assessment, so the Risk Engine skips the
-    check instead of assuming the tape is fine.
+    check instead of assuming the tape is fine. Stale assessments fail closed.
     """
     if market is None:
         return None
-    return market.regime not in UNTRADABLE_REGIMES
+    from datetime import UTC, datetime as dt
+
+    from core.enums import DataHealthStatus
+    from trading.market_gate import evaluate_market_gate
+
+    evaluated = now or dt.now(UTC)
+    gate = evaluate_market_gate(market, now=evaluated, require_sector=False)
+    if gate.status is DataHealthStatus.UNHEALTHY:
+        return False
+    return gate.tradable_long
+
+
+def zone_arrival_for_admission(
+    *,
+    symbol: str,
+    candidate,
+    bundle,
+    bars: list,
+):
+    """Minimal watch shell so pipeline admission can score zone arrival."""
+    from trading.zone_arrival import evaluate_zone_arrival, zone_arrival_required
+
+    if not zone_arrival_required(candidate.setup_type):
+        return None
+    if bundle.entry_zone_low is None or bundle.entry_zone_high is None:
+        return None
+    if len(bars) < 5:
+        return None
+    now = datetime.now(UTC)
+    atr = bundle.facts.atr if bundle.facts else None
+    snap = AdmissionSnapshot(
+        price_at_creation=float(bundle.facts.current_price),
+        atr_at_creation=atr,
+        setup_type=candidate.setup_type,
+        entry_zone_low=float(bundle.entry_zone_low),
+        entry_zone_high=float(bundle.entry_zone_high),
+        setup_quality_at_creation=bundle.setup_quality or 0,
+        entry_quality_at_creation=bundle.entry_quality or 0,
+        stop_at_creation=float(candidate.stop),
+        target_at_creation=float(candidate.target),
+        effective_rr_at_creation=float(candidate.risk_reward or 2.0),
+        created_at=now,
+    )
+    watch = EntryWatch(
+        id=uuid4(),
+        symbol=symbol.upper(),
+        strategy_version=candidate.strategy_version or "pipeline",
+        created_at=now,
+        valid_until=now + timedelta(hours=4),
+        thesis=candidate.thesis or InstrumentThesis.BULLISH,
+        signal_price=candidate.entry,
+        current_price_at_creation=bundle.facts.current_price,
+        entry_zone_low=bundle.entry_zone_low,
+        entry_zone_high=bundle.entry_zone_high,
+        planned_entry=candidate.entry,
+        planned_stop=candidate.stop,
+        planned_target=candidate.target,
+        entry_quality_at_creation=bundle.entry_quality or 50,
+        setup_type=candidate.setup_type,
+        setup_quality_at_creation=bundle.setup_quality or 0,
+        admission_snapshot=snap,
+        status=EntryWatchStatus.WAITING,
+        pipeline_run_id=candidate.pipeline_run_id,
+    )
+    return evaluate_zone_arrival(
+        watch,
+        bars,
+        atr=atr,
+        current_price=float(bundle.facts.current_price),
+    )
 
 
 async def run_symbol_pipeline(
@@ -157,6 +241,27 @@ async def run_symbol_pipeline(
                 }
             )
             result = result.model_copy(update={"candidate": candidate})
+        bars_h1: list = []
+        last_bar_ts = None
+        zone_arrival = None
+        if context.market_data is not None and bundle is not None:
+            try:
+                end = datetime.now(UTC)
+                bars_h1 = await context.market_data.get_bars(
+                    symbol, Timeframe.H1, end - timedelta(days=60), end
+                )
+                if bars_h1:
+                    from trading.data_integrity import last_bar_timestamp
+
+                    last_bar_ts = last_bar_timestamp(bars_h1)
+                zone_arrival = zone_arrival_for_admission(
+                    symbol=symbol,
+                    candidate=candidate,
+                    bundle=bundle,
+                    bars=bars_h1,
+                )
+            except Exception:  # noqa: BLE001 — admission must not kill the scan
+                bars_h1 = []
         admission = evaluate_trade_admission(
             bundle=bundle,
             candidate=candidate,
@@ -168,6 +273,10 @@ async def run_symbol_pipeline(
             stop_plan_model=stop_model,
             stop_structural_source=stop_source,
             stop_structural_level=stop_level,
+            zone_arrival=zone_arrival,
+            bars_count=len(bars_h1) if bars_h1 else None,
+            last_bar_ts=last_bar_ts,
+            require_bars=True,
         )
         from trading.admission_records import persist_admission
 
@@ -313,7 +422,7 @@ async def run_symbol_pipeline(
         broker=broker,
         market_data=context.market_data,
         finnhub_api_key=settings.finnhub_api_key,
-        regime_tradable=regime_allows_long(result.market),
+        regime_tradable=regime_allows_long(result.market, now=datetime.now(UTC)),
         news=result.news.status if result.news else None,
     )
     for note in built.notes:

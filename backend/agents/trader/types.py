@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
 
-from core.enums import Timeframe
+from core.enums import SetupType, Timeframe
 from core.schemas import FeatureSnapshot, MarketAssessment, NewsAssessment, TechnicalAssessment
 
 
@@ -53,6 +53,7 @@ class TraderBundle:
     news: NewsAssessment | None = None
     technical: TechnicalAssessment | None = None
     risk_plan: RiskPlan | None = None
+    setup_type: SetupType = SetupType.PULLBACK_CONTINUATION
     steps: list[StepResult] = field(default_factory=list)
     quote_spread_bps: float | None = None
     last_price: Decimal | None = None

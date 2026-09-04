@@ -94,7 +94,7 @@ DEFAULT_BUDGETS: dict[str, ResourceBudget] = {
     # Per-symbol deep analysis. Counts *symbols*, not requests: one symbol
     # paginates hourly bars a dozen times. Concurrent deep symbols multiply
     # that into a 429 storm against the shared account quota — keep at one.
-    "deep": ResourceBudget("deep", max_concurrency=1, rate_per_sec=1.0),
+    "deep": ResourceBudget("deep", max_concurrency=1, rate_per_sec=1.0, timeout_sec=90.0),
     "news": ResourceBudget("news", max_concurrency=2, rate_per_sec=2.0),
     "fundamentals": ResourceBudget("fundamentals", max_concurrency=2, rate_per_sec=1.0),
     "broker": ResourceBudget("broker", max_concurrency=1, rate_per_sec=4.0),

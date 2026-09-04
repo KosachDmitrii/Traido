@@ -46,7 +46,7 @@ export function StatsRow({ desk }: { desk: DeskResponse | null }) {
         <div className="row">
           <div
             className={`value mono ${
-              Number.isFinite(day) && day >= 0 ? "td-pnl-pos" : "td-pnl-neg"
+              Number.isFinite(day) ? (day >= 0 ? "td-pnl-pos" : "td-pnl-neg") : ""
             }`}
           >
             {Number.isFinite(day)

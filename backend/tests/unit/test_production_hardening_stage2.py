@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -11,7 +11,7 @@ from core.schemas import Bar, EntryWatch
 from trading.entry_watch_transitions import enrich_new_watch_fields, try_transition
 from trading.entry_watches import ENTRY_WATCHES
 from trading.geometry_hash import compute_geometry_hash, geometry_hash_from_watch
-from trading.zone_arrival import evaluate_zone_arrival
+from trading.zone_arrival import ArrivalType, evaluate_zone_arrival
 
 
 def _watch(**kwargs) -> EntryWatch:
@@ -71,16 +71,17 @@ def test_invalid_transition_denied():
 
 
 def test_gap_uses_previous_close_not_candle_body():
-    """FR-014: gap = (open - prev_close) / prev_close, not body of one bar."""
-    now = datetime.now(UTC)
+    """FR-014: overnight gap = (open - prev_close) / prev_close on session boundary."""
+    mon = datetime(2026, 9, 1, 20, 0, tzinfo=UTC)
+    tue = datetime(2026, 9, 2, 13, 30, tzinfo=UTC)
     watch = _watch()
     bars = []
     for i in range(10):
         bars.append(
             Bar(
                 symbol="NEM",
-                timeframe=Timeframe.M5,
-                ts=now,
+                timeframe=Timeframe.H1,
+                ts=mon - timedelta(hours=10 - i),
                 open=100.0,
                 high=100.5,
                 low=99.5,
@@ -89,11 +90,11 @@ def test_gap_uses_previous_close_not_candle_body():
                 source="test",
             )
         )
-    # Large gap down: prev close 100, next open 97
+    # Large overnight gap down: prev close 100, next session open 97
     bars[-1] = Bar(
         symbol="NEM",
-        timeframe=Timeframe.M5,
-        ts=now,
+        timeframe=Timeframe.H1,
+        ts=tue,
         open=97.0,
         high=97.5,
         low=96.5,
@@ -103,8 +104,8 @@ def test_gap_uses_previous_close_not_candle_body():
     )
     bars[-2] = Bar(
         symbol="NEM",
-        timeframe=Timeframe.M5,
-        ts=now,
+        timeframe=Timeframe.H1,
+        ts=mon,
         open=100.0,
         high=100.2,
         low=99.8,
@@ -115,6 +116,7 @@ def test_gap_uses_previous_close_not_candle_body():
     facts = evaluate_zone_arrival(watch, bars, atr=2.0, current_price=112.0)
     assert facts.gap_down_pct is not None
     assert facts.gap_down_pct >= 2.9
+    assert facts.arrival_type == ArrivalType.GAP_DOWN
 
 
 def test_admission_evaluation_key_idempotent(isolated_admission_and_watches):

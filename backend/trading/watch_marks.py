@@ -20,6 +20,7 @@ DESK_MARK_MAX_AGE_SEC = 8.0
 async def fetch_mark_price(md: Any, symbol: str) -> tuple[float | None, Quote | None]:
     """Last trade when available, else quote mid. Never raises."""
     quote: Quote | None = None
+    trade_ts: datetime | None = None
     try:
         if hasattr(md, "get_quote"):
             quote = await md.get_quote(symbol)
@@ -27,9 +28,21 @@ async def fetch_mark_price(md: Any, symbol: str) -> tuple[float | None, Quote | 
         logger.debug("watch mark: quote failed for %s", symbol, exc_info=True)
         quote = None
     try:
+        if hasattr(md, "get_latest_trade"):
+            trade = await md.get_latest_trade(symbol)
+            if trade is not None:
+                last, trade_ts = trade
+                if last > 0:
+                    from market_data.quote_freshness import quote_with_trade_freshness
+
+                    quote = quote_with_trade_freshness(quote, trade_ts=trade_ts)
+                    return last, quote
         if hasattr(md, "get_last_price"):
             last = float(await md.get_last_price(symbol))
             if last > 0:
+                from market_data.quote_freshness import quote_with_trade_freshness
+
+                quote = quote_with_trade_freshness(quote, trade_ts=trade_ts)
                 return last, quote
     except Exception:
         logger.debug("watch mark: last trade failed for %s", symbol, exc_info=True)

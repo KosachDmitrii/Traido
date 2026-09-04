@@ -79,6 +79,15 @@ def _market_data_quota_payload() -> dict:
         return {}
 
 
+def _auto_trigger_payload() -> dict:
+    try:
+        from trading.auto_trigger_policy import policy_payload
+
+        return policy_payload()
+    except Exception:  # noqa: BLE001
+        return {"enabled": False}
+
+
 def _entry_policy_payload() -> dict:
     try:
         from trading.entry_policy import policy_payload
@@ -142,6 +151,21 @@ class ExitDecisionBody(BaseModel):
     decision: UserDecision = Field(description="sell or hold")
 
 
+def _watch_funnel_payload(entry_watches: list[dict]) -> dict:
+    """WAIT → TRIGGERED → ADMITTED funnel counts for the session strip."""
+    triggered = frozenset({"triggered", "revalidating"})
+    admitted = frozenset({"admitted", "converting", "converted"})
+    return {
+        "waiting": sum(1 for w in entry_watches if (w.get("status") or "").lower() == "waiting"),
+        "triggered": sum(1 for w in entry_watches if (w.get("status") or "").lower() in triggered),
+        "admitted": sum(1 for w in entry_watches if (w.get("status") or "").lower() in admitted),
+        "in_zone": sum(
+            1 for w in entry_watches if w.get("ui_state") in {"IN_ZONE", "TRIGGERED"}
+        ),
+        "blocked_in_zone": sum(1 for w in entry_watches if w.get("buy_blocked")),
+    }
+
+
 def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     settings = get_settings()
     buys = (
@@ -164,9 +188,11 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
         }
         for r in ledger
     ]
+    entry_watches = [desk_payload(w) for w in ENTRY_WATCHES.list_for_desk()]
     return {
         "mode": settings.trading_mode.value,
         "entry_policy": _entry_policy_payload(),
+        "auto_trigger": _auto_trigger_payload(),
         "broker_backend": _broker_backend_desk_payload(),
         "scanner": {
             "enabled": STATUS.enabled,
@@ -191,7 +217,8 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
             "market_data_quota": _market_data_quota_payload(),
         },
         "buy_opportunities": buys,
-        "entry_watches": [desk_payload(w) for w in ENTRY_WATCHES.list_for_desk()],
+        "entry_watches": entry_watches,
+        "watch_funnel": _watch_funnel_payload(entry_watches),
         "sell_opportunities": [s.model_dump(mode="json") for s in sells],
         "positions": positions_out,
         "review": review.to_dict(),

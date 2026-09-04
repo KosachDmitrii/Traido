@@ -506,6 +506,13 @@ h1, h2, h3, p {
 }
 
 .stat {
+  flex: 1 1 220px;
+  color: var(--td-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.stat {
   background: var(--td-surface);
   border-radius: var(--td-radius-lg);
   box-shadow: none;
@@ -1319,6 +1326,15 @@ h1, h2, h3, p {
   color: var(--td-text);
 }
 
+.rail-wait__zone--trigger {
+  margin-top: -4px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--td-muted, #6b6560);
+  background: transparent;
+}
+
 .rail-wait__status {
   margin: 0;
   font-size: 12px;
@@ -1346,6 +1362,11 @@ h1, h2, h3, p {
 
 .rail-wait--approaching {
   border-color: color-mix(in srgb, var(--td-accent, #ffcf88) 55%, var(--td-border));
+}
+
+.rail-wait--in-zone {
+  border-color: color-mix(in srgb, var(--td-accent, #ffcf88) 72%, var(--td-border));
+  background: color-mix(in srgb, var(--td-accent, #ffcf88) 8%, var(--td-surface, #faf9f7));
 }
 
 .rail-wait--blocked {
@@ -1378,6 +1399,17 @@ h1, h2, h3, p {
 
 .rail-wait__status--blocked {
   color: #b45309;
+}
+
+.rail-wait__block-reason {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #b45309;
+}
+
+.rail-wait__block-reason--muted {
+  color: var(--td-text-muted);
 }
 
 .rail-wait__reasons {
@@ -2072,6 +2104,13 @@ h1, h2, h3, p {
   letter-spacing: 0.02em;
 }
 
+.settings-entry-steps__detail {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--td-text-muted);
+}
+
 .settings-entry-steps__control {
   width: 100%;
   flex-wrap: wrap;
@@ -2223,10 +2262,7 @@ h1, h2, h3, p {
 .ag-bar__sub {
   font-size: 12px;
   color: var(--td-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 48ch;
+
 }
 
 .ag-bar__chips {
@@ -2742,9 +2778,6 @@ h1, h2, h3, p {
     width: auto;
   }
 
-  .ag-bar__sub {
-    max-width: 28ch;
-  }
 
   .ag-row {
     grid-template-columns: 28px 1fr auto;
@@ -3053,4 +3086,57 @@ h1, h2, h3, p {
 .settings-card--danger .settings-kill-control {
   border-color: color-mix(in srgb, var(--td-kill) 30%, var(--td-border));
   background: #fff1f2;
+}
+
+/* ── Strategy promotion (Stage 8) ─────────────────────────────────────────── */
+.strategies-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.strategies-chain,
+.strategies-thresholds,
+.strategies-evidence,
+.strategies-hash,
+.strategies-meta {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--td-text-muted);
+  line-height: 1.45;
+}
+
+.strategies-meta--bad {
+  color: var(--td-bear);
+}
+
+.strategies-stage {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--td-surface-muted);
+  color: var(--td-text-muted);
+  white-space: nowrap;
+}
+
+.strategies-stage--paper_passed,
+.strategies-stage--human_approved,
+.strategies-stage--production {
+  background: var(--td-bull-muted);
+  color: var(--td-bull);
+}
+
+.strategies-stage--rejected {
+  background: rgba(196, 92, 74, 0.14);
+  color: var(--td-bear);
+}
+
+.strategies-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }

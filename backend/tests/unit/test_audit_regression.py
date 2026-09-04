@@ -125,6 +125,34 @@ def test_quote_without_usable_timestamp_blocked() -> None:
     assert "QUOTE_TIMESTAMP_INVALID" in data.reason_codes
 
 
+def test_quote_slightly_in_future_tolerates_vendor_skew() -> None:
+    now = datetime.now(UTC)
+    q = Quote(
+        symbol="TEST",
+        bid=Decimal("99.95"),
+        ask=Decimal("100.05"),
+        ts=now + timedelta(seconds=1),
+        source="test",
+    )
+    data = check_data_integrity(quote=q, now=now, require_bars=False)
+    assert data.status is DataHealthStatus.HEALTHY
+    assert "QUOTE_TIMESTAMP_FUTURE" not in data.reason_codes
+
+
+def test_quote_far_in_future_still_blocked() -> None:
+    now = datetime.now(UTC)
+    q = Quote(
+        symbol="TEST",
+        bid=Decimal("99.95"),
+        ask=Decimal("100.05"),
+        ts=now + timedelta(seconds=10),
+        source="test",
+    )
+    data = check_data_integrity(quote=q, now=now, require_bars=False)
+    assert data.status is DataHealthStatus.UNHEALTHY
+    assert "QUOTE_TIMESTAMP_FUTURE" in data.reason_codes
+
+
 def test_missing_bars_data_blocked() -> None:
     now = datetime.now(UTC)
     with pytest.raises(PretradeRejection) as exc:
@@ -193,6 +221,20 @@ def test_sector_gate_missing_blocked() -> None:
     assert "SECTOR_ASSESSMENT_MISSING" in gate.reason_codes
 
 
+def test_risk_on_macro_gate_tradable_without_sector() -> None:
+    """Macro gate must not recurse into sector and block every regime."""
+    market = MarketAssessment(
+        regime=MarketRegimeLabel.RISK_ON,
+        score=70,
+        risk_posture="risk_on",
+        evaluated_at=datetime.now(UTC),
+        benchmark="SPY",
+    )
+    gate = evaluate_market_gate(market, now=datetime.now(UTC), require_sector=False)
+    assert gate.tradable_long is True
+    assert gate.reason_codes == []
+
+
 def test_target_plan_mismatch() -> None:
     plan = TargetPlan(
         price=Decimal(120),
@@ -252,6 +294,75 @@ def test_idempotency_conflict_different_payload() -> None:
         )
 
 
+def test_watch_revalidation_upserts_same_eval_key() -> None:
+    from core.schemas import TradeAdmissionResult
+
+    wid = uuid4()
+    adm = TradeAdmissionResult(
+        decision=AdmissionDecision.WAIT,
+        admitted=False,
+        setup_quality=70,
+        entry_quality=65,
+        reason_codes=["ENTRY_QUALITY_BELOW_THRESHOLD"],
+    )
+    first = persist_admission(
+        symbol="KO",
+        admission=adm,
+        watch_id=wid,
+        geometry_hash="geo1",
+        phase="watch_revalidation",
+        trigger_version=2,
+        context={"source": "watch_revalidate", "phase": "watch_revalidation"},
+    )
+    adm2 = adm.model_copy(
+        update={
+            "entry_quality": 72,
+            "reason_codes": ["SETUP_QUALITY_BELOW_THRESHOLD"],
+        }
+    )
+    second = persist_admission(
+        symbol="KO",
+        admission=adm2,
+        watch_id=wid,
+        geometry_hash="geo1",
+        phase="watch_revalidation",
+        trigger_version=2,
+        context={"source": "watch_revalidate", "phase": "watch_revalidation"},
+    )
+    assert first.id == second.id
+    assert second.entry_quality == 72
+    assert "SETUP_QUALITY_BELOW_THRESHOLD" in second.reason_codes
+
+
+@pytest.mark.asyncio
+async def test_refresh_watch_desk_cache_price_tick() -> None:
+    from core.enums import EntryWatchStatus
+    from core.schemas import EntryWatch
+
+    watch = EntryWatch(
+        id=uuid4(),
+        symbol="TEST",
+        strategy_version="test",
+        created_at=datetime.now(UTC),
+        valid_until=datetime.now(UTC) + timedelta(hours=1),
+        thesis=InstrumentThesis.BULLISH,
+        signal_price=Decimal(100),
+        current_price_at_creation=Decimal(100),
+        entry_zone_low=Decimal(99),
+        entry_zone_high=Decimal(101),
+        planned_entry=Decimal(100),
+        planned_stop=Decimal(95),
+        planned_target=Decimal(115),
+        entry_quality_at_creation=70,
+        status=EntryWatchStatus.WAITING,
+        last_price=Decimal("100.00"),
+    )
+    up = await refresh_watch_desk_cache(watch, price=100.25, quote=None, md=None, prev_price=100.0)
+    assert up.desk_enrichment["price_tick"] == "up"
+    down = await refresh_watch_desk_cache(up, price=100.10, quote=None, md=None, prev_price=100.25)
+    assert down.desk_enrichment["price_tick"] == "down"
+
+
 @pytest.mark.asyncio
 async def test_desk_enrichment_not_recursive() -> None:
     from core.enums import EntryWatchStatus
@@ -309,6 +420,111 @@ def test_desk_payload_preserves_machine_status() -> None:
     )
     payload = desk_payload(watch)
     assert payload["status"] == "admitted"
+
+
+def test_desk_payload_recomputes_buy_blocked_for_live_policy() -> None:
+    from core.enums import EntryWatchStatus
+    from core.schemas import EntryWatch
+    from trading.entry_policy import reset_entry_policy_cache, set_entry_aggressiveness
+
+    watch = EntryWatch(
+        id=uuid4(),
+        symbol="TEST",
+        strategy_version="test",
+        created_at=datetime.now(UTC),
+        valid_until=datetime.now(UTC) + timedelta(hours=1),
+        thesis=InstrumentThesis.BULLISH,
+        signal_price=Decimal(110),
+        current_price_at_creation=Decimal(100),
+        entry_zone_low=Decimal(99),
+        entry_zone_high=Decimal(101),
+        planned_entry=Decimal(100),
+        planned_stop=Decimal(95),
+        planned_target=Decimal(115),
+        entry_quality_at_creation=70,
+        status=EntryWatchStatus.WAITING,
+        last_price=Decimal(100),
+        desk_enrichment={
+            "buy_blocked": True,
+            "zone_arrival": {
+                "score": 55.0,
+                "arrival_type": "UNKNOWN",
+                "arrival_speed_pct": None,
+                "arrival_speed_atr": None,
+                "atr_velocity": None,
+                "bars_to_zone": None,
+                "red_bar_ratio": None,
+                "consecutive_red_bars": 0,
+                "largest_red_bar_atr": None,
+                "sell_volume_ratio": None,
+                "volume_acceleration": None,
+                "gap_down_pct": None,
+                "crash_velocity": False,
+                "structural_damage": False,
+                "reason_codes": [],
+            },
+        },
+    )
+    try:
+        set_entry_aggressiveness(0, actor="test")
+        assert desk_payload(watch)["buy_blocked"] is True
+        set_entry_aggressiveness(100, actor="test")
+        reset_entry_policy_cache()
+        assert desk_payload(watch)["buy_blocked"] is False
+    finally:
+        reset_entry_policy_cache()
+
+
+def test_desk_payload_keeps_arrival_block_in_atr_cushion() -> None:
+    """ATR cushion may extend above zone_high — block must not clear when price sits there."""
+    from core.enums import EntryWatchStatus
+    from core.schemas import AdmissionSnapshot, EntryWatch
+
+    watch = EntryWatch(
+        id=uuid4(),
+        symbol="MU",
+        strategy_version="test",
+        created_at=datetime.now(UTC),
+        valid_until=datetime.now(UTC) + timedelta(hours=1),
+        thesis=InstrumentThesis.BULLISH,
+        signal_price=Decimal("945.876"),
+        current_price_at_creation=Decimal("945.640"),
+        entry_zone_low=Decimal("931.349"),
+        entry_zone_high=Decimal("945.876"),
+        planned_entry=Decimal("945.876"),
+        planned_stop=Decimal("926.527"),
+        planned_target=Decimal("984.575"),
+        entry_quality_at_creation=70,
+        status=EntryWatchStatus.WAITING,
+        last_price=Decimal("948.060"),
+        admission_snapshot=AdmissionSnapshot(
+            price_at_creation=945.64,
+            atr_at_creation=11.0,
+        ),
+        desk_enrichment={
+            "zone_arrival": {
+                "score": 22.0,
+                "arrival_type": "GAP_DOWN",
+                "arrival_speed_pct": None,
+                "arrival_speed_atr": None,
+                "atr_velocity": None,
+                "bars_to_zone": None,
+                "red_bar_ratio": None,
+                "consecutive_red_bars": 0,
+                "largest_red_bar_atr": None,
+                "sell_volume_ratio": None,
+                "volume_acceleration": None,
+                "gap_down_pct": 2.1,
+                "crash_velocity": False,
+                "structural_damage": False,
+                "reason_codes": ["GAP_DOWN"],
+            },
+        },
+    )
+    payload = desk_payload(watch)
+    assert payload["ui_state"] == "IN_ZONE"
+    assert payload["buy_blocked"] is True
+    assert payload["desk_block_reason"] == "ARRIVAL_TYPE_GAP_DOWN"
 
 
 def test_export_archive_excludes_forbidden(tmp_path: Path) -> None:

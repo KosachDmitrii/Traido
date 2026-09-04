@@ -6,10 +6,42 @@ Path-dependent: same final price ≠ same entry quality.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from enum import StrEnum
 
 from core.enums import SetupType
 from core.schemas import Bar, EntryWatch
+
+# Overnight session gap (prev close → next open) at or above this pct → GAP_DOWN.
+GAP_DOWN_MIN_PCT = 1.5
+# Only inspect the recent path into the zone — not every gap in a 25-bar window.
+GAP_LOOKBACK_MIN_BARS = 6
+
+
+def _exchange_date(ts: datetime) -> date:
+    from core.clock import ET
+
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=UTC)
+    return ts.astimezone(ET).date()
+
+
+def _path_origin(watch: EntryWatch) -> float:
+    """Measure decline from the signal, not the last WAIT refresh mark.
+
+    Each scanner pass refreshes ``admission_snapshot.price_at_creation`` to the
+    current quote. By the time price tags the zone that origin equals the mark,
+    so ``move <= 0`` and every in-zone card looked like UNKNOWN/55 — blocked.
+    """
+    try:
+        signal = float(watch.signal_price)
+    except (TypeError, ValueError):
+        signal = 0.0
+    snap = watch.admission_snapshot
+    creation = float(snap.price_at_creation) if snap else float(watch.current_price_at_creation)
+    if signal > 0:
+        return max(signal, creation)
+    return creation
 
 
 class ArrivalType(StrEnum):
@@ -105,7 +137,7 @@ def evaluate_zone_arrival(
         price = float(watch.current_price_at_creation)
 
     snap = watch.admission_snapshot
-    origin = snap.price_at_creation if snap else float(watch.current_price_at_creation)
+    origin = _path_origin(watch)
     atr_f = atr or (snap.atr_at_creation if snap else None) or max(price * 0.02, 0.01)
 
     if len(bars) < 5:
@@ -159,20 +191,30 @@ def evaluate_zone_arrival(
     late_vol = sum(volumes[len(volumes) // 2 :]) / max(1, len(volumes) - len(volumes) // 2)
     sell_vol_ratio = late_vol / early_vol if early_vol > 0 else 1.0
 
-    gap_down = None
-    for i in range(1, len(window)):
-        prev_close = float(window[i - 1].close)
-        curr_open = float(window[i].open)
-        if prev_close > 0:
-            gap_pct = (curr_open - prev_close) / prev_close * 100.0
-            if gap_pct <= -1.5:
-                gap_down = abs(gap_pct)
-                break
-
     bars_to_zone = None
     for i, c in enumerate(reversed(closes)):
         if float(watch.entry_zone_low) <= c <= float(watch.entry_zone_high):
             bars_to_zone = i + 1
+            break
+
+    gap_down = None
+    # H1 open vs prior close jumps intraday are not overnight gaps — only count
+    # session boundaries (Fri→Mon, prior close→RTH open). Scan the recent approach
+    # tail only so a gap days ago does not block every in-zone card.
+    gap_lookback = min(len(window), max(bars_to_zone or 0, GAP_LOOKBACK_MIN_BARS) + 2)
+    gap_window = window[-gap_lookback:]
+    for i in range(1, len(gap_window)):
+        prev_bar = gap_window[i - 1]
+        curr_bar = gap_window[i]
+        if _exchange_date(prev_bar.ts) == _exchange_date(curr_bar.ts):
+            continue
+        prev_close = float(prev_bar.close)
+        curr_open = float(curr_bar.open)
+        if prev_close <= 0:
+            continue
+        gap_pct = (curr_open - prev_close) / prev_close * 100.0
+        if gap_pct <= -GAP_DOWN_MIN_PCT:
+            gap_down = abs(gap_pct)
             break
 
     bars_elapsed = max(bars_to_zone or len(window), 1)
@@ -181,7 +223,7 @@ def evaluate_zone_arrival(
     crash = detect_crash_velocity(
         decline_atr=arrival_speed_atr or 0.0,
         bars=bars_elapsed,
-        volume_ratio=vol_accel,
+        volume_ratio=sell_vol_ratio,
     )
 
     reasons: list[str] = []
@@ -204,15 +246,23 @@ def evaluate_zone_arrival(
             score = 28.0
             reasons.extend(["FAST_DECLINE", "SELL_VOLUME_ACCELERATING"])
     else:
-        arrival = ArrivalType.UNKNOWN
-        score = 55.0
+        lo = float(watch.entry_zone_low)
+        hi = float(watch.entry_zone_high)
+        if lo <= price <= hi:
+            arrival = ArrivalType.NORMAL_PULLBACK
+            score = 68.0
+            reasons.append("IN_ZONE_ORDERLY")
+        else:
+            arrival = ArrivalType.UNKNOWN
+            score = 32.0
+            reasons.append("NO_PULLBACK_PATH")
 
     if crash:
         arrival = ArrivalType.CRASH
         score = min(score, 18.0)
         reasons.append("CRASH_VELOCITY")
 
-    if gap_down is not None and gap_down >= 1.5:
+    if gap_down is not None and gap_down >= GAP_DOWN_MIN_PCT:
         arrival = ArrivalType.GAP_DOWN
         score = min(score, 22.0)
         reasons.append("GAP_DOWN")

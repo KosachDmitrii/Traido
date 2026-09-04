@@ -86,6 +86,8 @@ class Settings(BaseSettings):
     180 left almost no headroom and still 429'd under concurrent deep pages.
     """
     scan_interval_seconds: float = Field(default=300.0, alias="TRAIDO_SCAN_INTERVAL_SECONDS")
+    """How long audit_events (including activity logs) are kept before pruning."""
+    audit_retention_days: int = Field(default=30, alias="TRAIDO_AUDIT_RETENTION_DAYS")
 
     def assert_scanner_config(self) -> None:
         """Refuse a stage layout that cannot mean what it says.
@@ -139,6 +141,10 @@ class Settings(BaseSettings):
                 raise RuntimeError(
                     "Refusing to start: TRAIDO_BROKER_ENV is not paper and live is not allowed."
                 )
+            # Stage 8: even if live were otherwise enabled, PRODUCTION is required.
+            from core.deployment import assert_live_requires_production_strategy
+
+            assert_live_requires_production_strategy()
             raise RuntimeError("Live trading is not implemented in V1.")
 
 

@@ -1,4 +1,8 @@
-"""Universe agent — is this symbol worth analysing (Alpaca liquidity/price)."""
+"""Universe agent — liquidity/price + Stage 8 multi-TF feature load.
+
+Fetches 1D (required), 1H (preferred), aggregates 4H from 1H, and 15m when
+available. Same path for paper and live market-data ports.
+"""
 
 from __future__ import annotations
 
@@ -9,16 +13,18 @@ from agents.trader.types import StepResult, TraderBundle, TraderStep
 from core.enums import Timeframe
 from core.ports import MarketDataPort
 from core.vendor_http import describe_http_error
+from quant.aggregate import aggregate_bars
 from quant.engine import compute_features
 from trading.gates import check_bar_freshness
 
-PROMPT_VERSION = "trader.universe@1.0.0"
+PROMPT_VERSION = "trader.universe@1.2.0"
 
 MIN_PRICE = Decimal(5)
 MAX_PRICE = Decimal(2000)
 MIN_ADV_USD = 20_000_000.0
 MIN_BARS = 60
 MIN_H1_BARS = 40
+MIN_M15_BARS = 40
 
 
 def _stale_result(
@@ -69,7 +75,6 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
         bundle.record(result)
         return result
 
-    # Daily freshness first — ADV/price from a stopped D1 feed is not a pass.
     d1_fresh = check_bar_freshness(symbol, bars, now=end)
     if not d1_fresh.passed:
         return _stale_result(
@@ -108,9 +113,8 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
         bundle.record(result)
         return result
 
-    # H1 is optional when missing/thin. When present it drives setup/entry
-    # snapshots — a weeks-behind page must fail the desk, not quietly fall
-    # through to D1 (that substitution is how July ATR priced August cards).
+    # H1 preferred — drives setup/entry. When present must be fresh.
+    h1_bars = None
     try:
         h1_bars = await md.get_bars(symbol, Timeframe.H1, end - timedelta(days=60), end)
         if len(h1_bars) >= MIN_H1_BARS:
@@ -122,11 +126,36 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
                     newest=h1_fresh.measured.get("newest_bar"),
                 )
             bundle.features[Timeframe.H1] = compute_features(symbol, Timeframe.H1, h1_bars)
-    except Exception:  # noqa: BLE001, S110 — H1 is optional enrichment when absent
+            reasons.append("tf=H1")
+            # Stage 8: 4H from H1 aggregation (same series, no extra vendor call).
+            h4_bars = aggregate_bars(h1_bars, Timeframe.H4, source_label="agg:1h")
+            if len(h4_bars) >= 30:
+                bundle.features[Timeframe.H4] = compute_features(
+                    symbol, Timeframe.H4, h4_bars
+                )
+                reasons.append("tf=H4")
+    except Exception:  # noqa: BLE001, S110 — H1 optional when vendor thin
+        pass
+
+    # 15m — entry timing context when available.
+    try:
+        m15_bars = await md.get_bars(symbol, Timeframe.M15, end - timedelta(days=14), end)
+        if len(m15_bars) >= MIN_M15_BARS:
+            m15_fresh = check_bar_freshness(symbol, m15_bars, now=end)
+            if m15_fresh.passed:
+                bundle.features[Timeframe.M15] = compute_features(
+                    symbol, Timeframe.M15, m15_bars
+                )
+                reasons.append("tf=M15")
+    except Exception:  # noqa: BLE001, S110
         pass
 
     score = 70 if adv_f >= MIN_ADV_USD * 2 else 55
-    reasons = [f"price={price}", f"adv_usd={adv_f:.0f}"]
+    if Timeframe.H4 in bundle.features:
+        score = min(100, score + 5)
+    if Timeframe.M15 in bundle.features:
+        score = min(100, score + 5)
+    reasons = [f"price={price}", f"adv_usd={adv_f:.0f}", *reasons]
     result = StepResult(
         step=TraderStep.UNIVERSE,
         ok=True,

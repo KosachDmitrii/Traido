@@ -98,7 +98,8 @@ def assert_implemented_trading_mode() -> None:
     empty position list as "no setups" rather than "nobody pressed approve".
 
     Config that silently does nothing is the failure this refusal exists to
-    prevent. When autopilot is built, delete this check in the same commit.
+    prevent. When autopilot is built, delete this check in the same commit —
+    and require a StrategyVersion in PRODUCTION (Stage 8 / 11).
     """
     from core.config import get_settings
     from core.enums import TradingMode
@@ -112,5 +113,25 @@ def assert_implemented_trading_mode() -> None:
         "opportunity still waits for a human to approve it. Running in this mode "
         "would label the cards as autonomous while nothing is ever executed "
         "unattended.\n"
-        "Set TRAIDO_TRADING_MODE=confirmation, which is what the desk does."
+        "Set TRAIDO_TRADING_MODE=confirmation, which is what the desk does.\n"
+        "When autopilot lands it will require a StrategyVersion in PRODUCTION "
+        "(Stage 8 promotion gate)."
     )
+
+
+def assert_live_requires_production_strategy() -> None:
+    """Live capital is blocked unless a StrategyVersion reached PRODUCTION.
+
+    Paper confirmation does not call this. Stage 12 still refuses live in
+    Settings.assert_safe_startup; this is the Stage 8 half of that lock.
+    """
+    from strategy.registry import has_production_strategy
+
+    if has_production_strategy():
+        return
+    raise UnsafeDeployment(
+        "Live trading requires at least one StrategyVersion in PRODUCTION "
+        "(proposal → backtest → OOS → walk-forward → paper → human approve → "
+        "production). None is approved yet."
+    )
+

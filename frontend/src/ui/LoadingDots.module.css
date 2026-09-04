@@ -1,0 +1,263 @@
+.loader {
+  display: inline-grid;
+  grid-template-columns: repeat(3, var(--loading-dot-size, 2px));
+  grid-template-rows: repeat(3, var(--loading-dot-size, 2px));
+  gap: var(--loading-dot-gap, 2px);
+  width: calc(var(--loading-dot-size, 2px) * 3 + var(--loading-dot-gap, 2px) * 2);
+  height: calc(var(--loading-dot-size, 2px) * 3 + var(--loading-dot-gap, 2px) * 2);
+  color: currentColor;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.dot {
+  width: var(--loading-dot-size, 2px);
+  height: var(--loading-dot-size, 2px);
+  border-radius: 50%;
+  background: currentColor;
+  will-change: opacity;
+  animation-duration: 1.395s;
+  animation-timing-function: steps(1, end);
+  animation-iteration-count: infinite;
+}
+
+.dot:nth-child(1) {
+  animation-name: dot1;
+}
+
+.dot:nth-child(2) {
+  animation-name: dot2;
+}
+
+.dot:nth-child(3) {
+  animation-name: dot3;
+}
+
+.dot:nth-child(4) {
+  animation-name: dot4;
+}
+
+.dot:nth-child(5) {
+  animation-name: dot5;
+}
+
+.dot:nth-child(6) {
+  animation-name: dot6;
+}
+
+.dot:nth-child(7) {
+  animation-name: dot7;
+}
+
+.dot:nth-child(8) {
+  animation-name: dot8;
+}
+
+.dot:nth-child(9) {
+  animation-name: dot9;
+}
+
+@keyframes dot1 {
+  0%,
+  12.5% {
+    opacity: 0;
+  }
+
+  25%,
+  37.5%,
+  50% {
+    opacity: 1;
+  }
+
+  62.5%,
+  75%,
+  87.5%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes dot2 {
+  0%,
+  12.5%,
+  25%,
+  37.5% {
+    opacity: 0;
+  }
+
+  50%,
+  62.5%,
+  75% {
+    opacity: 1;
+  }
+
+  87.5%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes dot3 {
+  0% {
+    opacity: 1;
+  }
+
+  12.5%,
+  25%,
+  37.5%,
+  50%,
+  62.5% {
+    opacity: 0;
+  }
+
+  75%,
+  87.5%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes dot4 {
+  0% {
+    opacity: 0;
+  }
+
+  12.5%,
+  25%,
+  37.5%,
+  50%,
+  62.5% {
+    opacity: 1;
+  }
+
+  75%,
+  87.5%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes dot5 {
+  0%,
+  12.5%,
+  25% {
+    opacity: 0;
+  }
+
+  37.5%,
+  50%,
+  62.5%,
+  75%,
+  87.5% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes dot6 {
+  0%,
+  12.5% {
+    opacity: 1;
+  }
+
+  25%,
+  37.5%,
+  50% {
+    opacity: 0;
+  }
+
+  62.5%,
+  75%,
+  87.5%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes dot7 {
+  0%,
+  12.5% {
+    opacity: 1;
+  }
+
+  25%,
+  37.5%,
+  50% {
+    opacity: 0;
+  }
+
+  62.5%,
+  75% {
+    opacity: 1;
+  }
+
+  87.5% {
+    opacity: 0;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes dot8 {
+  0% {
+    opacity: 1;
+  }
+
+  12.5% {
+    opacity: 0;
+  }
+
+  25%,
+  37.5% {
+    opacity: 1;
+  }
+
+  50%,
+  62.5%,
+  75% {
+    opacity: 0;
+  }
+
+  87.5%,
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes dot9 {
+  0% {
+    opacity: 0;
+  }
+
+  12.5%,
+  25% {
+    opacity: 1;
+  }
+
+  37.5% {
+    opacity: 0;
+  }
+
+  50%,
+  62.5% {
+    opacity: 1;
+  }
+
+  75%,
+  87.5%,
+  100% {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot {
+    animation: none;
+    opacity: 0.45;
+  }
+}

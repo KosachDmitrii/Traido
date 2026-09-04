@@ -93,7 +93,7 @@ def _quote(bid: float, ask: float, *, age_sec: float = 0.0) -> Quote:
 
 def _run(cand: TradeCandidate, quote: Quote, **kwargs):
     now = datetime.now(UTC)
-    admission, _inp = final_pretrade_validation(
+    admission, _inp, _arrival = final_pretrade_validation(
         cand,
         quote=quote,
         bars_count=60,

@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 # Machine-readable wait / invalidate conditions (F3 frozen set).
 PRICE_ENTERS_ZONE = "PRICE_ENTERS_ZONE"
+ZONE_RECLAIM = "ZONE_RECLAIM"
 VWAP_HOLDS = "VWAP_HOLDS"
 SUPPORT_HOLDS = "SUPPORT_HOLDS"
 MOMENTUM_TURNS_POSITIVE = "MOMENTUM_TURNS_POSITIVE"
@@ -425,6 +426,12 @@ def price_in_zone(price: float, watch: EntryWatch, *, atr: float | None = None) 
     Does not invent BUY above the plan — only aligns trigger/wait-condition
     geometry with TradeAdmission's ±0.2 ATR allowance.
     """
+    lo, hi = zone_trigger_bounds(watch, atr=atr)
+    return lo <= price <= hi
+
+
+def zone_trigger_bounds(watch: EntryWatch, *, atr: float | None = None) -> tuple[float, float]:
+    """Printed zone ±0.2 ATR — same band as price_in_zone / trigger gates."""
     lo = float(watch.entry_zone_low)
     hi = float(watch.entry_zone_high)
     buf = 0.0
@@ -433,7 +440,7 @@ def price_in_zone(price: float, watch: EntryWatch, *, atr: float | None = None) 
         atr_v = watch.admission_snapshot.atr_at_creation
     if atr_v is not None and atr_v > 0:
         buf = float(atr_v) * ZONE_TRIGGER_BUFFER_ATR
-    return (lo - buf) <= price <= (hi + buf)
+    return lo - buf, hi + buf
 
 
 ENTRY_WATCHES = EntryWatchStore()

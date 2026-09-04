@@ -165,6 +165,8 @@ class ScriptedMarketData:
         self.quote_available = True
         self.quote_age_sec = 0.0
         self.spread_bps = 2.0
+        self.custom_bid: float | None = None
+        self.custom_ask: float | None = None
         self.raise_on_bars = False
         self.bar_age_days = 0.0
         """How far behind the clock the newest bar is. A feed that has stopped."""
@@ -178,6 +180,14 @@ class ScriptedMarketData:
     async def get_quote(self, symbol: str) -> Quote | None:
         if not self.quote_available:
             return None
+        if self.custom_bid is not None and self.custom_ask is not None:
+            return Quote(
+                symbol=symbol.upper(),
+                bid=Decimal(str(self.custom_bid)),
+                ask=Decimal(str(self.custom_ask)),
+                ts=self._now() - timedelta(seconds=self.quote_age_sec),
+                source="scripted",
+            )
         mid = Decimal(str(self.price))
         half = mid * Decimal(str(self.spread_bps)) / Decimal(20_000)
         return Quote(
@@ -724,7 +734,11 @@ def desk(monkeypatch: pytest.MonkeyPatch) -> Iterator[Desk]:
     from trading.sector_policy import SECTOR_ASSESSMENT_VERSION
 
     async def _assess_market(fred_api_key=None, *, now=None):
-        evaluated_at = now or _dt.now(UTC)
+        from trading import execution
+
+        evaluated_at = now or execution._utcnow()
+        if evaluated_at.tzinfo is None:
+            evaluated_at = evaluated_at.replace(tzinfo=UTC)
         return MarketAssessment(
             kind=AssessmentKind.MARKET,
             regime=MarketRegimeLabel.RISK_ON,

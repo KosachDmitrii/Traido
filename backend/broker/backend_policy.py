@@ -75,41 +75,60 @@ def _env_default() -> BrokerBackendName:
     return normalize_backend(os.getenv("TRAIDO_BROKER"))
 
 
-def _read_file() -> tuple[str | None, datetime | None]:
+def _read_file() -> tuple[str | None, datetime | None, str | None]:
     if not POLICY_PATH.exists():
-        return None, None
+        return None, None, None
     try:
         raw = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
         logger.warning("broker backend: file read failed (%s)", type(exc).__name__)
-        return None, None
+        return None, None, None
     try:
         backend = normalize_backend(str(raw.get("backend") or ""))
     except BrokerBackendError:
-        return None, None
-    return backend, _parse_ts(raw.get("updated_at"))
+        return None, None, None
+    actor = raw.get("actor")
+    return (
+        backend,
+        _parse_ts(raw.get("updated_at")),
+        actor if isinstance(actor, str) else None,
+    )
 
 
-def _read_redis() -> tuple[str | None, datetime | None]:
+def _read_redis() -> tuple[str | None, datetime | None, str | None]:
     client = _redis_client()
     if client is None:
-        return None, None
+        return None, None, None
     try:
         raw = client.hget(REDIS_KEY, "backend")
         ts_raw = client.hget(REDIS_KEY, "updated_at")
+        actor_raw = client.hget(REDIS_KEY, "actor")
     except Exception as exc:  # noqa: BLE001
         logger.warning("broker backend: redis read failed (%s)", type(exc).__name__)
-        return None, None
+        return None, None, None
     if raw is None:
-        return None, None
+        return None, None, None
     if isinstance(raw, bytes):
         raw = raw.decode()
     if isinstance(ts_raw, bytes):
         ts_raw = ts_raw.decode()
+    if isinstance(actor_raw, bytes):
+        actor_raw = actor_raw.decode()
     try:
-        return normalize_backend(str(raw)), _parse_ts(ts_raw)
+        actor = actor_raw if isinstance(actor_raw, str) and actor_raw else None
+        return normalize_backend(str(raw)), _parse_ts(ts_raw), actor
     except BrokerBackendError:
-        return None, None
+        return None, None, None
+
+
+def _heal_redis_from_file(
+    backend: str,
+    updated_at: datetime | None,
+    *,
+    actor: str | None,
+) -> None:
+    ts = updated_at or datetime.now(UTC)
+    _write_redis(backend, actor=actor or "user", updated_at=ts.isoformat())
 
 
 def _write_file(backend: str, *, actor: str, updated_at: str) -> None:
@@ -134,8 +153,19 @@ def _write_redis(backend: str, *, actor: str, updated_at: str) -> bool:
 
 
 def _load_backend() -> BrokerBackendName:
-    redis_val, redis_ts = _read_redis()
-    file_val, file_ts = _read_file()
+    redis_val, redis_ts, redis_actor = _read_redis()
+    file_val, file_ts, file_actor = _read_file()
+
+    if redis_actor == "test" and file_val is not None:
+        logger.warning(
+            "broker backend: ignoring redis test=%s; using file=%s (actor=%s)",
+            redis_val,
+            file_val,
+            file_actor,
+        )
+        _heal_redis_from_file(file_val, file_ts, actor=file_actor)
+        return file_val  # type: ignore[return-value]
+
     if redis_val is not None and file_val is not None:
         if file_ts is not None and redis_ts is not None:
             return file_val if file_ts >= redis_ts else redis_val  # type: ignore[return-value]

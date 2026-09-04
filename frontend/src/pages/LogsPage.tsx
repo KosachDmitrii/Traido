@@ -1,15 +1,36 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatExchangeStamp } from "@/lib/time";
-import { useDesk } from "@/context/DeskContext";
+import { fetchLogEvents, type ActivityEvent } from "@/lib/api";
 import { useT } from "@/i18n/I18nProvider";
 import { SelectField, TablePager, useTablePager } from "@/ui";
 
+const POLL_MS = 5000;
+const PAGE_LIMIT = 1000;
+
 export function LogsPage() {
   const t = useT();
-  const { desk } = useDesk();
-  const events = desk?.activity?.events ?? [];
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const [retentionDays, setRetentionDays] = useState(30);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [agentFilter, setAgentFilter] = useState("all");
   const [query, setQuery] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const data = await fetchLogEvents({ limit: PAGE_LIMIT, agent: agentFilter });
+      setEvents(data.events);
+      setRetentionDays(data.retention_days);
+      setLoadError(null);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "logs_failed");
+    }
+  }, [agentFilter]);
+
+  useEffect(() => {
+    void load();
+    const id = window.setInterval(() => void load(), POLL_MS);
+    return () => window.clearInterval(id);
+  }, [load]);
 
   const agents = useMemo(() => {
     const ids = new Set(events.map((e) => e.agent));
@@ -27,15 +48,12 @@ export function LogsPage() {
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return [...events]
-      .reverse()
-      .filter((e) => (agentFilter === "all" ? true : e.agent === agentFilter))
-      .filter((e) => {
-        if (!q) return true;
-        const hay = `${e.agent} ${e.message} ${e.symbol || ""}`.toLowerCase();
-        return hay.includes(q);
-      });
-  }, [events, agentFilter, query]);
+    return events.filter((e) => {
+      if (!q) return true;
+      const hay = `${e.agent} ${e.message} ${e.symbol || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [events, query]);
 
   const pager = useTablePager(rows);
   const { setPage } = pager;
@@ -46,6 +64,10 @@ export function LogsPage() {
 
   return (
     <section className="card page-card">
+      <p className="logs-retention-note">
+        {t("logs.retentionNote", { days: retentionDays })}
+      </p>
+      {loadError ? <p className="logs-error">{loadError}</p> : null}
       <div className="logs-toolbar">
         <input
           className="logs-search"

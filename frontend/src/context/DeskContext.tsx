@@ -11,10 +11,12 @@ import {
   type ReactNode,
 } from "react";
 import {
+  type BrokerBackend,
   type BrokerSnapshot,
   type DeskLight,
   type DeskResponse,
   fetchBroker,
+  fetchBrokerBackend,
   fetchDeskLight,
   fetchKillSwitch,
   mergeDesk,
@@ -72,6 +74,8 @@ export function DeskProvider({ children }: { children: ReactNode }) {
   const { locale, t } = useI18n();
   const [light, setLight] = useState<DeskLight | null>(null);
   const [broker, setBroker] = useState<BrokerSnapshot | null>(null);
+  /** Same source as Settings — not tied to desk ETag / 304. */
+  const [brokerBackend, setBrokerBackend] = useState<BrokerBackend | null>(null);
   const [scannerUnavailable, setScannerUnavailable] = useState(false);
   const [killSwitch, setKillSwitch] = useState<KillSwitchState>("loading");
   const lightRef = useRef<DeskLight | null>(null);
@@ -103,7 +107,10 @@ export function DeskProvider({ children }: { children: ReactNode }) {
     if (!light) return t("scanner.starting");
     const s = light.scanner || {};
     if (s.running) {
-      return t("scanner.running", { symbol: s.last_symbol || "…", n: s.cycle ?? 0 });
+      if (s.last_symbol) {
+        return t("scanner.running", { symbol: s.last_symbol, n: s.cycle ?? 0 });
+      }
+      return t("scanner.runningNoSymbol", { n: s.cycle ?? 0 });
     }
     return t("scanner.watching", {
       n: (s.universe || []).length,
@@ -147,6 +154,14 @@ export function DeskProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const refreshBrokerBackend = useCallback(async () => {
+    try {
+      setBrokerBackend(await fetchBrokerBackend());
+    } catch {
+      // Keep the last label — a transient read failure is not Alpaca.
+    }
+  }, []);
+
   // Lives here rather than on the settings page because it is the one switch
   // that makes every BUY on the desk fail, and learning that from the failure
   // is learning it too late.
@@ -159,8 +174,13 @@ export function DeskProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refreshAll = useCallback(async () => {
-    await Promise.all([refreshLight(), refreshBroker(true), refreshKillSwitch()]);
-  }, [refreshLight, refreshBroker, refreshKillSwitch]);
+    await Promise.all([
+      refreshLight(),
+      refreshBroker(true),
+      refreshKillSwitch(),
+      refreshBrokerBackend(),
+    ]);
+  }, [refreshLight, refreshBroker, refreshKillSwitch, refreshBrokerBackend]);
 
   useEffect(() => {
     let alive = true;
@@ -184,6 +204,7 @@ export function DeskProvider({ children }: { children: ReactNode }) {
     // whether trading is blocked for as long as the broker is slow — or for
     // good, if the broker call throws.
     refreshKillSwitch().catch(() => undefined);
+    refreshBrokerBackend().catch(() => undefined);
 
     // No scan is requested here. The loop is started by the API's lifespan hook
     // and paced by `scan_interval_seconds`; asking for a pass on every mount let
@@ -208,11 +229,13 @@ export function DeskProvider({ children }: { children: ReactNode }) {
     const brokerId = setInterval(() => {
       refreshBroker(false).catch(() => undefined);
       refreshKillSwitch().catch(() => undefined);
+      refreshBrokerBackend().catch(() => undefined);
     }, BROKER_MS);
 
     const unsub = subscribeDeskEvents((ev) => {
       if (ev.channel === "broker" || ev.type === "decide" || ev.type === "decide_failed") {
         refreshBroker(true).catch(() => undefined);
+        refreshBrokerBackend().catch(() => undefined);
       }
       if (
         ev.type === "opportunity" ||
@@ -233,12 +256,14 @@ export function DeskProvider({ children }: { children: ReactNode }) {
       clearInterval(brokerId);
       unsub();
     };
-  }, [refreshLight, refreshBroker, refreshKillSwitch, showFlash]);
+  }, [refreshLight, refreshBroker, refreshBrokerBackend, refreshKillSwitch, showFlash]);
 
-  const desk = useMemo(
-    () => (light ? mergeDesk(light, broker) : null),
-    [light, broker],
-  );
+  const desk = useMemo(() => {
+    if (!light) return null;
+    const merged = mergeDesk(light, broker);
+    const backend = brokerBackend ?? merged.broker_backend;
+    return backend ? { ...merged, broker_backend: backend } : merged;
+  }, [light, broker, brokerBackend]);
 
   // Arm Web Audio after the first click/key so autoplay policy allows the chime.
   useEffect(() => installBuyableAudioUnlock(), []);

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
+import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -16,10 +17,15 @@ from api.deps import build_exit_assessment, build_reconcile_pass
 from api.health import build_readiness
 from api.routes.desk import router as desk_router
 from api.routes.evaluation import router as evaluation_router
+from api.routes.logs import router as logs_router
 from api.routes.review import router as review_router
 from api.routes.scan import router as scan_router
+from api.routes.strategies import router as strategies_router
 from api.routes.trading import router as trading_router
+from core.activity import bind_activity_audit
+from core.audit import create_audit
 from core.config import get_settings
+from core.log_retention import prune_audit_events, start_log_retention, stop_log_retention
 from core.deployment import assert_implemented_trading_mode, assert_single_worker
 from core.desk_bus import DESK_BUS
 from core.logging import configure_logging, get_logger
@@ -74,6 +80,9 @@ async def lifespan(_app: FastAPI):
     assert_single_worker()
     assert_implemented_trading_mode()
     init_db()
+    from strategy.registry import ensure_builtin_strategies
+
+    ensure_builtin_strategies()
     from trading.entry_watch_persistence import (
         configure_entry_watch_persistence,
         hydrate_entry_watches,
@@ -84,6 +93,10 @@ async def lifespan(_app: FastAPI):
     configure_entry_watch_persistence(enabled=True)
     patch_entry_watch_store(ENTRY_WATCHES)
     hydrate_entry_watches()
+    audit = create_audit()
+    bind_activity_audit(audit)
+    retention_stop, retention_task = start_log_retention(audit)
+    await asyncio.to_thread(prune_audit_events, audit)
     logger.info(
         "Traido API starting",
         extra={
@@ -109,6 +122,7 @@ async def lifespan(_app: FastAPI):
     # never the broker.
     start_entry_watch_loop()
     yield
+    await stop_log_retention(retention_stop, retention_task)
     # Before the scanner, so open SSE streams stop waiting on a server that is
     # already on its way out.
     DESK_BUS.close()
@@ -142,10 +156,12 @@ app.add_middleware(
 )
 
 app.include_router(desk_router)
+app.include_router(logs_router)
 app.include_router(review_router)
 app.include_router(scan_router)
 app.include_router(trading_router)
 app.include_router(evaluation_router)
+app.include_router(strategies_router)
 
 
 @app.get("/")

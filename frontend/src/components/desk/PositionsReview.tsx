@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { DeskPosition, DeskResponse } from "@/lib/api";
 import { closePosition } from "@/lib/api";
+import { executionBrokerLabelKey } from "@/lib/brokerLabel";
 import { BROKER_MS, useDesk } from "@/context/DeskContext";
 import { useT } from "@/i18n/I18nProvider";
 import { flashPending, flashSellOk, humanizeError, type FlashMessage } from "@/lib/messages";
@@ -74,6 +75,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
   const ttl = desk?.broker_ttl_seconds;
   const poll = BROKER_MS / 1000;
   const freshness = ttl && ttl < poll ? `${ttl}–${poll}s` : `${poll}s`;
+  const brokerName = t(executionBrokerLabelKey(desk?.broker_backend?.backend));
 
   const positions = desk?.positions ?? [];
   const openOrders = desk?.open_orders ?? [];
@@ -86,7 +88,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
         <div className="card-head">
           <div>
             <h2>{t("desk.positions.title")}</h2>
-            <div className="sub">{t("desk.positions.sub", { freshness })}</div>
+            <div className="sub">{t("desk.positions.sub", { freshness, broker: brokerName })}</div>
           </div>
           <Link className="sub" to="/positions" style={{ color: "inherit" }}>
             {t("desk.positions.link")}
@@ -195,7 +197,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
         </div>
 
         <div className="sub" style={{ marginTop: 16 }}>
-          {t("desk.orders.sub")}
+          {t("desk.orders.sub", { broker: brokerName })}
         </div>
         {openOrders.length === 0 ? (
           <p className="empty-hint" style={{ marginTop: 8 }}>

@@ -36,6 +36,7 @@ HARD_VETO_REGISTRY: dict[str, VetoCategory] = {
     "TARGET_NO_BASIS": VetoCategory.SETUP,
     "INSUFFICIENT_EFFECTIVE_RR": VetoCategory.EXECUTION,
     "EXTREME_SPREAD": VetoCategory.EXECUTION,
+    "ZONE_ARRIVAL_MISSING": VetoCategory.ARRIVAL,
     "GEOMETRY_MISMATCH": VetoCategory.EXECUTION,
     "REGIME_MISSING": VetoCategory.DATA,
     "REGIME_STALE": VetoCategory.DATA,

@@ -33,7 +33,10 @@ def derive_wait_levels(
     atr = facts.atr if facts.atr and facts.atr > 0 else max(zone_hi - zone_lo, 0.01)
 
     entry_f = zone_hi if zone_hi > zone_lo else (zone_lo + zone_hi) / 2.0
-    stop_f = zone_lo - 0.35 * atr
+    from trading.entry_policy import get_entry_thresholds
+
+    th = get_entry_thresholds()
+    stop_f = zone_lo - th.zone_stop_atr * atr
     if stop_f >= entry_f:
         stop_f = zone_lo - 0.15 * atr
     if stop_f >= entry_f:

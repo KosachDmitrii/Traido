@@ -22,6 +22,7 @@ from trading.data_integrity import MIN_BARS_FOR_FEATURES, last_bar_timestamp
 from trading.final_pretrade import final_pretrade_validation
 from trading.geometry_hash import geometry_hash_from_candidate
 from trading.market_gate import MarketGateResult, evaluate_market_gate
+from trading.zone_arrival import ZoneArrivalFacts
 
 ADMISSION_ORCHESTRATION_VERSION = "final_admission@1"
 
@@ -38,6 +39,7 @@ class FinalAdmissionEvaluation:
     last_bar_ts: datetime | None = None
     geometry_hash: str | None = None
     exec_snap: FeatureSnapshot | None = None
+    zone_arrival: ZoneArrivalFacts | None = None
 
 
 def _resolve_timeframe(candidate: TradeCandidate) -> Timeframe:
@@ -67,6 +69,7 @@ async def build_and_evaluate_final_admission(
     require_sector: bool = True,
     opportunity_id: UUID | None = None,
     decision_version: int = 0,
+    tape_last: float | None = None,
 ) -> FinalAdmissionEvaluation:
     """Fetch bars + regime, then run full final_pretrade_validation.
 
@@ -148,11 +151,12 @@ async def build_and_evaluate_final_admission(
         snap = AdmissionSnapshot.model_validate(candidate.admission_snapshot)
 
     gh = geometry_hash_from_candidate(candidate, exec_timeframe=tf.value)
-    admission, admission_input = final_pretrade_validation(
+    admission, admission_input, zone_arrival = final_pretrade_validation(
         candidate,
         quote=quote,
         snapshot=snap,
         bars_count=bars_count,
+        bars=bars,
         last_bar_ts=last_bar_ts,
         now=evaluated_at,
         exec_snap=exec_snap,
@@ -167,6 +171,7 @@ async def build_and_evaluate_final_admission(
         geometry_hash=gh,
         opportunity_id=opportunity_id,
         decision_version=decision_version,
+        tape_last=tape_last,
     )
 
     return FinalAdmissionEvaluation(
@@ -180,4 +185,5 @@ async def build_and_evaluate_final_admission(
         last_bar_ts=last_bar_ts,
         geometry_hash=gh,
         exec_snap=exec_snap,
+        zone_arrival=zone_arrival,
     )

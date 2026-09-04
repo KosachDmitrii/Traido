@@ -26,12 +26,13 @@ from agents.trader.universe import PROMPT_VERSION as UNIVERSE_PV
 from agents.trader.universe import run_universe
 from core.activity import BOARD
 from core.config import Settings, get_settings
-from core.enums import AssessmentKind, InstrumentThesis, NewsCheck, SetupType, TradeAction
+from core.enums import AssessmentKind, InstrumentThesis, NewsCheck, TradeAction
 from core.ports import AuditPort, MarketDataPort
 from core.redaction import redact_secrets
 from core.schemas import NewsAssessment, PipelineResult, TradeCandidate
+from strategy.registry import LIVE_STRATEGY_KEY
 
-DESK_VERSION = "trader_desk@1.1.0"
+DESK_VERSION = LIVE_STRATEGY_KEY
 
 # Vendor / data integrity failures — not a market "no setup" decision.
 _DATA_FAIL_CODES = frozenset(
@@ -74,11 +75,21 @@ _BOARD_IDS = {
 
 
 def _mark(
-    step: TraderStep, *, status: str, detail: str, symbol: str, score: float | None = None
+    step: TraderStep,
+    *,
+    status: str,
+    detail: str,
+    symbol: str,
+    score: float | None = None,
+    filtered_out: bool = False,
 ) -> None:
+    """Log a desk step. ``filtered_out`` = normal no-candidate, not a system fault."""
     aid = _BOARD_IDS[step]
+    if filtered_out:
+        status = "done"
     BOARD.set_agent(aid, status=status, detail=detail, symbol=symbol, score=score)
-    BOARD.log(aid, detail, symbol=symbol, level="info" if status != "error" else "error")
+    level = "info" if filtered_out or status != "error" else "error"
+    BOARD.log(aid, detail, symbol=symbol, level=level)
 
 
 def _build_candidate(bundle: TraderBundle, *, run_id: UUID) -> TradeCandidate:
@@ -109,7 +120,7 @@ def _build_candidate(bundle: TraderBundle, *, run_id: UUID) -> TradeCandidate:
         pipeline_run_id=run_id,
         exec_timeframe=plan.exec_timeframe,
         thesis=InstrumentThesis.BULLISH,
-        setup_type=SetupType.PULLBACK_CONTINUATION,
+        setup_type=bundle.setup_type,
         entry_decision=entry_bundle.entry_decision if entry_bundle is not None else None,
         entry_quality=entry_bundle.entry_quality if entry_bundle is not None else None,
         setup_quality=entry_bundle.setup_quality if entry_bundle is not None else None,
@@ -194,6 +205,7 @@ async def run_trader_desk(
         detail=step.detail,
         symbol=symbol,
         score=step.score,
+        filtered_out=not step.ok,
     )
     if not step.ok:
         return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_candidate")
@@ -207,6 +219,7 @@ async def run_trader_desk(
         detail=step.detail,
         symbol=symbol,
         score=step.score,
+        filtered_out=not step.ok,
     )
     if not step.ok:
         return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_candidate")
@@ -221,6 +234,7 @@ async def run_trader_desk(
         detail=step.detail,
         symbol=symbol,
         score=step.score,
+        filtered_out=not step.ok,
     )
     if not step.ok:
         return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_trade")

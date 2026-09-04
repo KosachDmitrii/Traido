@@ -22,7 +22,9 @@ from trading.entry_quality import decide_entry
 from trading.entry_timing import evaluate_timing
 from trading.target_model import build_target_plan
 
-STRATEGY_VERSION = "strategy_confluence@0.3.0-f3"
+# Registered in strategy.registry (Stage 8). Do not change parameters without a new tag.
+from strategy.registry import LIVE_STRATEGY_KEY as STRATEGY_VERSION
+
 MIN_TECHNICAL = 68
 MIN_OVERALL = 70
 MIN_RISK_REWARD = 2.0
