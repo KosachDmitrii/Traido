@@ -100,9 +100,7 @@ def test_five_desk_steps_have_distinct_rsi_caps() -> None:
     from agents.trader.policy import trader_gates_for
     from trading.entry_policy import thresholds_for
 
-    caps = [
-        trader_gates_for(thresholds_for(a)).rsi_overbought for a in (0, 25, 50, 75, 100)
-    ]
+    caps = [trader_gates_for(thresholds_for(a)).rsi_overbought for a in (0, 25, 50, 75, 100)]
     assert caps == sorted(caps)
     assert len(set(caps)) == 5
 
