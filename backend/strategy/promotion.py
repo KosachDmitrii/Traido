@@ -13,7 +13,6 @@ from database.models.journal import BacktestRunRow, TradeJournalRow
 from database.models.strategy import StrategyEvaluationRunRow, StrategyVersionRow
 from database.session import session_factory
 from strategy import (
-    PROMOTION_ORDER,
     StrategyPromotionStage,
     stage_at_least,
     stage_index,

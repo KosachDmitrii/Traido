@@ -68,11 +68,7 @@ def observe_price(watch: EntryWatch, price: float, *, atr: float | None = None) 
 
     if price_in_zone(price, watch):
         if not was_in_zone:
-            touches = record_zone_touch(watch.id)
-        else:
-            from trading.zone_geometry import zone_touch_count
-
-            touches = zone_touch_count(watch.id)
+            record_zone_touch(watch.id)
         if zone_touch_exhausted(watch.id, th):
             reset_zone_touch(watch.id)
             return (

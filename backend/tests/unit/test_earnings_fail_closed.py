@@ -260,6 +260,7 @@ async def test_a_calendar_that_cannot_be_read_at_the_click_stops_the_order() -> 
         audit=InMemoryAudit(),
         store=store,
         exit_store=MemoryExitStore(),
+        market_data=liquid_market_data(),
     )
 
     with pytest.raises(RuntimeError, match="EARNINGS_CALENDAR_NOT_CONFIGURED"):
@@ -311,6 +312,7 @@ async def test_a_print_that_appears_while_the_card_waits_stops_the_approval(
         audit=InMemoryAudit(),
         store=store,
         exit_store=MemoryExitStore(),
+        market_data=liquid_market_data(),
     )
 
     with pytest.raises(RuntimeError, match="EARNINGS_IMMINENT"):
@@ -352,6 +354,7 @@ async def test_a_context_that_cannot_be_built_refuses_rather_than_waves_through(
         audit=InMemoryAudit(),
         store=store,
         exit_store=MemoryExitStore(),
+        market_data=liquid_market_data(),
     )
 
     with pytest.raises(RuntimeError, match="RISK_REJECT"):

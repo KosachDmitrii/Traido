@@ -485,3 +485,10 @@ def capital_path_ready(
         yield
     finally:
         set_sector_assessment_port(None)
+
+
+@pytest.fixture(autouse=True)
+def disable_api_auth_in_tests(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """A developer `.env` may set TRAIDO_API_KEY; HTTP tests must not need it."""
+    monkeypatch.setenv("TRAIDO_AUTH_DISABLED", "true")
+    yield

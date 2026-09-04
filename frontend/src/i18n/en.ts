@@ -256,11 +256,6 @@ export const en = {
   "rail.wait.block.BAR_TIMESTAMP_MISSING": "Missing timestamp on the latest bar",
   "rail.wait.conditions": "No BUY while WAIT — conditions: {c}",
   "rail.wait.planNote": "Entry/stop/target are zone-based (VWAP plan); price is Alpaca last trade (~30s)",
-  "rail.wait.explain": "Why?",
-  "rail.wait.explainLoading": "Loading admission explain…",
-  "rail.wait.explainError": "Could not load admission explain",
-  "rail.wait.explainClose": "Close",
-  "rail.wait.explainNoRecord": "No admission evaluation recorded yet for this watch.",
   "rail.buy.header":
     "{thesis} · ENTRY GOOD NOW · Quality {q}/100 · Conf {conf}% · R:R {rr} · Qty {qty}",
   "rail.buy.quality": "Quality {q}/100",

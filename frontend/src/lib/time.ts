@@ -57,6 +57,3 @@ export function formatExchangeStamp(iso: string | null | undefined): string {
   return `${get("month")} ${get("day")} ${get("hour")}:${get("minute")}:${get("second")}`;
 }
 
-/** Aliases used across the desk UI (all exchange-local). */
-export const formatLocalTime = formatExchangeTime;
-export const formatLocalDateTime = formatExchangeDateTime;

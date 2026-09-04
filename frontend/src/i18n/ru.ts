@@ -260,11 +260,6 @@ export const ru: Record<MessageKey, string> = {
   "rail.wait.conditions": "Покупка недоступна в ожидании — условия: {c}",
   "rail.wait.planNote":
     "Вход / стоп / цель — план от зоны VWAP; цена — последняя сделка Alpaca (~30 с)",
-  "rail.wait.explain": "Почему?",
-  "rail.wait.explainLoading": "Загрузка объяснения допуска…",
-  "rail.wait.explainError": "Не удалось загрузить объяснение допуска",
-  "rail.wait.explainClose": "Закрыть",
-  "rail.wait.explainNoRecord": "Для этого наблюдения ещё нет записи допуска.",
   "rail.buy.header":
     "{thesis} · ВХОД СЕЙЧАС · Качество {q}/100 · Увер. {conf}% · R:R {rr} · Кол-во {qty}",
   "rail.buy.quality": "Качество {q}/100",

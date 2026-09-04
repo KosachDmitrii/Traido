@@ -19,7 +19,7 @@ async def test_desk_returns_proposal_queues(monkeypatch, tmp_path) -> None:
         "max_open_buy_opportunities": 5,
         "enabled": True,
     }
-    path = Path("configs/watchlist.json")
+    path = Path(__file__).resolve().parents[2] / "configs/watchlist.json"
     original = path.read_text()
     path.write_text(json.dumps(watch))
     try:
