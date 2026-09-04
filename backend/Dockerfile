@@ -42,7 +42,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
     TRAIDO_ENV=production
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates util-linux \
+    && apt-get install -y --no-install-recommends curl ca-certificates util-linux proxychains4 \
     && curl -fsSL https://tailscale.com/install.sh | sh \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 traido
@@ -53,7 +53,8 @@ WORKDIR /app
 COPY --chown=traido:traido . .
 
 RUN mkdir -p /app/data && chown -R traido:traido /app/data \
-    && chmod +x /app/scripts/railway-start.sh /app/scripts/docker-entrypoint.sh
+    && chmod +x /app/scripts/railway-start.sh /app/scripts/docker-entrypoint.sh /app/scripts/tailscale-join.sh \
+    && cp /app/configs/proxychains.conf /etc/proxychains4.conf
 
 EXPOSE 8000
 
