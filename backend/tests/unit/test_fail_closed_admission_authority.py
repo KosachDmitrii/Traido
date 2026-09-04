@@ -138,7 +138,7 @@ async def test_normalized_lly_unrealistic_target_blocks_with_zero_broker_calls(
         target_plan=plan,
         now=now,
     )
-    assert admission.decision is AdmissionDecision.WAIT
+    assert admission.decision is AdmissionDecision.NO_TRADE
     assert "TARGET_UNREALISTIC" in admission.vetoes or any(
         "TARGET_UNREALISTIC" in r for r in admission.reason_codes
     )

@@ -20,6 +20,7 @@ HARD_VETO_REGISTRY: dict[str, VetoCategory] = {
     "STALE_DATA": VetoCategory.DATA,
     "MARKET_DATA_UNHEALTHY": VetoCategory.DATA,
     "INSUFFICIENT_BARS": VetoCategory.DATA,
+    "MISSING_ATR": VetoCategory.DATA,
     "STRUCTURAL_DAMAGE": VetoCategory.STRUCTURE,
     "CATALYST_INVALIDATED": VetoCategory.SETUP,
     "ENTRY_OUTSIDE_ALLOWED_ZONE": VetoCategory.ENTRY,

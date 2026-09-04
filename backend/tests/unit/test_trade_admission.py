@@ -120,7 +120,7 @@ def test_nem_regression_pullback_outside_zone() -> None:
 
 
 def test_deep_undercut_below_zone_is_wait_not_buy() -> None:
-    """Price under the pullback zone → WAIT for reclaim, not BUY at the print."""
+    """Price under the pullback zone with structural damage → NO_TRADE."""
     set_entry_aggressiveness(100, actor="test")
     bundle = _bundle(price=100.0, setup_q=80, entry_q=55, zone_low=111.8, zone_high=113.2)
     admission = evaluate_trade_admission(
@@ -134,7 +134,7 @@ def test_deep_undercut_below_zone_is_wait_not_buy() -> None:
         stop_structural_source="entry_zone_low",
         stop_structural_level=111.8,
     )
-    assert admission.decision is AdmissionDecision.WAIT
+    assert admission.decision is AdmissionDecision.NO_TRADE
     assert admission.admitted is False
     assert "ENTRY_OUTSIDE_ALLOWED_ZONE" in admission.vetoes or any(
         "ENTRY_OUTSIDE" in r for r in admission.reason_codes

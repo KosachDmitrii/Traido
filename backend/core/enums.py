@@ -239,6 +239,8 @@ class EntryWatchStatus(StrEnum):
     INVALIDATED = "invalidated"
     CONVERTED = "converted"  # became a BUY_NOW opportunity after fresh re-check
     CANCELLED = "cancelled"
+    BLOCKED_DATA = "blocked_data"  # mandatory facts unreadable — not market waiting
+    BLOCKED_OPERATIONAL = "blocked_operational"  # broker/vendor outage — retry later
 
 
 class TargetReachabilityClass(StrEnum):

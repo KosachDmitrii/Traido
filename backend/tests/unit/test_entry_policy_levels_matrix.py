@@ -131,9 +131,13 @@ def test_missing_arrival_blocks_admission(level: int) -> None:
         bars_count=40,
         last_bar_ts=datetime.now(UTC),
         require_bars=True,
-        entry=100.0,
-        stop=95.0,
+        entry=99.5,
+        stop=97.5,
         target=110.0,
+        target_plan=_healthy_bundle().target,
+        stop_plan_model="structure",
+        stop_structural_source="swing_low",
+        stop_structural_level=97.0,
         zone_arrival=None,
     )
     assert admission.decision is AdmissionDecision.WAIT

@@ -81,10 +81,10 @@ def evaluate_arrival_gate(arrival: ZoneArrivalFacts, th: EntryThresholds) -> Arr
     if "INSUFFICIENT_BARS" in arrival.reason_codes:
         return ArrivalGateResult(
             blocked=True,
-            hard_veto=False,
-            reason_codes=["INSUFFICIENT_BARS"],
+            hard_veto=True,
+            reason_codes=["INSUFFICIENT_BARS", "DATA_BLOCKED"],
             warnings=warnings,
-            veto_codes=[],
+            veto_codes=["INSUFFICIENT_BARS"],
         )
 
     floor = _effective_min_arrival(arrival, th)
