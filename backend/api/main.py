@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
-import asyncio
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, Response
@@ -25,9 +25,9 @@ from api.routes.trading import router as trading_router
 from core.activity import bind_activity_audit
 from core.audit import create_audit
 from core.config import get_settings
-from core.log_retention import prune_audit_events, start_log_retention, stop_log_retention
 from core.deployment import assert_implemented_trading_mode, assert_single_worker
 from core.desk_bus import DESK_BUS
+from core.log_retention import prune_audit_events, start_log_retention, stop_log_retention
 from core.logging import configure_logging, get_logger
 from database.session import init_db
 from risk.kill_switch import get_kill_switch_state

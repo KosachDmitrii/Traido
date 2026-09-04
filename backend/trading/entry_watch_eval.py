@@ -24,9 +24,9 @@ from core.schemas import (
     TradeCandidate,
     WatchRevalidationResult,
 )
+from trading.entry_policy import get_entry_thresholds
 from trading.entry_quality import decide_entry
 from trading.entry_timing import evaluate_timing
-from trading.entry_policy import get_entry_thresholds
 from trading.entry_watches import (
     ENTRY_WATCHES,
     PRICE_ENTERS_ZONE,
@@ -35,6 +35,12 @@ from trading.entry_watches import (
     ZONE_RECLAIM,
     price_in_zone,
 )
+from trading.geometry_hash import compute_geometry_hash, geometry_hash_from_watch
+from trading.target_model import build_target_plan
+from trading.trade_admission import evaluate_trade_admission
+from trading.wait_conditions import TRANSIENT_TRIGGER_CONDITIONS, unmet_wait_conditions
+from trading.watch_desk import zone_arrival_required_for
+from trading.zone_arrival import evaluate_zone_arrival
 from trading.zone_geometry import (
     record_zone_touch,
     reset_zone_touch,
@@ -42,12 +48,6 @@ from trading.zone_geometry import (
     zone_reclaim_met,
     zone_touch_exhausted,
 )
-from trading.geometry_hash import compute_geometry_hash, geometry_hash_from_watch
-from trading.target_model import build_target_plan
-from trading.trade_admission import evaluate_trade_admission
-from trading.wait_conditions import TRANSIENT_TRIGGER_CONDITIONS, unmet_wait_conditions
-from trading.watch_desk import zone_arrival_required_for
-from trading.zone_arrival import evaluate_zone_arrival
 
 
 class WaitRevalidationError(RuntimeError):

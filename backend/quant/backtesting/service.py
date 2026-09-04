@@ -251,7 +251,7 @@ def _persist_evaluation_evidence(result: EvaluationResult) -> None:
         )
         starting = Decimal(100000)
         net = starting * Decimal(str(result.return_pct)) / Decimal(100)
-        wins = int(round(result.win_rate * result.trade_count))
+        wins = round(result.win_rate * result.trade_count)
         summary = BacktestSummary(
             strategy_version=result.strategy_version,
             symbol=result.symbol,
@@ -280,7 +280,7 @@ def _persist_evaluation_evidence(result: EvaluationResult) -> None:
             params={"source": "evaluation"},
             notes="evaluation full-sample (Stage 8 evidence)",
         )
-    except Exception:  # noqa: BLE001 — measurement must not break the read path
+    except Exception:  # noqa: BLE001, S110 — measurement must not break the read path
         pass
 
 

@@ -89,7 +89,7 @@ def test_ttl_expiry_persists_so_new_wait_does_not_integrity_error(engine) -> Non
         patch_entry_watch_store,
         persist_watch,
     )
-    from trading.entry_watches import EntryWatchStore, WAIT_EXPIRED
+    from trading.entry_watches import WAIT_EXPIRED, EntryWatchStore
 
     configure_entry_watch_persistence(enabled=True)
     try:
@@ -129,7 +129,7 @@ def test_list_actionable_persists_ttl_expiry(engine) -> None:
         configure_entry_watch_persistence,
         patch_entry_watch_store,
     )
-    from trading.entry_watches import EntryWatchStore, WAIT_EXPIRED
+    from trading.entry_watches import WAIT_EXPIRED, EntryWatchStore
 
     configure_entry_watch_persistence(enabled=True)
     try:

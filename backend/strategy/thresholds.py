@@ -39,7 +39,7 @@ def _load_file(path: Path) -> dict:
         return {}
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
-        raise ValueError(f"promotion thresholds file must be an object: {path}")
+        raise TypeError(f"promotion thresholds file must be an object: {path}")
     return raw
 
 

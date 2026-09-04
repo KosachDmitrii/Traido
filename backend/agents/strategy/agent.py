@@ -18,12 +18,12 @@ from core.schemas import (
     TechnicalAssessment,
     TradeCandidate,
 )
-from trading.entry_quality import decide_entry
-from trading.entry_timing import evaluate_timing
-from trading.target_model import build_target_plan
 
 # Registered in strategy.registry (Stage 8). Do not change parameters without a new tag.
 from strategy.registry import LIVE_STRATEGY_KEY as STRATEGY_VERSION
+from trading.entry_quality import decide_entry
+from trading.entry_timing import evaluate_timing
+from trading.target_model import build_target_plan
 
 MIN_TECHNICAL = 68
 MIN_OVERALL = 70

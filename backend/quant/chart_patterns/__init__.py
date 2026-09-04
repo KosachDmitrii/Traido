@@ -87,14 +87,20 @@ def detect_chart_patterns(
     # Head & shoulders / inverse — three swings, middle extreme.
     if len(sh) >= 3:
         left, head, right = highs[sh[-3]], highs[sh[-2]], highs[sh[-1]]
-        if head > left * (1 + tolerance) and head > right * (1 + tolerance):
-            if abs(left - right) / ((left + right) / 2) <= tolerance * 2:
-                result["head_shoulders"] = True
+        if (
+            head > left * (1 + tolerance)
+            and head > right * (1 + tolerance)
+            and abs(left - right) / ((left + right) / 2) <= tolerance * 2
+        ):
+            result["head_shoulders"] = True
     if len(sl) >= 3:
         left, head, right = lows[sl[-3]], lows[sl[-2]], lows[sl[-1]]
-        if head < left * (1 - tolerance) and head < right * (1 - tolerance):
-            if abs(left - right) / ((left + right) / 2) <= tolerance * 2:
-                result["inv_head_shoulders"] = True
+        if (
+            head < left * (1 - tolerance)
+            and head < right * (1 - tolerance)
+            and abs(left - right) / ((left + right) / 2) <= tolerance * 2
+        ):
+            result["inv_head_shoulders"] = True
 
     if result["higher_highs"] and result["higher_lows"]:
         result["structure"] = "uptrend"

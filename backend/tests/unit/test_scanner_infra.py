@@ -158,12 +158,12 @@ def test_eligible_cap_is_a_terminal_bucket() -> None:
 
 
 def test_wait_outcome_is_not_also_deep_passed() -> None:
+    from decimal import Decimal
     from uuid import uuid4
 
     from agents.scanner.cycle import _record_deep_outcome
-    from core.schemas import PipelineResult, TradeCandidate
     from core.enums import TradeAction
-    from decimal import Decimal
+    from core.schemas import PipelineResult, TradeCandidate
 
     funnel = ScanFunnel()
     funnel.universe_total = 1

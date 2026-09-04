@@ -87,7 +87,10 @@ class DeskConfluenceStrategy:
         if isinstance(rsi_v, (int, float)) and rsi_v >= 78:
             return ExitSignal(reasons=["rsi_exhaustion"])
         close = snap.indicators.get("close")
-        if isinstance(close, (int, float)) and entry_price > 0:
-            if float(close) <= entry_price * 0.92:
-                return ExitSignal(reasons=["soft_stop_proxy"])
+        if (
+            isinstance(close, (int, float))
+            and entry_price > 0
+            and float(close) <= entry_price * 0.92
+        ):
+            return ExitSignal(reasons=["soft_stop_proxy"])
         return None

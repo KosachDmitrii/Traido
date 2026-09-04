@@ -178,13 +178,9 @@ def _ts(value: Any) -> datetime | None:
     if not value:
         return None
     try:
-        raw = str(value)
-        if raw.endswith("Z"):
-            ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-        else:
-            ts = datetime.fromisoformat(raw)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=UTC)
+        ts = datetime.fromisoformat(str(value))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=UTC)
         return ts.astimezone(UTC)
     except ValueError:
         return None
@@ -486,13 +482,9 @@ class AlpacaMarketData:
         bid, ask = raw.get("bp"), raw.get("ap")
         if not bid or not ask:
             return None
-        raw_t = str(raw["t"])
-        if raw_t.endswith("Z"):
-            ts = datetime.fromisoformat(raw_t.replace("Z", "+00:00"))
-        else:
-            ts = datetime.fromisoformat(raw_t)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=UTC)
+        ts = _ts(raw.get("t"))
+        if ts is None:
+            return None
         return Quote(
             symbol=symbol,
             bid=Decimal(str(bid)),
@@ -518,11 +510,7 @@ class AlpacaMarketData:
         raw_t = raw.get("t")
         if price is None or not raw_t:
             return None
-        raw_t = str(raw_t)
-        if raw_t.endswith("Z"):
-            ts = datetime.fromisoformat(raw_t.replace("Z", "+00:00"))
-        else:
-            ts = datetime.fromisoformat(raw_t)
-            if ts.tzinfo is None:
-                ts = ts.replace(tzinfo=UTC)
+        ts = _ts(raw_t)
+        if ts is None:
+            return None
         return float(price), ts

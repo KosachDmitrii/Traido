@@ -8,17 +8,17 @@ from typing import Any
 from core.enums import EntryWatchStatus, Timeframe
 from core.schemas import Bar, EntryTimingFacts, EntryWatch, Quote
 from quant.engine import compute_features
+from trading.entry_policy import get_entry_thresholds
 from trading.entry_timing import evaluate_timing
+from trading.entry_watches import price_in_zone, zone_trigger_bounds
 from trading.watch_desk import (
     buy_blocked_from_arrival_dict,
+    derive_ui_state,
     desk_block_reason_from_arrival,
     desk_revalidation_hint,
-    derive_ui_state,
     enrich_watch_for_desk,
     strip_resolved_spread_hints,
 )
-from trading.entry_policy import get_entry_thresholds
-from trading.entry_watches import price_in_zone, zone_trigger_bounds
 
 # Display-only keys cached on the watch. Machine state always comes from the row.
 _DISPLAY_KEYS = frozenset(

@@ -21,7 +21,7 @@ def _watch() -> EntryWatch:
         status=EntryWatchStatus.TRIGGERED,
         thesis=InstrumentThesis.BULLISH,
         setup_type=SetupType.PULLBACK_CONTINUATION,
-        signal_price=Decimal("70"),
+        signal_price=Decimal(70),
         current_price_at_creation=Decimal("72.5"),
         entry_zone_low=Decimal("69.3"),
         entry_zone_high=Decimal("72.3"),

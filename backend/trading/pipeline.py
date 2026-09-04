@@ -22,13 +22,13 @@ from core.enums import (
 )
 from core.schemas import (
     AdmissionSnapshot,
+    EntryWatch,
     MarketAssessment,
     PipelineResult,
     Quote,
     RiskDecision,
     TradeAdmissionResult,
 )
-from core.schemas import EntryWatch
 from database.session import session_factory
 from notifications.telegram import get_notifier
 from risk.context_builder import build_risk_context
@@ -60,7 +60,8 @@ def regime_allows_long(
     """
     if market is None:
         return None
-    from datetime import UTC, datetime as dt
+    from datetime import UTC
+    from datetime import datetime as dt
 
     from core.enums import DataHealthStatus
     from trading.market_gate import evaluate_market_gate

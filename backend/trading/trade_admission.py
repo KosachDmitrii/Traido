@@ -518,23 +518,28 @@ def evaluate_trade_admission(
             target_valid=target_valid,
         )
 
-    if zone_arrival_required(st) and zone_arrival is not None and arrival_gate is not None:
-        if arrival_gate.blocked and not arrival_gate.hard_veto:
-            return _result(
-                AdmissionDecision.WAIT,
-                st,
-                setup_q,
-                entry_q,
-                chase.score,
-                structure,
-                data.status,
-                vetoes,
-                warnings,
-                reason_codes,
-                effective_rr=effective_rr_val,
-                stop_valid=stop_valid,
-                target_valid=target_valid,
-            )
+    if (
+        zone_arrival_required(st)
+        and zone_arrival is not None
+        and arrival_gate is not None
+        and arrival_gate.blocked
+        and not arrival_gate.hard_veto
+    ):
+        return _result(
+            AdmissionDecision.WAIT,
+            st,
+            setup_q,
+            entry_q,
+            chase.score,
+            structure,
+            data.status,
+            vetoes,
+            warnings,
+            reason_codes,
+            effective_rr=effective_rr_val,
+            stop_valid=stop_valid,
+            target_valid=target_valid,
+        )
 
     if not allowed:
         return _result(

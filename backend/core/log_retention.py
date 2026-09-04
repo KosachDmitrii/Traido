@@ -33,7 +33,7 @@ async def _retention_loop(audit: DbAudit, stop: asyncio.Event) -> None:
     while not stop.is_set():
         try:
             await asyncio.to_thread(prune_audit_events, audit)
-        except Exception:  # noqa: BLE001 — retention must not take down the API
+        except Exception:
             logger.exception("audit retention pass failed")
         try:
             await asyncio.wait_for(stop.wait(), timeout=_PRUNE_INTERVAL_SEC)
