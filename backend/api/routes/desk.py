@@ -32,6 +32,7 @@ from core.desk_bus import DESK_BUS
 from core.enums import UserDecision
 from core.schemas import Position
 from market_data.providers.company_name import attach_company_names
+from trading.decision_outcome import DECISION_OUTCOMES, DecisionOutcomeRecord
 from trading.desk_positions import protective_stop_for_display
 from trading.desk_viability import attach_buy_viability
 from trading.entry_watches import ENTRY_WATCHES
@@ -149,6 +150,21 @@ class BrokerSnapshot(BaseModel):
 
 class ExitDecisionBody(BaseModel):
     decision: UserDecision = Field(description="sell or hold")
+
+
+def _decision_outcome_payload(row: DecisionOutcomeRecord) -> dict:
+    return {
+        "id": str(row.id),
+        "symbol": row.symbol,
+        "stage": row.stage,
+        "outcome": row.outcome,
+        "primary_reason": row.primary_reason,
+        "reason_codes": list(row.reason_codes),
+        "geometry_hash": row.geometry_hash,
+        "pipeline_run_id": str(row.pipeline_run_id) if row.pipeline_run_id else None,
+        "watch_id": str(row.watch_id) if row.watch_id else None,
+        "recorded_at": row.recorded_at.isoformat(),
+    }
 
 
 def _watch_funnel_payload(entry_watches: list[dict]) -> dict:
@@ -397,6 +413,23 @@ async def desk(
     if if_none_match and if_none_match == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
     return JSONResponse(content=payload, headers={"ETag": etag, "Cache-Control": "no-cache"})
+
+
+@router.get("/desk/outcomes")
+async def desk_decision_outcomes(
+    symbol: str | None = Query(default=None, min_length=1, max_length=16),
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict:
+    """Durable funnel evidence for RCA, optionally narrowed to one symbol."""
+    rows = (
+        DECISION_OUTCOMES.list_for_symbol(symbol, limit=limit)
+        if symbol
+        else DECISION_OUTCOMES.list_recent(limit=limit)
+    )
+    return {
+        "summary": DECISION_OUTCOMES.summary(),
+        "records": [_decision_outcome_payload(row) for row in rows],
+    }
 
 
 async def _build_broker_snapshot(*, force: bool) -> dict:

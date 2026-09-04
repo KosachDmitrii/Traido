@@ -26,6 +26,7 @@ from core.schemas import (
     TradeCandidate,
 )
 from trading.entry_watch_loop import (
+    _block_watch_on_missing_data,
     _convert_admitted_watch,
     _defer_to_recovery_revalidation,
     run_watch_pass,
@@ -129,6 +130,27 @@ def test_defer_recovery_moves_admitted_to_triggered() -> None:
     assert updated.status is EntryWatchStatus.TRIGGERED
     assert any("RECOVERY_REVALIDATION_REQUIRED" in r for r in updated.reasons)
     assert stats["still_waiting"] == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_watch_input_becomes_visible_data_block() -> None:
+    watch = _admitted_watch()
+    stats = {"still_waiting": 0, "invalidated": 0, "converted": 0, "data_blocked": 0}
+    audit = AsyncMock()
+
+    await _block_watch_on_missing_data(
+        watch,
+        reason="TOP_OF_BOOK_UNAVAILABLE",
+        audit=audit,
+        stats=stats,
+    )
+
+    updated = ENTRY_WATCHES.get(watch.id)
+    assert updated is not None
+    assert updated.status is EntryWatchStatus.BLOCKED_DATA
+    assert "TOP_OF_BOOK_UNAVAILABLE" in updated.reasons
+    assert stats["data_blocked"] == 1
+    audit.append.assert_awaited_once()
 
 
 @pytest.mark.asyncio

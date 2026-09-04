@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
-from core.enums import AdmissionDecision
-from trading.decision_precedence import resolve_admission_decision
+from core.enums import AdmissionDecision, EntryWatchStatus
+from trading.decision_precedence import (
+    resolve_admission_decision,
+    watch_block_status_for_data_blocked,
+)
 
 
 def test_target_unrealistic_is_no_trade_even_with_zone_arrival_missing() -> None:
@@ -47,3 +50,17 @@ def test_data_blocked_beats_wait() -> None:
         ["STALE_DATA", "DATA_BLOCKED"],
     )
     assert decision is AdmissionDecision.DATA_BLOCKED
+
+
+def test_stale_quote_is_a_data_block_not_an_operational_block() -> None:
+    assert (
+        watch_block_status_for_data_blocked(["QUOTE_STALE", "DATA_BLOCKED"])
+        is EntryWatchStatus.BLOCKED_DATA
+    )
+
+
+def test_reconciliation_failure_is_an_operational_block() -> None:
+    assert (
+        watch_block_status_for_data_blocked(["RECONCILIATION_STALE"])
+        is EntryWatchStatus.BLOCKED_OPERATIONAL
+    )

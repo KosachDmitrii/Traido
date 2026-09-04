@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -10,6 +11,8 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from core.enums import AdmissionDecision, EntryDecision, EntryWatchStatus, RiskVerdict
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -104,7 +107,15 @@ class DecisionOutcomeLedger:
                     )
                 )
                 session.commit()
-        except Exception:  # noqa: BLE001 — persistence must never fail the capital path
+        except Exception as exc:  # noqa: BLE001 — telemetry must not fail the capital path
+            from core.metrics import METRICS
+
+            METRICS.counter(
+                "decision_outcome_persistence_failed",
+                labels={"operation": "write"},
+                help_text="DecisionOutcome database operations that failed",
+            )
+            logger.warning("decision outcome persistence failed (%s)", type(exc).__name__)
             return
 
     def list_for_symbol(self, symbol: str, *, limit: int = 50) -> list[DecisionOutcomeRecord]:
@@ -119,6 +130,17 @@ class DecisionOutcomeLedger:
             by_id[row.id] = row
         merged = sorted(by_id.values(), key=lambda row: row.recorded_at, reverse=True)
         return merged[:limit]
+
+    def list_recent(self, *, limit: int = 100) -> list[DecisionOutcomeRecord]:
+        with self._lock:
+            memory = list(reversed(self._rows))[:limit]
+        persisted = self._load_recent(limit=limit)
+        if persisted is None:
+            return memory
+        by_id = {row.id: row for row in persisted}
+        for row in memory:
+            by_id[row.id] = row
+        return sorted(by_id.values(), key=lambda row: row.recorded_at, reverse=True)[:limit]
 
     def summary(self) -> dict[str, int]:
         persisted = self._load_summary()
@@ -146,23 +168,70 @@ class DecisionOutcomeLedger:
                     .all()
                 )
             return [_record_from_row(row) for row in rows]
-        except Exception:  # noqa: BLE001 — RCA must not fail the capital path
+        except Exception as exc:  # noqa: BLE001 — RCA must not fail the capital path
+            from core.metrics import METRICS
+
+            METRICS.counter(
+                "decision_outcome_persistence_failed",
+                labels={"operation": "read_symbol"},
+                help_text="DecisionOutcome database operations that failed",
+            )
+            logger.warning("decision outcome read failed (%s)", type(exc).__name__)
             return None
 
     def _load_summary(self) -> dict[str, int] | None:
+        try:
+            from sqlalchemy import func
+
+            from database.models.desk import DecisionOutcomeRow
+            from database.session import session_factory
+
+            SessionLocal = session_factory()
+            with SessionLocal() as session:
+                rows = (
+                    session.query(
+                        DecisionOutcomeRow.stage,
+                        DecisionOutcomeRow.outcome,
+                        func.count(DecisionOutcomeRow.id),
+                    )
+                    .group_by(DecisionOutcomeRow.stage, DecisionOutcomeRow.outcome)
+                    .all()
+                )
+            return {f"{stage}:{outcome}": int(count) for stage, outcome, count in rows}
+        except Exception as exc:  # noqa: BLE001 — RCA must not fail the capital path
+            from core.metrics import METRICS
+
+            METRICS.counter(
+                "decision_outcome_persistence_failed",
+                labels={"operation": "summary"},
+                help_text="DecisionOutcome database operations that failed",
+            )
+            logger.warning("decision outcome summary failed (%s)", type(exc).__name__)
+            return None
+
+    def _load_recent(self, *, limit: int) -> list[DecisionOutcomeRecord] | None:
         try:
             from database.models.desk import DecisionOutcomeRow
             from database.session import session_factory
 
             SessionLocal = session_factory()
             with SessionLocal() as session:
-                rows = session.query(DecisionOutcomeRow.stage, DecisionOutcomeRow.outcome).all()
-            counts: dict[str, int] = {}
-            for stage, outcome in rows:
-                key = f"{stage}:{outcome}"
-                counts[key] = counts.get(key, 0) + 1
-            return counts
-        except Exception:  # noqa: BLE001 — RCA must not fail the capital path
+                rows = (
+                    session.query(DecisionOutcomeRow)
+                    .order_by(DecisionOutcomeRow.recorded_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+            return [_record_from_row(row) for row in rows]
+        except Exception as exc:  # noqa: BLE001 — RCA must not fail the capital path
+            from core.metrics import METRICS
+
+            METRICS.counter(
+                "decision_outcome_persistence_failed",
+                labels={"operation": "read_recent"},
+                help_text="DecisionOutcome database operations that failed",
+            )
+            logger.warning("decision outcome recent read failed (%s)", type(exc).__name__)
             return None
 
 

@@ -59,6 +59,16 @@ def test_summary_reads_persisted_counts_after_restart(tmp_path, monkeypatch) -> 
     assert counts["admission:NO_TRADE"] == 1
 
 
+def test_recent_rows_are_readable_after_restart(tmp_path, monkeypatch) -> None:
+    _bind_journal(tmp_path, monkeypatch)
+    live = DecisionOutcomeLedger()
+    live.record(symbol="MSFT", stage="scan", outcome="WAIT", primary_reason="FIRST")
+    live.record(symbol="AAPL", stage="auto_trigger", outcome="EXECUTED", primary_reason="SECOND")
+
+    rows = DecisionOutcomeLedger().list_recent(limit=10)
+    assert [row.primary_reason for row in rows] == ["SECOND", "FIRST"]
+
+
 def test_list_for_symbol_falls_back_to_memory_when_db_unreadable(monkeypatch) -> None:
     def boom(_engine=None):
         raise RuntimeError("journal down")

@@ -132,3 +132,22 @@ def test_buy_rejected_regime_blocked_stays_terminal() -> None:
         classify_exception_text("BUY_REJECTED_REGIME:REGIME_BLOCKED")
         is OutcomeClass.TERMINAL_REJECT
     )
+
+
+def test_invalid_geometry_risk_reject_is_terminal_no_trade() -> None:
+    assert classify_exception_text("RISK_REJECT:INVALID_GEOMETRY") is OutcomeClass.NO_TRADE
+
+
+def test_zero_fill_failure_retries_as_operational_not_unknown() -> None:
+    assert classify_exception_text("ENTRY_FILL_FAILED:timeout") is OutcomeClass.OPERATIONAL_BLOCKED
+
+
+def test_definitive_broker_rejection_is_terminal() -> None:
+    assert (
+        classify_exception_text("ENTRY_ORDER_REJECTED:insufficient buying power")
+        is OutcomeClass.NO_TRADE
+    )
+
+
+def test_open_position_capacity_can_wait() -> None:
+    assert classify_exception_text("RISK_REJECT:MAX_OPEN_POSITIONS") is OutcomeClass.WAIT

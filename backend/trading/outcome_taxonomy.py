@@ -42,6 +42,7 @@ DATA_BLOCKED_CODES = frozenset(
         "FRED_SERIES_EMPTY",
         "FRED_OBSERVATION_STALE",
         "FRED_OBSERVATION_DATE_MISSING",
+        "FRED_OBSERVATION_DATE_INVALID",
         "NEWS_NOT_CONFIGURED",
         "NEWS_UNAVAILABLE",
         "NEWS_UNVERIFIED",
@@ -63,6 +64,9 @@ DATA_BLOCKED_CODES = frozenset(
         "STALE_BARS",
         "NO_BARS",
         "BARS_REQUIRED",
+        "WATCH_MARK_UNAVAILABLE",
+        "INSUFFICIENT_H1_BARS",
+        "TOP_OF_BOOK_UNAVAILABLE",
     }
 )
 
@@ -85,6 +89,9 @@ OPERATIONAL_BLOCKED_CODES = frozenset(
 TERMINAL_NO_TRADE_CODES = frozenset(
     {
         "STRUCTURAL_DAMAGE",
+        "INVALID_GEOMETRY",
+        "V1_LONG_ONLY",
+        "NON_POSITIVE_EQUITY",
         "MISSING_TARGET",
         "MISSING_STOP",
         "MISSING_ENTRY_ZONE",
@@ -112,6 +119,12 @@ TERMINAL_NO_TRADE_CODES = frozenset(
         "MAX_BOOK_EXPOSURE",
         "MAX_SECTOR_EXPOSURE",
         "MAX_RISK_PER_TRADE",
+        "MAX_DAILY_LOSS",
+        "MAX_WEEKLY_LOSS",
+        "MAX_PORTFOLIO_DRAWDOWN",
+        "ENTRY_ORDER_REJECTED",
+        "OPERATOR_QTY_INVALID",
+        "OPERATOR_QTY_ABOVE_RISK",
         "NON_POSITIVE_RISK_PER_SHARE",
         "POSITION_ALREADY_OPEN",
         "EXTERNAL_POSITION_BLOCK",
@@ -121,12 +134,22 @@ TERMINAL_NO_TRADE_CODES = frozenset(
 # Errors that mean a broker mutation may already exist — never retry decide().
 UNKNOWN_AFTER_SUBMIT_MARKERS = (
     "ENTRY_STATE_UNKNOWN",
-    "ENTRY_FILL_FAILED",
     "EXIT_STATE_UNKNOWN",
     "EXIT_FILL_FAILED",
     "protective_stop_submit_race_unresolved",
     "order_intent_vanished",
     "STOP_FAILED_FLATTENED",
+)
+
+# Broker truth is known and no fill remains, but the attempt could not finish.
+# Retrying is safe only after backoff; this is not UNKNOWN broker state.
+OPERATIONAL_RETRY_MARKERS = ("ENTRY_FILL_FAILED",)
+
+# Risk conditions that can clear while the same short-lived card is valid.
+TRANSIENT_RISK_CODES = frozenset(
+    {
+        "MAX_OPEN_POSITIONS",
+    }
 )
 
 # Pre-submit book/price conditions that can reverse — keep the card, retry.
@@ -154,6 +177,8 @@ def classify_exception_text(text: str) -> OutcomeClass:
     blob = (text or "").upper()
     if any(marker.upper() in blob for marker in UNKNOWN_AFTER_SUBMIT_MARKERS):
         return OutcomeClass.UNKNOWN
+    if any(marker in blob for marker in OPERATIONAL_RETRY_MARKERS):
+        return OutcomeClass.OPERATIONAL_BLOCKED
     if any(blob.startswith(prefix) for prefix in TRANSIENT_BUY_REJECT_PREFIXES):
         return OutcomeClass.WAIT
     tokens = [part.strip() for part in blob.replace(",", ":").split(":") if part.strip()]
@@ -161,6 +186,8 @@ def classify_exception_text(text: str) -> OutcomeClass:
     classified = classify_codes(tokens)
     if classified is not OutcomeClass.WAIT:
         return classified
+    if blob.startswith("RISK_REJECT") and any(code in tokens for code in TRANSIENT_RISK_CODES):
+        return OutcomeClass.WAIT
     if "LIQUIDITY_GATE_REJECTED" in blob or "RTH_GATE_REJECTED" in blob:
         if "MARKET_DATA_NOT_CONFIGURED" in blob or "LIVE_QUOTE" in blob or "QUOTE" in blob:
             return OutcomeClass.DATA_BLOCKED

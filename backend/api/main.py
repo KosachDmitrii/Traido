@@ -6,7 +6,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 
@@ -22,6 +22,7 @@ from api.routes.review import router as review_router
 from api.routes.scan import router as scan_router
 from api.routes.strategies import router as strategies_router
 from api.routes.trading import router as trading_router
+from broker.factory import BrokerCredentialsMissing
 from core.activity import bind_activity_audit
 from core.audit import create_audit
 from core.config import get_settings
@@ -145,6 +146,22 @@ app = FastAPI(
     redoc_url="/redoc" if _DOCS else None,
     openapi_url="/openapi.json" if _DOCS else None,
 )
+
+
+@app.exception_handler(BrokerCredentialsMissing)
+async def broker_credentials_missing_handler(
+    _request: Request, exc: BrokerCredentialsMissing
+) -> JSONResponse:
+    """Expose a configured operational block, never an opaque API 500."""
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": str(exc),
+            "code": "BROKER_CREDENTIALS_MISSING",
+            "outcome": "OPERATIONAL_BLOCKED",
+        },
+    )
+
 
 app.add_middleware(ApiAuthMiddleware)
 app.add_middleware(

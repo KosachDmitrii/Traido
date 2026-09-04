@@ -23,6 +23,18 @@ RTH_INSTANT = datetime(2026, 3, 10, 11, 0, tzinfo=ET)
 
 
 @pytest.fixture(autouse=True)
+def explicit_test_broker(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests use the in-memory broker only by explicit opt-in.
+
+    Production must fail closed when broker credentials are absent.  The test
+    suite still needs a deterministic broker for API/wiring tests, so declare
+    that intent here instead of relying on the removed silent fallback.
+    Tests of missing-credential behaviour may delete the variable locally.
+    """
+    monkeypatch.setenv("TRAIDO_BROKER_MOCK", "true")
+
+
+@pytest.fixture(autouse=True)
 def isolated_default_journal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Keep get_sync_engine() / DbAudit / watch persistence off the real journal.
 

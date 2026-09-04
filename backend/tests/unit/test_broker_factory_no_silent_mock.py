@@ -41,3 +41,26 @@ def test_explicit_mock_flag_still_builds_mock(monkeypatch: pytest.MonkeyPatch) -
     )
     broker = create_broker(settings)
     assert isinstance(broker, MockPaperBroker)
+
+
+def test_missing_credentials_are_a_controlled_api_block(monkeypatch: pytest.MonkeyPatch) -> None:
+    from fastapi.testclient import TestClient
+
+    import api.routes.desk as desk_route
+    from api.main import app
+
+    monkeypatch.delenv("TRAIDO_BROKER_MOCK", raising=False)
+    monkeypatch.setattr("broker.factory.get_broker_backend", lambda: "alpaca")
+    monkeypatch.setattr(desk_route, "_broker_cache", None)
+    settings = Settings(
+        alpaca_api_key=None,
+        alpaca_api_secret=None,
+        finnhub_api_key=None,
+        fred_api_key=None,
+    )
+    monkeypatch.setattr(desk_route, "get_settings", lambda: settings)
+
+    response = TestClient(app, raise_server_exceptions=False).get("/api/v1/desk/broker")
+    assert response.status_code == 503
+    assert response.json()["code"] == "BROKER_CREDENTIALS_MISSING"
+    assert response.json()["outcome"] == "OPERATIONAL_BLOCKED"

@@ -23,12 +23,15 @@ REDIS_KEY = "traido:auto_trigger"
 _LOCK = threading.Lock()
 _cached: bool | None = None
 _in_flight: set[str] = set()
+_queued: set[str] = set()
 _retry_after: dict[str, datetime] = {}
 _retry_attempts: dict[str, int] = {}
 _queue: asyncio.Queue[tuple[Any, Any, str]] | None = None
-_worker_started = False
+_worker_task: asyncio.Task[None] | None = None
+_worker_loop: asyncio.AbstractEventLoop | None = None
 
 _BACKOFF_STEPS = (5, 15, 45, 120, 300)
+_QUEUE_MAXSIZE = 100
 
 
 def _auto_trigger_blocked() -> bool:
@@ -212,6 +215,7 @@ def reset_auto_trigger_cache() -> None:
         _retry_after.clear()
         _retry_attempts.clear()
         _in_flight.clear()
+        _queued.clear()
 
 
 def policy_payload() -> dict[str, Any]:
@@ -250,17 +254,40 @@ def _classify_failure(exc: BaseException) -> str:
     return classify_exception_text(_error_text(exc)).value
 
 
-def _set_retry(opportunity_id: Any, *, operational: bool) -> datetime:
+def _set_retry(opportunity_id: Any, *, operational: bool, outcome: str, error: str) -> datetime:
     key = str(opportunity_id)
+    persisted_attempt = 0
+    try:
+        from trading.opportunities import OPPORTUNITIES
+
+        current = OPPORTUNITIES.get(opportunity_id)
+        raw_attempt = getattr(current, "auto_trigger_attempts", 0) if current is not None else 0
+        persisted_attempt = raw_attempt if isinstance(raw_attempt, int) else 0
+    except Exception:  # noqa: BLE001 — memory backoff remains a safe fallback
+        current = None
     with _LOCK:
-        attempt = _retry_attempts.get(key, 0) + 1
+        attempt = max(_retry_attempts.get(key, 0), persisted_attempt) + 1
         _retry_attempts[key] = attempt
         delay = _BACKOFF_STEPS[min(attempt - 1, len(_BACKOFF_STEPS) - 1)]
         if not operational:
             delay = min(delay, 30)
         until = datetime.now(UTC) + timedelta(seconds=delay)
         _retry_after[key] = until
-        return until
+    if current is not None:
+        try:
+            OPPORTUNITIES.update(
+                current.model_copy(
+                    update={
+                        "auto_trigger_retry_at": until,
+                        "auto_trigger_attempts": attempt,
+                        "auto_trigger_last_outcome": outcome,
+                        "auto_trigger_last_error": error[:512],
+                    }
+                )
+            )
+        except Exception:  # noqa: BLE001 — memory backoff remains fail-safe
+            logger.warning("auto trigger: retry metadata persistence failed for %s", key)
+    return until
 
 
 def _clear_retry(opportunity_id: Any) -> None:
@@ -268,13 +295,52 @@ def _clear_retry(opportunity_id: Any) -> None:
     with _LOCK:
         _retry_after.pop(key, None)
         _retry_attempts.pop(key, None)
+    try:
+        from trading.opportunities import OPPORTUNITIES
+
+        current = OPPORTUNITIES.get(opportunity_id)
+        if current is not None and (
+            current.auto_trigger_retry_at is not None or current.auto_trigger_attempts
+        ):
+            OPPORTUNITIES.update(
+                current.model_copy(
+                    update={"auto_trigger_retry_at": None, "auto_trigger_attempts": 0}
+                )
+            )
+    except Exception:  # noqa: BLE001 — terminal status remains authoritative
+        logger.warning("auto trigger: retry metadata cleanup failed for %s", key)
 
 
 def _due_for_retry(opportunity_id: Any) -> bool:
     key = str(opportunity_id)
     with _LOCK:
         until = _retry_after.get(key)
+    if until is None:
+        try:
+            from trading.opportunities import OPPORTUNITIES
+
+            current = OPPORTUNITIES.get(opportunity_id)
+            persisted = getattr(current, "auto_trigger_retry_at", None)
+            if isinstance(persisted, datetime):
+                until = persisted if persisted.tzinfo else persisted.replace(tzinfo=UTC)
+        except Exception:  # noqa: BLE001 — lack of retry metadata must not authorize a trade
+            return False
     return until is None or datetime.now(UTC) >= until
+
+
+def _record_auto_outcome(opp: Any, *, outcome: str, reason: str) -> None:
+    """Persist the auto-approval leg in the same RCA ledger as admission."""
+    from trading.decision_outcome import DECISION_OUTCOMES
+
+    candidate = getattr(opp, "candidate", None)
+    DECISION_OUTCOMES.record(
+        symbol=getattr(candidate, "symbol", "UNKNOWN"),
+        stage="auto_trigger",
+        outcome=outcome,
+        primary_reason=reason,
+        reason_codes=(reason,),
+        pipeline_run_id=getattr(candidate, "pipeline_run_id", None),
+    )
 
 
 async def _discard_card(
@@ -337,7 +403,12 @@ async def _keep_card(
 ) -> None:
     from core.desk_bus import DESK_BUS
 
-    until = _set_retry(opportunity_id, operational=outcome == "OPERATIONAL_BLOCKED")
+    until = _set_retry(
+        opportunity_id,
+        operational=outcome == "OPERATIONAL_BLOCKED",
+        outcome=outcome,
+        error=error,
+    )
     await audit.append(
         "AutoTriggerApproveDeferred",
         "auto_trigger",
@@ -426,6 +497,7 @@ async def maybe_auto_approve_opportunity(
                 )
             else:
                 await _keep_card(opp_id, audit=audit, symbol=symbol, error=error, outcome=outcome)
+            _record_auto_outcome(opp, outcome=outcome, reason=error)
             return False
 
         await audit.append(
@@ -446,6 +518,11 @@ async def maybe_auto_approve_opportunity(
             status=result.status.value,
         )
         DESK_BUS.bump_broker(kind="auto_trigger_approve")
+        _record_auto_outcome(
+            opp,
+            outcome="EXECUTED" if result.status is OpportunityStatus.EXECUTED else "APPROVED",
+            reason=result.status.value,
+        )
         _clear_retry(opp_id)
         return True
     finally:
@@ -454,29 +531,33 @@ async def maybe_auto_approve_opportunity(
 
 
 def _ensure_worker() -> asyncio.Queue[tuple[Any, Any, str]] | None:
-    global _queue, _worker_started
+    global _queue, _worker_task, _worker_loop
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return None
-    if _queue is None:
-        _queue = asyncio.Queue()
-    if not _worker_started:
-        _worker_started = True
-        loop.create_task(_auto_trigger_worker())
+    if _queue is None or _worker_loop is not loop:
+        _queue = asyncio.Queue(maxsize=_QUEUE_MAXSIZE)
+        _worker_loop = loop
+        with _LOCK:
+            _queued.clear()
+    if _worker_task is None or _worker_task.done() or _worker_task.get_loop() is not loop:
+        _worker_task = loop.create_task(_auto_trigger_worker(_queue))
     return _queue
 
 
-async def _auto_trigger_worker() -> None:
-    assert _queue is not None
+async def _auto_trigger_worker(queue: asyncio.Queue[tuple[Any, Any, str]]) -> None:
     while True:
-        opportunity_id, audit, symbol = await _queue.get()
+        opportunity_id, audit, symbol = await queue.get()
+        key = str(opportunity_id)
         try:
             await maybe_auto_approve_opportunity(opportunity_id, audit=audit, symbol=symbol)
         except Exception:
             logger.exception("auto trigger worker failed for %s", symbol)
         finally:
-            _queue.task_done()
+            with _LOCK:
+                _queued.discard(key)
+            queue.task_done()
 
 
 def enqueue_auto_approve_opportunity(
@@ -488,10 +569,26 @@ def enqueue_auto_approve_opportunity(
     """Queue an approve. Caller returns immediately — decide() runs off-cycle."""
     if _auto_trigger_blocked() or not get_auto_trigger_enabled():
         return False
+    if not _due_for_retry(opportunity_id):
+        return False
+    key = str(opportunity_id)
+    with _LOCK:
+        if key in _queued or key in _in_flight:
+            return False
     queue = _ensure_worker()
     if queue is None:
         return False
-    queue.put_nowait((opportunity_id, audit, symbol))
+    with _LOCK:
+        if key in _queued or key in _in_flight:
+            return False
+        _queued.add(key)
+    try:
+        queue.put_nowait((opportunity_id, audit, symbol))
+    except asyncio.QueueFull:
+        with _LOCK:
+            _queued.discard(key)
+        logger.warning("auto trigger queue full; deferred %s", symbol)
+        return False
     return True
 
 

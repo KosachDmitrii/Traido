@@ -45,6 +45,55 @@ _loop_task: asyncio.Task[None] | None = None
 _pass_count = 0
 
 
+async def _block_watch_on_missing_data(
+    watch: EntryWatch,
+    *,
+    reason: str,
+    audit: Any,
+    stats: dict[str, int],
+) -> None:
+    """Move every early missing-data exit into the visible durable state."""
+    current = ENTRY_WATCHES.get(watch.id) or watch
+    if current.status in {EntryWatchStatus.ADMITTED, EntryWatchStatus.CONVERTING}:
+        _defer_to_recovery_revalidation(current, stats=stats)
+        current = ENTRY_WATCHES.get(watch.id) or current
+    if current.status is EntryWatchStatus.BLOCKED_OPERATIONAL:
+        released = ENTRY_WATCHES.mark(
+            current.id, EntryWatchStatus.TRIGGERED, reason="DATA_BLOCK_RECLASSIFY"
+        )
+        current = released or current
+    if current.status is not EntryWatchStatus.BLOCKED_DATA:
+        blocked = ENTRY_WATCHES.mark(current.id, EntryWatchStatus.BLOCKED_DATA, reason=reason)
+    else:
+        blocked = current
+        if reason not in blocked.reasons:
+            blocked = ENTRY_WATCHES.update(
+                blocked.model_copy(update={"reasons": [*blocked.reasons, reason]})
+            )
+
+    await audit.append(
+        "EntryWatchDataBlocked",
+        "entry_timing",
+        {"watch_id": str(watch.id), "symbol": watch.symbol, "reason": reason},
+        pipeline_run_id=watch.pipeline_run_id,
+    )
+    from trading.decision_outcome import DECISION_OUTCOMES
+
+    DECISION_OUTCOMES.record(
+        symbol=watch.symbol,
+        stage="watch_input",
+        outcome="DATA_BLOCKED",
+        primary_reason=reason,
+        reason_codes=(reason,),
+        watch_status=(blocked.status if blocked is not None else EntryWatchStatus.BLOCKED_DATA),
+        pipeline_run_id=watch.pipeline_run_id,
+        watch_id=watch.id,
+    )
+    stats["data_blocked"] = stats.get("data_blocked", 0) + 1
+    stats["still_waiting"] += 1
+    DESK_BUS.bump_desk(kind="entry_watch_data_blocked", symbol=watch.symbol, reason=reason)
+
+
 async def run_watch_pass() -> dict[str, int]:
     """One pass over actionable watches. Safe to call from tests."""
     from trading.entry_watch_transitions import recover_stale_leases
@@ -61,6 +110,7 @@ async def run_watch_pass() -> dict[str, int]:
         "converted": 0,
         "invalidated": 0,
         "still_waiting": 0,
+        "data_blocked": 0,
     }
     if not watches:
         from trading.auto_trigger_policy import enqueue_auto_approve_open_buys
@@ -98,6 +148,12 @@ async def run_watch_pass() -> dict[str, int]:
                     price = float(bars[-1].close)
                     current = stamp_watch_price(current, price)
             if price is None:
+                await _block_watch_on_missing_data(
+                    current,
+                    reason="WATCH_MARK_UNAVAILABLE",
+                    audit=audit,
+                    stats=stats,
+                )
                 continue
 
             if current.status is EntryWatchStatus.WAITING:
@@ -223,22 +279,23 @@ async def run_watch_pass() -> dict[str, int]:
             end = datetime.now(UTC)
             bars_h1 = await md.get_bars(watch.symbol, Timeframe.H1, end - timedelta(days=60), end)
             if len(bars_h1) < 30:
-                await audit.append(
-                    "EntryWatchRevalidateSkipped",
-                    "entry_timing",
-                    {"watch_id": str(watch.id), "reason": "INSUFFICIENT_BARS"},
+                await _block_watch_on_missing_data(
+                    current,
+                    reason="INSUFFICIENT_H1_BARS",
+                    audit=audit,
+                    stats=stats,
                 )
                 continue
 
             snap = compute_features(watch.symbol, Timeframe.H1, bars_h1)
             q = quote
             if q is None or q.bid is None or q.ask is None:
-                await audit.append(
-                    "EntryWatchRevalidateSkipped",
-                    "entry_timing",
-                    {"watch_id": str(watch.id), "reason": "NO_TOP_OF_BOOK"},
+                await _block_watch_on_missing_data(
+                    current,
+                    reason="TOP_OF_BOOK_UNAVAILABLE",
+                    audit=audit,
+                    stats=stats,
                 )
-                stats["still_waiting"] += 1
                 continue
 
             cached = await refresh_watch_desk_cache(

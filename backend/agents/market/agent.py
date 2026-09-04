@@ -122,6 +122,16 @@ async def assess_market(
             return _blocked(reasons=["FRED_OBSERVATION_DATE_MISSING", "DATA_BLOCKED"])
 
     today = evaluated_at.date()
+    if (dgs_date is not None and dgs_date > today) or (
+        unrate_date is not None and unrate_date > today
+    ):
+        return _blocked(
+            reasons=["FRED_OBSERVATION_DATE_INVALID", "DATA_BLOCKED"],
+            notes=[
+                f"DGS10_OBS={dgs_date.isoformat() if dgs_date else 'missing'}",
+                f"UNRATE_OBS={unrate_date.isoformat() if unrate_date else 'missing'}",
+            ],
+        )
     if dgs_date is not None and (today - dgs_date).days > DGS10_MAX_AGE.days:
         return _blocked(
             reasons=["FRED_OBSERVATION_STALE", "DATA_BLOCKED", "STALE_DGS10"],
@@ -161,7 +171,8 @@ async def assess_market(
         regime = MarketRegimeLabel.RISK_OFF
 
     score = max(0, min(100, score))
-    obs_date = dgs_date or unrate_date
+    known_dates = [value for value in (dgs_date, unrate_date) if value is not None]
+    obs_date = min(known_dates) if known_dates else None
     return MarketAssessment(
         kind=AssessmentKind.MARKET,
         regime=regime,

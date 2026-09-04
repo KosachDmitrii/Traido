@@ -379,6 +379,12 @@ class TradeOpportunity(StrictModel):
     policy_version: str | None = None
     legacy: bool = True
     decision_version: int = 0
+    # Durable Auto Trigger retry evidence lives in the opportunity payload so a
+    # process restart cannot erase backoff or the last refusal classification.
+    auto_trigger_retry_at: datetime | None = None
+    auto_trigger_attempts: int = Field(default=0, ge=0)
+    auto_trigger_last_outcome: str | None = None
+    auto_trigger_last_error: str | None = None
 
 
 class ConfirmationRequest(StrictModel):

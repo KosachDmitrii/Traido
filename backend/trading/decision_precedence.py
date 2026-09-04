@@ -14,6 +14,9 @@ from trading.outcome_taxonomy import (
     DATA_BLOCKED_CODES as TAXONOMY_DATA_BLOCKED,
 )
 from trading.outcome_taxonomy import (
+    OPERATIONAL_BLOCKED_CODES as TAXONOMY_OPERATIONAL_BLOCKED,
+)
+from trading.outcome_taxonomy import (
     TERMINAL_NO_TRADE_CODES as TAXONOMY_TERMINAL,
 )
 
@@ -111,20 +114,12 @@ def resolve_admission_decision(
     return AdmissionDecision.WAIT
 
 
-TERMINAL_DATA_BLOCK_CODES = frozenset(
-    {
-        "MISSING_ATR",
-        "INSUFFICIENT_BARS",
-        "MISSING_VWAP",
-        "MISSING_QUOTE",
-        "MISSING_VOL_DIGEST",
-        "POSITIONS_UNREADABLE",
-        "UNRESOLVED_INTENTS_UNREADABLE",
-    }
-)
-
-
 def watch_block_status_for_data_blocked(reason_codes: list[str]) -> EntryWatchStatus:
-    if any(c in TERMINAL_DATA_BLOCK_CODES for c in reason_codes):
-        return EntryWatchStatus.BLOCKED_DATA
-    return EntryWatchStatus.BLOCKED_OPERATIONAL
+    """Keep missing/stale facts distinct from service/control failures.
+
+    This function is called only for a DATA_BLOCKED admission, therefore an
+    unknown reason must fail closed as data — not be relabelled as an outage.
+    """
+    if any(c in TAXONOMY_OPERATIONAL_BLOCKED for c in reason_codes):
+        return EntryWatchStatus.BLOCKED_OPERATIONAL
+    return EntryWatchStatus.BLOCKED_DATA

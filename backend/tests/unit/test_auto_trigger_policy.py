@@ -251,6 +251,47 @@ async def test_auto_approve_unknown_after_submit_does_not_retry(
     assert "AutoTriggerStateUnknown" in types
 
 
+def test_enqueue_deduplicates_an_opportunity(monkeypatch: pytest.MonkeyPatch) -> None:
+    from uuid import uuid4
+
+    atp.set_auto_trigger_enabled(True, actor="test")
+
+    class _Queue:
+        def __init__(self) -> None:
+            self.items = []
+
+        def put_nowait(self, item) -> None:
+            self.items.append(item)
+
+    queue = _Queue()
+    monkeypatch.setattr(atp, "_ensure_worker", lambda: queue)
+    opp_id = uuid4()
+    audit = object()
+    assert atp.enqueue_auto_approve_opportunity(opp_id, audit=audit, symbol="AAPL") is True
+    assert atp.enqueue_auto_approve_opportunity(opp_id, audit=audit, symbol="AAPL") is False
+    assert len(queue.items) == 1
+
+
+def test_persisted_retry_deadline_survives_memory_reset(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime, timedelta
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from uuid import uuid4
+
+    atp.set_auto_trigger_enabled(True, actor="test")
+    opp_id = uuid4()
+    store = MagicMock()
+    store.get.return_value = SimpleNamespace(
+        auto_trigger_retry_at=datetime.now(UTC) + timedelta(minutes=1)
+    )
+    monkeypatch.setattr("trading.opportunities.OPPORTUNITIES", store)
+    ensure = MagicMock()
+    monkeypatch.setattr(atp, "_ensure_worker", ensure)
+
+    assert atp.enqueue_auto_approve_opportunity(opp_id, audit=object(), symbol="AAPL") is False
+    ensure.assert_not_called()
+
+
 @pytest.mark.asyncio
 async def test_auto_approve_off_does_not_touch_card(monkeypatch: pytest.MonkeyPatch) -> None:
     from unittest.mock import MagicMock

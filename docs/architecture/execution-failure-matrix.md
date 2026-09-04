@@ -55,6 +55,8 @@ reconciliation settles it.
 | Auto Trigger pre-submit refusal (stale quote, unread portfolio, reconciliation, RTH/liquidity, wide spread, chase, RR drop) | Card stays `AWAITING_CONFIRMATION` | Retry with backoff. Never `SKIPPED` or `DISCARDED` | `AutoTriggerApproveDeferred` | That card until retry | Book tightens / data or broker returns |
 | Auto Trigger terminal reject (regime not tradable, thesis, geometry) | `DISCARDED` | No retry | `OpportunityDiscarded` | That card | A later scan may draw a new card |
 | Auto Trigger error after a possible broker submit | Unchanged (`UNKNOWN` / `APPROVING`) | No second `decide()`. Reconciliation only | `AutoTriggerStateUnknown` | Symbol blocked | Reconciliation |
+| Entry fill wait ends, cancel/re-read proves zero shares filled | Card returns to `AWAITING_CONFIRMATION` | Retry only after operational backoff; this is not `UNKNOWN` because broker truth was established | `EntryFillFailed`, `AutoTriggerApproveDeferred` | That card until retry | Broker/link recovers |
+| Watch lacks a mark, enough H1 bars, or top-of-book | `BLOCKED_DATA` | Persist the block and retry the full revalidation; never leave a silent `TRIGGERED` card | `EntryWatchDataBlocked` + DecisionOutcome | That watch | Required market data returns |
 
 A standing proposal and a live entry are different questions. `withdraw_unactionable`
 removes only durable facts (TTL, open position). Transient book conditions are
@@ -237,6 +239,7 @@ tabulating for the same reason: each one is silent by default.
 | That database already violates the index | Refuses to boot; nothing is dropped to make it fit | Resolve the duplicate rows by hand |
 | Migration `0006` against a book with two open rows for a symbol | Refuses, listing the symbols and the resolution procedure | Reconcile each against the broker, close the losers, re-run |
 | Reconciliation has not yet run | Entries refused as `RECONCILIATION_NEVER_RAN`, visibly | The loop's first pass, seconds later |
+| Selected Alpaca backend has no credentials | Broker construction fails closed; API returns `503 OPERATIONAL_BLOCKED` | Configure credentials. Tests opt in explicitly with `TRAIDO_BROKER_MOCK=true`; production never falls back silently |
 
 ---
 
