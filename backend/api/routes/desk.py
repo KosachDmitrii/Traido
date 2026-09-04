@@ -207,6 +207,11 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
             # it cost and when the next one is due. Together they are the answer
             # to the operator's actual question, which is never "how many were
             # rejected" but "why are there only two cards".
+            "caps": {
+                "quant_top_k": settings.quant_top_k,
+                "deep_analysis_top_k": settings.deep_analysis_top_k,
+                "max_llm_candidates": settings.max_llm_candidates,
+            },
             "stage_seconds": STATUS.stage_seconds,
             "schedule": STATUS.schedule,
             "shortlist": STATUS.shortlist,

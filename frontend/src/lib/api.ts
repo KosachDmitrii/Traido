@@ -78,6 +78,8 @@ export type ScanFunnel = {
   deep_analysis_outranked: number;
   deep_analysis_passed: number;
   deep_analysis_failed: number;
+  /** Analysed, good enough to watch — not a BUY card. */
+  wait_for_entry?: number;
   deep_analysis_no_candidate: number;
 
   risk_passed: number;
@@ -374,6 +376,11 @@ export type DeskLight = {
     universe?: string[];
     error?: string | null;
     funnel?: ScanFunnel;
+    caps?: {
+      quant_top_k: number;
+      deep_analysis_top_k: number;
+      max_llm_candidates: number;
+    };
     stage_seconds?: ScanStageSeconds;
     schedule?: ScanSchedule;
     /** Names that reached the quant Top-K, in ranked order. */

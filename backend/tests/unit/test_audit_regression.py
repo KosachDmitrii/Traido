@@ -253,6 +253,31 @@ def test_atr_only_stop_not_structural() -> None:
     assert "ATR_ONLY_STOP" in res.reason_codes
 
 
+def test_stop_distance_uses_planned_entry_not_live_print() -> None:
+    """WAIT names sit above the zone; live stop_distance_atr must not fail the plan."""
+    facts = EntryTimingFacts(
+        current_price=124.0,
+        atr=2.0,
+        stop_distance_atr=8.0,
+        stop_distance_pct=12.0,
+        nearest_support=111.8,
+        normal_expected_retrace_pct=3.0,
+    )
+    res = validate_stop(
+        entry=112.5,
+        stop=108.0,
+        facts=facts,
+        stop_model="structure",
+        structural_source="entry_zone_low",
+        structural_level=111.8,
+    )
+    assert res.valid is True
+    assert res.distance_atr is not None
+    assert res.distance_atr == pytest.approx((112.5 - 108.0) / 2.0)
+    assert "INVALID_STOP" not in res.reason_codes
+    assert "STOP_TOO_WIDE" not in res.reason_codes
+
+
 def test_effective_rr_below_floor() -> None:
     q = _quote(bid=99.9, ask=100.1)
     rr = compute_effective_rr(entry=100.1, stop=99.5, target=101.0, quote=q)

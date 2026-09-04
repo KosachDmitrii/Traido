@@ -393,6 +393,7 @@ async def _scan_once() -> ScannerStatus:
             timeframes=tfs,
             max_open=max_open,
             scheduled_at=datetime.now(UTC),
+            on_progress=_attach_live_funnel,
         )
     except asyncio.CancelledError:
         STATUS.error = "superseded"
@@ -421,6 +422,15 @@ async def _scan_once() -> ScannerStatus:
             found=STATUS.funnel.published,
         )
     return STATUS
+
+
+def _attach_live_funnel(funnel: ScanFunnel) -> None:
+    """Point the desk at the cycle in flight.
+
+    STATUS used to keep the previous cycle until `_absorb`. A ten-minute walk
+    then looked frozen at last time's 20 / 0 / 0.
+    """
+    STATUS.funnel = funnel
 
 
 def _absorb(result: CycleResult) -> None:
@@ -478,6 +488,7 @@ def _record_metrics(result: CycleResult) -> None:
         ("stage2", "outranked", funnel.quant_outranked),
         ("stage3", "started", funnel.deep_analysis_started),
         ("stage3", "failed", funnel.deep_analysis_failed),
+        ("stage3", "wait", funnel.wait_for_entry),
         ("stage3", "no_candidate", funnel.deep_analysis_no_candidate),
         ("stage4", "passed", funnel.risk_passed),
         ("stage4", "rejected", funnel.risk_rejected),
@@ -554,6 +565,8 @@ def _funnel_summary(funnel: ScanFunnel, cycle: int) -> str:
         f"market-passed {funnel.market_filter_passed} \u00b7 "
         f"shortlisted {funnel.quant_shortlisted} \u00b7 "
         f"deep {funnel.deep_analysis_started} \u00b7 "
+        f"wait {funnel.wait_for_entry} \u00b7 "
+        f"no-setup {funnel.deep_analysis_no_candidate} \u00b7 "
         f"risk-passed {funnel.risk_passed} \u00b7 "
         f"published {funnel.published} \u00b7 "
         f"outranked {funnel.final_outranked}"

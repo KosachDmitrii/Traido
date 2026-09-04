@@ -66,6 +66,14 @@ class ScanFunnel:
     deep_analysis_started: int = 0
     deep_analysis_passed: int = 0
     deep_analysis_failed: int = 0
+    wait_for_entry: int = 0
+    """Analysed, good enough to watch, not a BUY card.
+
+    Counted apart from `deep_analysis_no_candidate`, which means we looked and
+    found no setup. Merging them is how a desk full of WAIT watches reports
+    `risk 0 · published 0` and looks like the deep stage produced nothing.
+    """
+
     deep_analysis_no_candidate: int = 0
 
     # ── Stage 4: risk ───────────────────────────────────────────────────────
@@ -130,6 +138,7 @@ class ScanFunnel:
             + self.deep_analysis_outranked
             + self.ai_budget_exhausted
             + self.deep_analysis_failed
+            + self.wait_for_entry
             + self.deep_analysis_no_candidate
             + self.position_open
             + self.provider_failed

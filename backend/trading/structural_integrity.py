@@ -76,3 +76,19 @@ def evaluate_structural_integrity(
         hard_damage=hard_damage,
         reason_codes=reasons,
     )
+
+
+def structure_is_terminal(
+    structure: StructuralIntegrityFacts,
+    *,
+    in_zone: bool,
+) -> bool:
+    """Hard damage inside the zone is always a dead setup.
+
+    Outside the zone the same facts are reclaim / approach WAIT — the
+    pullback has not arrived yet, and stop-distance math at the live print
+    is not the zone plan. Crash and gap-down stay terminal via arrival.
+    """
+    if not structure.hard_damage:
+        return False
+    return in_zone

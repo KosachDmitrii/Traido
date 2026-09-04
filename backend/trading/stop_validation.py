@@ -34,10 +34,12 @@ def validate_stop(
             reason_codes=["INVALID_STOP"],
         )
 
-    distance_atr = facts.stop_distance_atr
+    # Distance is the planned entry→stop, never the live print. A WAIT name
+    # sits outside the zone; using facts.stop_distance_* there invented
+    # INVALID_STOP on a still-valid zone plan.
     atr = facts.atr or entry_f * 0.02
-    if distance_atr is None and atr > 0:
-        distance_atr = (entry_f - stop_f) / atr
+    distance_atr = (entry_f - stop_f) / atr if atr > 0 else None
+    stop_distance_pct = ((entry_f - stop_f) / entry_f * 100.0) if entry_f > 0 else None
 
     atr_buffer: float | None = None
     structural = False
@@ -90,8 +92,8 @@ def validate_stop(
 
     if (
         facts.normal_expected_retrace_pct is not None
-        and facts.stop_distance_pct is not None
-        and facts.normal_expected_retrace_pct > facts.stop_distance_pct
+        and stop_distance_pct is not None
+        and facts.normal_expected_retrace_pct > stop_distance_pct
     ):
         reasons.append("STOP_INSIDE_NOISE")
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from trading.arrival_admission import evaluate_arrival_gate
+from trading.arrival_admission import evaluate_arrival_gate, evaluate_hard_arrival
 from trading.entry_policy import thresholds_for
 from trading.zone_arrival import ArrivalType, ZoneArrivalFacts
 
@@ -80,3 +80,23 @@ def test_weak_fast_pullback_below_floor_blocks() -> None:
         th,
     )
     assert gate.blocked is True
+
+
+def test_hard_arrival_ignores_quality_score() -> None:
+    arrival = _arrival(arrival_type=ArrivalType.UNKNOWN, score=32.0)
+    for level in (0, 50, 100):
+        hard = evaluate_hard_arrival(
+            arrival, structural_hard=thresholds_for(level).structural_arrival_hard
+        )
+        assert hard.blocked is False
+        assert hard.hard_veto is False
+        assert hard.reason_codes == []
+
+
+def test_hard_arrival_crash_is_invariant() -> None:
+    arrival = _arrival(arrival_type=ArrivalType.CRASH, score=90.0, crash_velocity=True)
+    strong = evaluate_hard_arrival(arrival, structural_hard=True)
+    weak = evaluate_hard_arrival(arrival, structural_hard=True)
+    assert strong == weak
+    assert strong.hard_veto is True
+    assert "CRASH_VELOCITY" in strong.veto_codes

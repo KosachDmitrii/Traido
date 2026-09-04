@@ -23,7 +23,7 @@ from core.schemas import (
 )
 from trading import admission_relaxation
 from trading.admission_relaxation import emit_relaxation_observation
-from trading.arrival_admission import evaluate_arrival_gate
+from trading.arrival_admission import evaluate_hard_arrival
 from trading.buy_confirmation import (
     BUY_READY_CANDIDATE,
     NOT_BUY_READY,
@@ -42,7 +42,7 @@ from trading.effective_rr import (
 from trading.entry_policy import get_entry_thresholds
 from trading.execution_geometry import resolve_capital_atr
 from trading.stop_validation import validate_stop
-from trading.structural_integrity import evaluate_structural_integrity
+from trading.structural_integrity import evaluate_structural_integrity, structure_is_terminal
 from trading.target_validation import validate_target
 from trading.trade_vetoes import vetoes_from_codes
 from trading.zone_arrival import ZoneArrivalFacts, zone_arrival_required
@@ -384,9 +384,15 @@ def evaluate_trade_admission(
         vetoes.append("EXTREME_CHASE")
         reason_codes.append("EXTREME_CHASE")
 
+    structure_terminal = structure_is_terminal(structure, in_zone=in_cushion)
     if structure.hard_damage:
-        vetoes.append("STRUCTURAL_DAMAGE")
-        reason_codes.extend(structure.reason_codes)
+        observed = [c for c in structure.reason_codes if c != "STRUCTURAL_DAMAGE"]
+        reason_codes.extend(observed)
+        if structure_terminal:
+            vetoes.append("STRUCTURAL_DAMAGE")
+            reason_codes.append("STRUCTURAL_DAMAGE")
+        else:
+            warnings.append("STRUCTURE_WATCH_OUTSIDE_ZONE")
 
     stop_valid = False
     target_valid = False
@@ -464,21 +470,17 @@ def evaluate_trade_admission(
             vetoes.append("EXTREME_SPREAD")
             reason_codes.append("EXTREME_SPREAD")
 
-    arrival_gate = None
-    if zone_arrival_required(st):
-        if zone_arrival is None:
-            reason_codes.append("ZONE_ARRIVAL_MISSING")
-            vetoes.append("ZONE_ARRIVAL_MISSING")
-        else:
-            arrival_gate = evaluate_arrival_gate(zone_arrival, th)
-            warnings.extend(arrival_gate.warnings)
-            reason_codes.extend(arrival_gate.reason_codes)
-            vetoes.extend(arrival_gate.veto_codes)
-    elif zone_arrival is not None:
-        arrival_gate = evaluate_arrival_gate(zone_arrival, th)
+    if zone_arrival is not None:
+        arrival_gate = evaluate_hard_arrival(
+            zone_arrival,
+            structural_hard=th.structural_arrival_hard and in_cushion,
+        )
         warnings.extend(arrival_gate.warnings)
         reason_codes.extend(arrival_gate.reason_codes)
         vetoes.extend(arrival_gate.veto_codes)
+    elif zone_arrival_required(st):
+        reason_codes.append("ZONE_ARRIVAL_MISSING")
+        vetoes.append("ZONE_ARRIVAL_MISSING")
 
     vetoes = list(dict.fromkeys(vetoes))
     hard = vetoes_from_codes(vetoes + reason_codes)
@@ -526,7 +528,7 @@ def evaluate_trade_admission(
 
     ready = evaluate_buy_ready(
         candidate_exists=True,
-        structurally_valid=not structure.hard_damage,
+        structurally_valid=not structure_terminal,
         price_in_entry_zone=in_cushion and allowed,
         stop_valid=stop_valid,
         target_valid=target_valid,
@@ -579,6 +581,8 @@ def evaluate_trade_admission(
         anchor_price=facts.anchor_price,
         structure_valid=structure.valid,
         paper=admission_relaxation.is_paper_broker(),
+        arrival=zone_arrival,
+        arrival_required=zone_arrival_required(st),
     )
     reason_codes.extend(confirm.reason_codes)
     warnings.extend(confirm.warnings)
@@ -586,17 +590,7 @@ def evaluate_trade_admission(
     compensation_eligible = compensation_applied
     confirmation_relaxed = confirm.relaxed
 
-    arrival_soft_block = (
-        zone_arrival_required(st)
-        and zone_arrival is not None
-        and arrival_gate is not None
-        and arrival_gate.blocked
-        and not arrival_gate.hard_veto
-    )
-    if arrival_soft_block:
-        reason_codes.append("WAITING_CONFIRMATION")
-
-    if not confirm.passed or arrival_soft_block:
+    if not confirm.passed:
         confirmation_failed = True
         if "WAITING_CONFIRMATION" not in reason_codes:
             reason_codes.append("WAITING_CONFIRMATION")

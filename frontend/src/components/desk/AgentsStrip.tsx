@@ -124,6 +124,7 @@ function usePageMeta(): PageMeta {
                 market: funnel.market_filter_passed,
                 short: funnel.quant_shortlisted,
                 deep: funnel.deep_analysis_started,
+                wait: funnel.wait_for_entry ?? 0,
                 risk: funnel.risk_passed,
                 published: funnel.published,
               }) +

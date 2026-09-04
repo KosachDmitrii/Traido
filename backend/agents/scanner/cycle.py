@@ -25,6 +25,7 @@ reach them, and that the funnel can now say where all the others went.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
@@ -121,15 +122,22 @@ async def run_cycle(
     max_open: int,
     scheduled_at: datetime | None = None,
     context: ScanContext | None = None,
+    on_progress: Callable[[ScanFunnel], None] | None = None,
 ) -> CycleResult:
     """Walk the funnel once.
 
     `context` is injectable so a benchmark or a test can supply deterministic
     vendors; production passes nothing and gets one built for the cycle.
+
+    `on_progress` receives the live funnel object once, at the start. The desk
+    then reads the same object while stages fill it — otherwise the card holds
+    the previous cycle (or zeros) for the whole walk and looks stuck.
     """
     resolved = settings or get_settings()
     result = CycleResult()
     funnel = result.funnel
+    if on_progress is not None:
+        on_progress(funnel)
     started = time.monotonic()
 
     owns_context = context is None
@@ -369,9 +377,14 @@ def _record_deep_outcome(
         return
 
     # Had a candidate through deep analysis. Terminal disposition is exactly one
-    # of risk_rejected / risk_passed (later published|outranked|capacity) /
-    # no_candidate (WAIT / NO_TRADE / etc.). Do not also bump `passed` on the
-    # WAIT path — that made started=20 look like 35 outcomes.
+    # of wait_for_entry / risk_rejected / risk_passed (later
+    # published|outranked|capacity) / no_candidate (NO_TRADE / etc.). Do not
+    # also bump `passed` on the WAIT path — that made started=20 look like
+    # 35 outcomes. WAIT is not `no_candidate`: that is how a desk full of
+    # watches reported risk 0 · published 0.
+    if status == "wait_for_entry":
+        funnel.wait_for_entry += 1
+        return
     if status == "risk_rejected":
         funnel.deep_analysis_passed += 1
         funnel.risk_rejected += 1

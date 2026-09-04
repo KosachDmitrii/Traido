@@ -1,4 +1,9 @@
-"""Zone arrival gates — shared by TradeAdmission and desk display."""
+"""Zone arrival gates — hard damage vs BUY confirmation.
+
+Hard arrival (crash, gap-down, structural break, unread bars) is candidate
+policy: the same at every slider, and it may refuse a WAIT. Soft arrival
+(quality floors, sell-off, fast pullback) is BUY confirmation only.
+"""
 
 from __future__ import annotations
 
@@ -25,17 +30,12 @@ class ArrivalGateResult:
         return " · ".join(parts)
 
 
-def _effective_min_arrival(arrival: ZoneArrivalFacts, th: EntryThresholds) -> int:
-    t = arrival.arrival_type.value
-    if th.allow_sell_off_arrival and t == "SELL_OFF":
-        return th.min_sell_off_arrival_quality
-    if th.allow_fast_pullback and t == "FAST_PULLBACK":
-        return th.min_fast_pullback_arrival_quality
-    return th.min_zone_arrival_quality
-
-
-def evaluate_arrival_gate(arrival: ZoneArrivalFacts, th: EntryThresholds) -> ArrivalGateResult:
-    """Arrival confirmation — quality floors follow the slider; damage stays hard."""
+def evaluate_hard_arrival(
+    arrival: ZoneArrivalFacts,
+    *,
+    structural_hard: bool = True,
+) -> ArrivalGateResult:
+    """Candidate-layer arrival. Slider-invariant. Damage and unread bars only."""
     warnings: list[str] = []
 
     if arrival.crash_velocity:
@@ -47,7 +47,7 @@ def evaluate_arrival_gate(arrival: ZoneArrivalFacts, th: EntryThresholds) -> Arr
             veto_codes=["CRASH_VELOCITY"],
         )
 
-    if arrival.structural_damage and th.structural_arrival_hard:
+    if arrival.structural_damage and structural_hard:
         return ArrivalGateResult(
             blocked=True,
             hard_veto=True,
@@ -69,15 +69,6 @@ def evaluate_arrival_gate(arrival: ZoneArrivalFacts, th: EntryThresholds) -> Arr
             veto_codes=[code],
         )
 
-    if t == "SELL_OFF" and not th.allow_sell_off_arrival:
-        return ArrivalGateResult(
-            blocked=True,
-            hard_veto=False,
-            reason_codes=["ARRIVAL_TYPE_SELL_OFF"],
-            warnings=warnings,
-            veto_codes=[],
-        )
-
     if "INSUFFICIENT_BARS" in arrival.reason_codes:
         return ArrivalGateResult(
             blocked=True,
@@ -87,25 +78,83 @@ def evaluate_arrival_gate(arrival: ZoneArrivalFacts, th: EntryThresholds) -> Arr
             veto_codes=["INSUFFICIENT_BARS"],
         )
 
-    floor = _effective_min_arrival(arrival, th)
-    if arrival.score < floor:
-        return ArrivalGateResult(
-            blocked=True,
-            hard_veto=False,
-            reason_codes=[f"ZONE_ARRIVAL_QUALITY_LOW:{int(arrival.score)}<{floor}"],
-            warnings=warnings,
-            veto_codes=[],
-        )
-
-    if t == "SELL_OFF" and th.allow_sell_off_arrival:
-        warnings.append("SELL_OFF_CAUTION")
-
     return ArrivalGateResult(
         blocked=False,
         hard_veto=False,
         reason_codes=[],
         warnings=warnings,
         veto_codes=[],
+    )
+
+
+def evaluate_soft_arrival(
+    arrival: ZoneArrivalFacts,
+    *,
+    min_zone_arrival_quality: int,
+    allow_fast_pullback: bool,
+    allow_sell_off_arrival: bool,
+    min_sell_off_arrival_quality: int,
+    min_fast_pullback_arrival_quality: int,
+) -> ArrivalGateResult:
+    """BUY-confirmation arrival. Quality floors follow the slider."""
+    t = arrival.arrival_type.value
+    if t == "SELL_OFF" and not allow_sell_off_arrival:
+        return ArrivalGateResult(
+            blocked=True,
+            hard_veto=False,
+            reason_codes=["ARRIVAL_TYPE_SELL_OFF"],
+            warnings=[],
+            veto_codes=[],
+        )
+
+    floor = min_zone_arrival_quality
+    if allow_sell_off_arrival and t == "SELL_OFF":
+        floor = min_sell_off_arrival_quality
+    elif allow_fast_pullback and t == "FAST_PULLBACK":
+        floor = min_fast_pullback_arrival_quality
+
+    if arrival.score < floor:
+        return ArrivalGateResult(
+            blocked=True,
+            hard_veto=False,
+            reason_codes=[f"ZONE_ARRIVAL_QUALITY_LOW:{int(arrival.score)}<{floor}"],
+            warnings=[],
+            veto_codes=[],
+        )
+
+    warnings: list[str] = []
+    if t == "SELL_OFF" and allow_sell_off_arrival:
+        warnings.append("SELL_OFF_CAUTION")
+    return ArrivalGateResult(
+        blocked=False,
+        hard_veto=False,
+        reason_codes=[],
+        warnings=warnings,
+        veto_codes=[],
+    )
+
+
+def evaluate_arrival_gate(arrival: ZoneArrivalFacts, th: EntryThresholds) -> ArrivalGateResult:
+    """BUY-facing compose: hard damage first, then slider confirmation."""
+    hard = evaluate_hard_arrival(arrival, structural_hard=th.structural_arrival_hard)
+    if hard.blocked:
+        return hard
+    soft = evaluate_soft_arrival(
+        arrival,
+        min_zone_arrival_quality=th.min_zone_arrival_quality,
+        allow_fast_pullback=th.allow_fast_pullback,
+        allow_sell_off_arrival=th.allow_sell_off_arrival,
+        min_sell_off_arrival_quality=th.min_sell_off_arrival_quality,
+        min_fast_pullback_arrival_quality=th.min_fast_pullback_arrival_quality,
+    )
+    if not hard.warnings:
+        return soft
+    return ArrivalGateResult(
+        blocked=soft.blocked,
+        hard_veto=soft.hard_veto,
+        reason_codes=soft.reason_codes,
+        warnings=[*hard.warnings, *soft.warnings],
+        veto_codes=soft.veto_codes,
     )
 
 

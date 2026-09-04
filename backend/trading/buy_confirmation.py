@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from core.enums import AdmissionDecision
+from trading.zone_arrival import ZoneArrivalFacts
 
 # Paper/production candidate floors — independent of the slider.
 CANDIDATE_SETUP_FLOOR = 55
@@ -39,6 +40,7 @@ VWAP_CONFIRMATION_MISSING = "VWAP_CONFIRMATION_MISSING"
 SETUP_CONFIRMATION_BELOW_FLOOR = "SETUP_CONFIRMATION_BELOW_FLOOR"
 ENTRY_CONFIRMATION_BELOW_FLOOR = "ENTRY_CONFIRMATION_BELOW_FLOOR"
 EFFECTIVE_RR_TOO_LOW = "EFFECTIVE_RR_TOO_LOW"
+ARRIVAL_CONFIRMATION_MISSING = "ARRIVAL_CONFIRMATION_MISSING"
 BUY_READY_CANDIDATE = "BUY_READY_CANDIDATE"
 BUY_CONFIRMATION_RELAXED = "BUY_CONFIRMATION_RELAXED"
 NOT_BUY_READY = "NOT_BUY_READY"
@@ -51,6 +53,8 @@ CONFIRMATION_REJECTION_CODES = frozenset(
         SETUP_CONFIRMATION_BELOW_FLOOR,
         ENTRY_CONFIRMATION_BELOW_FLOOR,
         EFFECTIVE_RR_TOO_LOW,
+        ARRIVAL_CONFIRMATION_MISSING,
+        "ARRIVAL_TYPE_SELL_OFF",
     }
 )
 
@@ -338,6 +342,8 @@ def evaluate_buy_confirmation(
     anchor_price: float | None,
     structure_valid: bool,
     paper: bool,
+    arrival: ZoneArrivalFacts | None = None,
+    arrival_required: bool = False,
 ) -> ConfirmationResult:
     """Soft confirms for a BUY_READY candidate. Never waives a hard gate."""
     reasons: list[str] = []
@@ -433,11 +439,27 @@ def evaluate_buy_confirmation(
         warnings.append(VWAP_CONFIRMATION_MISSING)
         relaxed = True
 
-    hard_fail = any(
-        c in CONFIRMATION_REJECTION_CODES or c.startswith("INSUFFICIENT_EFFECTIVE_RR:")
-        for c in reasons
-        if c != "SETUP_COMPENSATED"
-    )
+    if arrival_required:
+        if arrival is None:
+            reasons.append(ARRIVAL_CONFIRMATION_MISSING)
+        else:
+            from trading.arrival_admission import evaluate_soft_arrival
+
+            soft = evaluate_soft_arrival(
+                arrival,
+                min_zone_arrival_quality=policy.min_zone_arrival_quality,
+                allow_fast_pullback=policy.allow_fast_pullback,
+                allow_sell_off_arrival=policy.allow_sell_off_arrival,
+                min_sell_off_arrival_quality=policy.min_sell_off_arrival_quality,
+                min_fast_pullback_arrival_quality=policy.min_fast_pullback_arrival_quality,
+            )
+            if soft.blocked:
+                reasons.extend(soft.reason_codes)
+                if ARRIVAL_CONFIRMATION_MISSING not in reasons:
+                    reasons.append(ARRIVAL_CONFIRMATION_MISSING)
+            warnings.extend(soft.warnings)
+
+    hard_fail = any(_is_confirmation_rejection(c) for c in reasons)
     if hard_fail:
         return ConfirmationResult(
             passed=False, relaxed=False, reason_codes=reasons, warnings=warnings
@@ -476,6 +498,14 @@ def _momentum_ok(
     if momentum_pct is None:
         return None
     return momentum_pct > MATERIAL_NEGATIVE_MOMENTUM_PCT
+
+
+def _is_confirmation_rejection(code: str) -> bool:
+    if code == "SETUP_COMPENSATED":
+        return False
+    if code in CONFIRMATION_REJECTION_CODES:
+        return True
+    return code.startswith(("INSUFFICIENT_EFFECTIVE_RR:", "ZONE_ARRIVAL_QUALITY_LOW"))
 
 
 def _volume_ok(pullback_vol_ratio: float | None, policy: BuyConfirmationPolicy) -> bool | None:

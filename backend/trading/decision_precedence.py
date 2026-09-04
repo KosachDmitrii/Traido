@@ -95,6 +95,7 @@ def has_transient_wait_signal(
         "SETUP_CONFIRMATION_BELOW_FLOOR",
         "ENTRY_CONFIRMATION_BELOW_FLOOR",
         "EFFECTIVE_RR_TOO_LOW",
+        "ARRIVAL_CONFIRMATION_MISSING",
         "NOT_BUY_READY",
     }
     if hard & transient:

@@ -201,6 +201,24 @@ def final_reason_code(result: TradeAdmissionResult) -> str:
                 return code
         return "DATA_BLOCKED"
     rest = [code for code in codes if code != "SETUP_COMPENSATED"]
+    if decision is AdmissionDecision.NO_TRADE:
+        for preferred in (
+            "STRUCTURAL_DAMAGE",
+            "INVALID_STOP",
+            "MISSING_STOP",
+            "MISSING_TARGET",
+            "THESIS_NOT_BULLISH",
+            "CRASH_VELOCITY",
+            "EXTREME_SPREAD",
+            "TARGET_UNREALISTIC",
+            "TARGET_PLAN_MISMATCH",
+            "TARGET_NO_BASIS",
+            "ATR_ONLY_STOP",
+            "SETUP_TYPE_UNKNOWN",
+            "MISSING_ENTRY_ZONE",
+        ):
+            if preferred in rest:
+                return preferred
     for preferred in (
         "MOMENTUM_CONFIRMATION_MISSING",
         "VOLUME_CONFIRMATION_MISSING",
@@ -208,6 +226,7 @@ def final_reason_code(result: TradeAdmissionResult) -> str:
         "SETUP_CONFIRMATION_BELOW_FLOOR",
         "ENTRY_CONFIRMATION_BELOW_FLOOR",
         "EFFECTIVE_RR_TOO_LOW",
+        "ARRIVAL_CONFIRMATION_MISSING",
         "WAITING_CONFIRMATION",
         "SETUP_BELOW_FLOOR",
         "ENTRY_BELOW_FLOOR",
@@ -215,6 +234,10 @@ def final_reason_code(result: TradeAdmissionResult) -> str:
     ):
         if preferred in rest:
             return preferred
+        if preferred == "ARRIVAL_CONFIRMATION_MISSING":
+            for code in rest:
+                if code.startswith("ZONE_ARRIVAL_QUALITY_LOW") or code == "ARRIVAL_TYPE_SELL_OFF":
+                    return code
     if rest:
         return rest[-1]
     if decision is AdmissionDecision.WAIT:

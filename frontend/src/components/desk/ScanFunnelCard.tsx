@@ -12,9 +12,12 @@ import type { MessageKey } from "@/i18n";
  *
  * So this is the funnel as the backend keeps it — every stage, with the count
  * that entered it — plus what the cycle cost and when the next one is due.
+ *
+ * WAIT is a row of its own. Risk-passed / published are BUY cards only; filing
+ * watches as "no candidate" made a working deep stage look like 20 → 0 → 0.
  */
 
-type Row = { labelKey: MessageKey; value: number; noteKey?: MessageKey; dim?: boolean };
+type Row = { labelKey: MessageKey; value: number; note?: string; dim?: boolean };
 
 function seconds(value: number | undefined): string {
   if (value == null) return "—";
@@ -34,6 +37,8 @@ export function ScanFunnelCard() {
   const { desk } = useDesk();
   const scanner = desk?.scanner;
   const funnel = scanner?.funnel;
+  const running = Boolean(scanner?.running);
+  const caps = scanner?.caps;
 
   if (!funnel || !funnel.universe_total) {
     return (
@@ -41,7 +46,7 @@ export function ScanFunnelCard() {
         <div className="card-head">
           <div>
             <h2>{t("funnel.title")}</h2>
-            <div className="sub">{t("funnel.empty")}</div>
+            <div className="sub">{running ? t("funnel.running") : t("funnel.empty")}</div>
           </div>
         </div>
       </section>
@@ -50,12 +55,26 @@ export function ScanFunnelCard() {
 
   const rows: Row[] = [
     { labelKey: "funnel.row.universe", value: funnel.universe_total },
-    { labelKey: "funnel.row.eligible", value: funnel.structurally_eligible, noteKey: "funnel.note.structural" },
-    { labelKey: "funnel.row.market", value: funnel.market_filter_passed, noteKey: "funnel.note.liquidity" },
-    { labelKey: "funnel.row.quant", value: funnel.quant_shortlisted, noteKey: "funnel.note.topk" },
-    { labelKey: "funnel.row.deep", value: funnel.deep_analysis_started, noteKey: "funnel.note.expensive" },
-    { labelKey: "funnel.row.risk", value: funnel.risk_passed },
-    { labelKey: "funnel.row.published", value: funnel.published },
+    { labelKey: "funnel.row.eligible", value: funnel.structurally_eligible, note: t("funnel.note.structural") },
+    { labelKey: "funnel.row.market", value: funnel.market_filter_passed, note: t("funnel.note.liquidity") },
+    {
+      labelKey: "funnel.row.quant",
+      value: funnel.quant_shortlisted,
+      note: t("funnel.note.topk", { n: caps?.quant_top_k ?? funnel.quant_shortlisted }),
+    },
+    {
+      labelKey: "funnel.row.deep",
+      value: funnel.deep_analysis_started,
+      note: t("funnel.note.expensive", { n: caps?.deep_analysis_top_k ?? funnel.deep_analysis_started }),
+    },
+    {
+      labelKey: "funnel.row.wait",
+      value: funnel.wait_for_entry ?? 0,
+      note: t("funnel.note.watch"),
+    },
+    { labelKey: "funnel.row.noSetup", value: funnel.deep_analysis_no_candidate },
+    { labelKey: "funnel.row.risk", value: funnel.risk_passed, note: t("funnel.note.buyCard") },
+    { labelKey: "funnel.row.published", value: funnel.published, note: t("funnel.note.buyCard") },
     { labelKey: "funnel.row.outranked", value: funnel.final_outranked, dim: true },
   ];
 
@@ -76,11 +95,13 @@ export function ScanFunnelCard() {
         <div>
           <h2>{t("funnel.title")}</h2>
           <div className="sub">
-            {t("funnel.sub", {
-              n: scanner?.cycle ?? "—",
-              dur: seconds(scanner?.stage_seconds?.total),
-              t: nextScan(scanner?.schedule?.seconds_until_next, t),
-            })}
+            {running
+              ? t("funnel.sub.running", { n: scanner?.cycle ?? "—" })
+              : t("funnel.sub", {
+                  n: scanner?.cycle ?? "—",
+                  dur: seconds(scanner?.stage_seconds?.total),
+                  t: nextScan(scanner?.schedule?.seconds_until_next, t),
+                })}
           </div>
         </div>
       </div>
@@ -92,11 +113,7 @@ export function ScanFunnelCard() {
             key={row.labelKey}
           >
             <span className="scan-funnel__label">{t(row.labelKey)}</span>
-            {row.noteKey ? (
-              <span className="scan-funnel__note">{t(row.noteKey)}</span>
-            ) : (
-              <span />
-            )}
+            {row.note ? <span className="scan-funnel__note">{row.note}</span> : <span />}
             <span className="scan-funnel__value mono">{row.value.toLocaleString()}</span>
             <span className="scan-funnel__bar" aria-hidden>
               <i style={{ width: `${(row.value / funnel.universe_total) * 100}%` }} />
@@ -115,10 +132,9 @@ export function ScanFunnelCard() {
         </div>
       ) : null}
 
-      {/* An unbalanced ledger means a name was lost between stages. It is a bug
-          in the scanner, not a fact about the market, and the operator should
-          not have to read a test run to find out. */}
-      {funnel.reconciles === false ? (
+      {/* Mid-cycle the ledger is unfinished on purpose. After the walk, an
+          unbalanced total is a scanner bug, not a fact about the market. */}
+      {!running && funnel.reconciles === false ? (
         <div className="scan-funnel__warn">
           {t("funnel.warn.unbalanced", { n: funnel.unaccounted })}
         </div>

@@ -21,6 +21,7 @@ from core.schemas import (
     TargetPlan,
 )
 from trading.buy_confirmation import (
+    ARRIVAL_CONFIRMATION_MISSING,
     BASE_RR_FLOOR,
     BUY_READY_CANDIDATE,
     CANDIDATE_ENTRY_FLOOR,
@@ -43,6 +44,7 @@ from trading.entry_policy import (
 from trading.entry_quality import decide_entry
 from trading.entry_timing import evaluate_timing, zone_from_facts
 from trading.trade_admission import evaluate_trade_admission
+from trading.zone_arrival import ArrivalType, ZoneArrivalFacts
 
 
 def _bundle(
@@ -319,6 +321,162 @@ def test_candidate_floors_are_fixed_across_slider() -> None:
         assert th.buy_confirmation_strictness == level
         assert th.quote_max_age_sec == 30.0
         assert th.structural_arrival_hard is True
+
+
+def _path_arrival(
+    *,
+    score: float = 32.0,
+    arrival_type: ArrivalType = ArrivalType.UNKNOWN,
+) -> ZoneArrivalFacts:
+    return ZoneArrivalFacts(
+        score=score,
+        arrival_type=arrival_type,
+        arrival_speed_pct=None,
+        arrival_speed_atr=None,
+        atr_velocity=None,
+        bars_to_zone=None,
+        red_bar_ratio=0.3,
+        consecutive_red_bars=1,
+        largest_red_bar_atr=0.4,
+        sell_volume_ratio=1.0,
+        volume_acceleration=1.0,
+        gap_down_pct=None,
+        crash_velocity=False,
+        structural_damage=False,
+        reason_codes=["NO_PULLBACK_PATH"],
+    )
+
+
+def test_out_of_zone_support_undercut_is_wait_not_no_trade() -> None:
+    """Price below nearest support but still outside the zone is reclaim WAIT."""
+    decisions: list[AdmissionDecision] = []
+    for level in (0, 50, 100):
+        set_entry_aggressiveness(level, actor="test")
+        bundle = _bundle(
+            price=98.0,
+            zone_low=99.0,
+            zone_high=101.0,
+            setup_q=65,
+            entry_q=70,
+            target=125.0,
+            nearest_support=99.5,
+        )
+        admission = evaluate_trade_admission(
+            bundle=bundle,
+            setup_type=SetupType.PULLBACK_CONTINUATION,
+            quote=_quote(97.98, 98.0),
+            entry=100.0,
+            stop=90.0,
+            target=125.0,
+            stop_plan_model="structure",
+            stop_structural_source="nearest_support",
+            stop_structural_level=90.0,
+            zone_arrival=_path_arrival(score=32.0),
+        )
+        decisions.append(admission.decision)
+        assert admission.decision is AdmissionDecision.WAIT, level
+        assert admission.admitted is False
+        assert "STRUCTURAL_DAMAGE" not in admission.vetoes
+        assert "STRUCTURAL_DAMAGE" not in admission.reason_codes
+    assert len(set(decisions)) == 1
+
+
+def test_in_zone_support_break_stays_no_trade() -> None:
+    set_entry_aggressiveness(100, actor="test")
+    bundle = _bundle(
+        price=100.0,
+        zone_low=99.0,
+        zone_high=101.0,
+        nearest_support=101.0,
+        target=125.0,
+    )
+    admission = _admit(bundle, setup_type=SetupType.PULLBACK_CONTINUATION)
+    assert admission.decision is AdmissionDecision.NO_TRADE
+    assert "STRUCTURAL_DAMAGE" in admission.vetoes or "STRUCTURAL_DAMAGE" in admission.reason_codes
+
+
+def test_out_of_zone_low_arrival_is_wait_at_every_slider() -> None:
+    """Score 32 is the not-yet-arrived path. It must not decide WAIT vs NO_TRADE."""
+    decisions: list[AdmissionDecision] = []
+    for level in (0, 50, 100):
+        set_entry_aggressiveness(level, actor="test")
+        bundle = _bundle(
+            price=102.0,
+            zone_low=99.0,
+            zone_high=101.0,
+            setup_q=60,
+            entry_q=58,
+            target=125.0,
+            nearest_support=90.0,
+        )
+        admission = evaluate_trade_admission(
+            bundle=bundle,
+            setup_type=SetupType.PULLBACK_CONTINUATION,
+            quote=_quote(101.98, 102.0),
+            entry=100.0,
+            stop=90.0,
+            target=125.0,
+            stop_plan_model="structure",
+            stop_structural_source="nearest_support",
+            stop_structural_level=90.0,
+            zone_arrival=_path_arrival(score=32.0),
+        )
+        decisions.append(admission.decision)
+        assert admission.decision is AdmissionDecision.WAIT
+        assert admission.buy_ready is False
+        assert admission.admitted is False
+        assert not any(c.startswith("ZONE_ARRIVAL_QUALITY_LOW") for c in admission.reason_codes)
+        assert ARRIVAL_CONFIRMATION_MISSING not in admission.reason_codes
+    assert len(set(decisions)) == 1
+
+
+def test_in_zone_arrival_quality_follows_slider_only() -> None:
+    arrival = _path_arrival(score=28.0, arrival_type=ArrivalType.FAST_PULLBACK)
+    bundle = _bundle(
+        price=100.0,
+        zone_low=99.0,
+        zone_high=101.0,
+        setup_q=70,
+        entry_q=65,
+        target=125.0,
+        momentum=0.15,
+        vwap_pct=-0.10,
+        vol_ratio=0.90,
+        nearest_support=90.0,
+    )
+    set_entry_aggressiveness(0, actor="test")
+    strong = evaluate_trade_admission(
+        bundle=bundle,
+        setup_type=SetupType.PULLBACK_CONTINUATION,
+        quote=_quote(99.98, 100.0),
+        entry=100.0,
+        stop=90.0,
+        target=125.0,
+        stop_plan_model="structure",
+        stop_structural_source="nearest_support",
+        stop_structural_level=90.0,
+        zone_arrival=arrival,
+    )
+    assert strong.buy_ready is True
+    assert strong.decision is AdmissionDecision.WAIT
+    assert ARRIVAL_CONFIRMATION_MISSING in strong.reason_codes
+
+    set_entry_aggressiveness(100, actor="test")
+    weak = evaluate_trade_admission(
+        bundle=bundle,
+        setup_type=SetupType.PULLBACK_CONTINUATION,
+        quote=_quote(99.98, 100.0),
+        entry=100.0,
+        stop=90.0,
+        target=125.0,
+        stop_plan_model="structure",
+        stop_structural_source="nearest_support",
+        stop_structural_level=90.0,
+        zone_arrival=arrival,
+    )
+    assert weak.buy_ready is True
+    assert weak.decision is AdmissionDecision.BUY_ALLOWED
+    assert ARRIVAL_CONFIRMATION_MISSING not in weak.reason_codes
 
 
 def test_effective_rr_confirmation_rejects_at_strong_not_as_hard_veto() -> None:

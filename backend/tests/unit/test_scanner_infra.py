@@ -189,7 +189,8 @@ def test_wait_outcome_is_not_also_deep_passed() -> None:
         [],
     )
     assert funnel.deep_analysis_passed == 0
-    assert funnel.deep_analysis_no_candidate == 1
+    assert funnel.wait_for_entry == 1
+    assert funnel.deep_analysis_no_candidate == 0
     assert funnel.reconciles()
 
 
