@@ -28,6 +28,8 @@ _ALLOWED: dict[EntryWatchStatus, set[EntryWatchStatus]] = {
         EntryWatchStatus.EXPIRED,
         EntryWatchStatus.INVALIDATED,
         EntryWatchStatus.CANCELLED,
+        EntryWatchStatus.BLOCKED_DATA,
+        EntryWatchStatus.BLOCKED_OPERATIONAL,
     },
     EntryWatchStatus.TRIGGERED: {
         EntryWatchStatus.REVALIDATING,
@@ -35,6 +37,8 @@ _ALLOWED: dict[EntryWatchStatus, set[EntryWatchStatus]] = {
         EntryWatchStatus.INVALIDATED,
         EntryWatchStatus.EXPIRED,
         EntryWatchStatus.CANCELLED,
+        EntryWatchStatus.BLOCKED_DATA,
+        EntryWatchStatus.BLOCKED_OPERATIONAL,
     },
     EntryWatchStatus.REVALIDATING: {
         EntryWatchStatus.WAITING,
@@ -42,6 +46,8 @@ _ALLOWED: dict[EntryWatchStatus, set[EntryWatchStatus]] = {
         EntryWatchStatus.ADMITTED,
         EntryWatchStatus.INVALIDATED,
         EntryWatchStatus.EXPIRED,
+        EntryWatchStatus.BLOCKED_DATA,
+        EntryWatchStatus.BLOCKED_OPERATIONAL,
     },
     EntryWatchStatus.ADMITTED: {
         EntryWatchStatus.CONVERTING,
@@ -52,6 +58,20 @@ _ALLOWED: dict[EntryWatchStatus, set[EntryWatchStatus]] = {
         EntryWatchStatus.CONVERTED,
         EntryWatchStatus.ADMITTED,
         EntryWatchStatus.INVALIDATED,
+    },
+    EntryWatchStatus.BLOCKED_DATA: {
+        EntryWatchStatus.WAITING,
+        EntryWatchStatus.TRIGGERED,
+        EntryWatchStatus.INVALIDATED,
+        EntryWatchStatus.EXPIRED,
+        EntryWatchStatus.CANCELLED,
+    },
+    EntryWatchStatus.BLOCKED_OPERATIONAL: {
+        EntryWatchStatus.WAITING,
+        EntryWatchStatus.TRIGGERED,
+        EntryWatchStatus.INVALIDATED,
+        EntryWatchStatus.EXPIRED,
+        EntryWatchStatus.CANCELLED,
     },
 }
 

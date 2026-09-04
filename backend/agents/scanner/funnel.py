@@ -75,6 +75,10 @@ class ScanFunnel:
     """
 
     deep_analysis_no_candidate: int = 0
+    data_blocked: int = 0
+    """Mandatory facts missing — not 'no setup'."""
+    operational_blocked: int = 0
+    """Broker / persistence / service down — not a market decision."""
 
     # ── Stage 4: risk ───────────────────────────────────────────────────────
     risk_passed: int = 0
@@ -140,6 +144,8 @@ class ScanFunnel:
             + self.deep_analysis_failed
             + self.wait_for_entry
             + self.deep_analysis_no_candidate
+            + self.data_blocked
+            + self.operational_blocked
             + self.position_open
             + self.provider_failed
             + self.risk_rejected

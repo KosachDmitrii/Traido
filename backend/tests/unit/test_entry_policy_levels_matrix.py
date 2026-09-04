@@ -153,7 +153,7 @@ def test_breakpoints_at_50_and_75() -> None:
     assert th49.allow_soft_chase_buy is True
     assert thresholds_for(25).allow_soft_chase_buy is True
     assert th74.require_vwap_hold is False
-    assert th74.allow_sell_off_arrival is True
+    assert th74.allow_sell_off_arrival is False
     assert th100.require_momentum_flip is False
     assert thresholds_for(75).require_momentum_flip is False
     assert thresholds_for(0).require_momentum_flip is True

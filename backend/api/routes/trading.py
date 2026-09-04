@@ -257,9 +257,9 @@ async def put_auto_trigger(body: AutoTriggerBody) -> dict:
         {"enabled": body.enabled},
     )
     if enabled:
-        from trading.auto_trigger_policy import maybe_auto_approve_open_buys
+        from trading.auto_trigger_policy import enqueue_auto_approve_open_buys
 
-        await maybe_auto_approve_open_buys(audit=audit)
+        enqueue_auto_approve_open_buys(audit=audit)
     DESK_BUS.bump_desk()
     return policy_payload()
 

@@ -27,6 +27,7 @@ from trading.arrival_admission import evaluate_hard_arrival
 from trading.buy_confirmation import (
     BUY_READY_CANDIDATE,
     NOT_BUY_READY,
+    TERMINAL_CONFIRMATION_CODES,
     buy_confirmation_for,
     evaluate_buy_confirmation,
     evaluate_buy_ready,
@@ -592,6 +593,26 @@ def evaluate_trade_admission(
 
     if not confirm.passed:
         confirmation_failed = True
+        if any(code in TERMINAL_CONFIRMATION_CODES for code in confirm.reason_codes):
+            return finish(
+                _result(
+                    AdmissionDecision.NO_TRADE,
+                    st,
+                    setup_q,
+                    entry_q,
+                    chase.score,
+                    structure,
+                    data.status,
+                    vetoes,
+                    warnings,
+                    reason_codes,
+                    effective_rr=effective_rr_val,
+                    stop_valid=stop_valid,
+                    target_valid=target_valid,
+                    buy_ready=True,
+                    confirmation_relaxed=confirm.relaxed,
+                )
+            )
         if "WAITING_CONFIRMATION" not in reason_codes:
             reason_codes.append("WAITING_CONFIRMATION")
         return finish(

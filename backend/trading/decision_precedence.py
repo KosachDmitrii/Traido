@@ -10,40 +10,18 @@ Priority (immutable):
 from __future__ import annotations
 
 from core.enums import AdmissionDecision, EntryWatchStatus
+from trading.outcome_taxonomy import (
+    DATA_BLOCKED_CODES as TAXONOMY_DATA_BLOCKED,
+)
+from trading.outcome_taxonomy import (
+    TERMINAL_NO_TRADE_CODES as TAXONOMY_TERMINAL,
+)
 
 # Terminal geometry/setup vetoes — never demote to WAIT.
-TERMINAL_NO_TRADE_CODES = frozenset(
-    {
-        "STRUCTURAL_DAMAGE",
-        "MISSING_TARGET",
-        "MISSING_STOP",
-        "MISSING_ENTRY_ZONE",
-        "SETUP_TYPE_UNKNOWN",
-        "INVALID_STOP",
-        "TARGET_UNREALISTIC",
-        "TARGET_PLAN_MISMATCH",
-        "TARGET_NO_BASIS",
-        "ATR_ONLY_STOP",
-        "EXTREME_SPREAD",
-        "CRASH_VELOCITY",
-        "THESIS_NOT_BULLISH",
-    }
-)
+TERMINAL_NO_TRADE_CODES = TAXONOMY_TERMINAL
 
 # Mandatory facts unreadable or synthetic — never WAIT or NO_TRADE.
-DATA_BLOCKED_CODES = frozenset(
-    {
-        "STALE_DATA",
-        "MARKET_DATA_UNHEALTHY",
-        "QUOTE_INCOMPLETE",
-        "MISSING_ATR",
-        "INSUFFICIENT_BARS",
-        "DATA_BLOCKED",
-        "MISSING_VWAP",
-        "POSITIONS_UNREADABLE",
-        "UNRESOLVED_INTENTS_UNREADABLE",
-    }
-)
+DATA_BLOCKED_CODES = TAXONOMY_DATA_BLOCKED
 
 # Hard arrival types that are terminal, not transient wait.
 TERMINAL_ARRIVAL_PREFIXES = (

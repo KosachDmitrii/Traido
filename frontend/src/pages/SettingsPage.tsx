@@ -478,10 +478,19 @@ export function SettingsPage() {
             {t("settings.broker.status", {
               state: brokerConnectionStateLabel(t, desk?.broker_backend?.connection_state),
             })}
+            {desk?.broker_backend?.broker_class
+              ? ` · ${t("settings.broker.class", { name: desk.broker_backend.broker_class })}`
+              : null}
+            {desk?.broker_backend?.environment
+              ? ` · ${desk.broker_backend.environment}`
+              : null}
             {desk?.broker_backend?.account_id
               ? ` · ${t("settings.broker.account", { id: desk.broker_backend.account_id })}`
               : null}
           </p>
+          {desk?.broker_backend?.broker_class === "MockPaperBroker" ? (
+            <p className="settings-card__lead">{t("settings.broker.mockWarning")}</p>
+          ) : null}
           {desk?.broker_backend?.switch_blocked_reason ? (
             <p className="settings-card__lead">
               {t("settings.broker.blocked", {

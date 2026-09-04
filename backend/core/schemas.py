@@ -9,7 +9,7 @@ RULES:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -182,7 +182,12 @@ class MarketAssessment(StrictModel):
     reasons: list[str] = Field(default_factory=list)
     macro_notes: list[str] = Field(default_factory=list)
     evaluated_at: datetime | None = None
-    """When the regime was computed. Required for capital-path market gate."""
+    """When this assessment was computed (fetch/eval time)."""
+    fetched_at: datetime | None = None
+    """When FRED (or the stub) was read."""
+    observation_date: date | None = None
+    """Vendor observation date of the oldest required series — not fetch time."""
+    macro_series: list[str] = Field(default_factory=list)
     benchmark: str | None = None
     """Index / market benchmark used for the assessment (e.g. SPY)."""
     sector_label: str | None = None
@@ -655,6 +660,7 @@ class EntryWatch(StrictModel):
     admission_version: str = "admission@1.0.0"
     admission_snapshot: AdmissionSnapshot | None = None
     status: EntryWatchStatus = EntryWatchStatus.WAITING
+    retry_at: datetime | None = None
     pipeline_run_id: UUID | None = None
     candidate: TradeCandidate | None = None
     reasons: list[str] = Field(default_factory=list)

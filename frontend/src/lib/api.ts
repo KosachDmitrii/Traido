@@ -81,6 +81,8 @@ export type ScanFunnel = {
   /** Analysed, good enough to watch — not a BUY card. */
   wait_for_entry?: number;
   deep_analysis_no_candidate: number;
+  data_blocked?: number;
+  operational_blocked?: number;
 
   risk_passed: number;
   risk_rejected: number;

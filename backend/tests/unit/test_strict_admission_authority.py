@@ -388,7 +388,7 @@ async def test_stale_unresolved_intent_different_hash_raises() -> None:
 
 @pytest.mark.asyncio
 async def test_empty_fred_series_is_data_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _empty(_client, _key, _series):
+    async def _empty(_client, _key, _series, **_kwargs):
         return None
 
     monkeypatch.setattr("agents.market.agent._fred_latest", _empty)
@@ -409,7 +409,7 @@ async def test_fred_without_key_is_data_blocked() -> None:
 
 @pytest.mark.asyncio
 async def test_current_ten_year_is_not_risk_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _latest(_client, _key, series):
+    async def _latest(_client, _key, series, **_kwargs):
         return {"DGS10": 4.79, "UNRATE": 4.10}[series]
 
     monkeypatch.setattr("agents.market.agent._fred_latest", _latest)
@@ -421,7 +421,7 @@ async def test_current_ten_year_is_not_risk_off(monkeypatch: pytest.MonkeyPatch)
 
 @pytest.mark.asyncio
 async def test_elevated_ten_year_is_risk_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    async def _latest(_client, _key, series):
+    async def _latest(_client, _key, series, **_kwargs):
         return {"DGS10": 5.50, "UNRATE": 4.10}[series]
 
     monkeypatch.setattr("agents.market.agent._fred_latest", _latest)

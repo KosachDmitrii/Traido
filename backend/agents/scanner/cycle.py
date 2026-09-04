@@ -385,6 +385,15 @@ def _record_deep_outcome(
     if status == "wait_for_entry":
         funnel.wait_for_entry += 1
         return
+    if status == "data_blocked":
+        funnel.data_blocked += 1
+        return
+    if status == "operational_blocked":
+        funnel.operational_blocked += 1
+        return
+    if status == "no_trade":
+        funnel.deep_analysis_no_candidate += 1
+        return
     if status == "risk_rejected":
         funnel.deep_analysis_passed += 1
         funnel.risk_rejected += 1

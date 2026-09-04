@@ -5,6 +5,8 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import Enum
+from typing import Any
 from uuid import UUID, uuid4
 
 from core.enums import AdmissionDecision, EntryDecision, EntryWatchStatus, RiskVerdict
@@ -69,21 +71,132 @@ class DecisionOutcomeLedger:
             self._rows.append(row)
             if len(self._rows) > 5000:
                 self._rows = self._rows[-4000:]
+        self._persist(row)
         return row
+
+    def _persist(self, row: DecisionOutcomeRecord) -> None:
+        try:
+            from database.models.desk import DecisionOutcomeRow
+            from database.session import session_factory
+
+            SessionLocal = session_factory()
+            with SessionLocal() as session:
+                session.add(
+                    DecisionOutcomeRow(
+                        id=row.id,
+                        symbol=row.symbol,
+                        stage=row.stage,
+                        outcome=row.outcome,
+                        primary_reason=row.primary_reason[:128],
+                        recorded_at=row.recorded_at,
+                        pipeline_run_id=row.pipeline_run_id,
+                        watch_id=row.watch_id,
+                        payload={
+                            "reason_codes": list(row.reason_codes),
+                            "admission": row.admission.value if row.admission else None,
+                            "entry_decision": (
+                                row.entry_decision.value if row.entry_decision else None
+                            ),
+                            "watch_status": row.watch_status.value if row.watch_status else None,
+                            "risk_verdict": row.risk_verdict.value if row.risk_verdict else None,
+                            "geometry_hash": row.geometry_hash,
+                        },
+                    )
+                )
+                session.commit()
+        except Exception:  # noqa: BLE001 — persistence must never fail the capital path
+            return
 
     def list_for_symbol(self, symbol: str, *, limit: int = 50) -> list[DecisionOutcomeRecord]:
         sym = symbol.upper()
         with self._lock:
-            rows = [r for r in reversed(self._rows) if r.symbol == sym]
-        return rows[:limit]
+            memory = [r for r in reversed(self._rows) if r.symbol == sym]
+        persisted = self._load_for_symbol(sym, limit=limit)
+        if persisted is None:
+            return memory[:limit]
+        by_id = {row.id: row for row in persisted}
+        for row in memory:
+            by_id[row.id] = row
+        merged = sorted(by_id.values(), key=lambda row: row.recorded_at, reverse=True)
+        return merged[:limit]
 
     def summary(self) -> dict[str, int]:
+        persisted = self._load_summary()
+        if persisted is not None:
+            return persisted
         with self._lock:
             counts: dict[str, int] = {}
             for row in self._rows:
                 key = f"{row.stage}:{row.outcome}"
                 counts[key] = counts.get(key, 0) + 1
         return counts
+
+    def _load_for_symbol(self, symbol: str, *, limit: int) -> list[DecisionOutcomeRecord] | None:
+        try:
+            from database.models.desk import DecisionOutcomeRow
+            from database.session import session_factory
+
+            SessionLocal = session_factory()
+            with SessionLocal() as session:
+                rows = (
+                    session.query(DecisionOutcomeRow)
+                    .filter(DecisionOutcomeRow.symbol == symbol)
+                    .order_by(DecisionOutcomeRow.recorded_at.desc())
+                    .limit(limit)
+                    .all()
+                )
+            return [_record_from_row(row) for row in rows]
+        except Exception:  # noqa: BLE001 — RCA must not fail the capital path
+            return None
+
+    def _load_summary(self) -> dict[str, int] | None:
+        try:
+            from database.models.desk import DecisionOutcomeRow
+            from database.session import session_factory
+
+            SessionLocal = session_factory()
+            with SessionLocal() as session:
+                rows = session.query(DecisionOutcomeRow.stage, DecisionOutcomeRow.outcome).all()
+            counts: dict[str, int] = {}
+            for stage, outcome in rows:
+                key = f"{stage}:{outcome}"
+                counts[key] = counts.get(key, 0) + 1
+            return counts
+        except Exception:  # noqa: BLE001 — RCA must not fail the capital path
+            return None
+
+
+def _optional_enum(enum_cls: type[Enum], raw: Any) -> Any:
+    if raw is None or raw == "":
+        return None
+    try:
+        return enum_cls(raw)
+    except ValueError:
+        return None
+
+
+def _record_from_row(row: Any) -> DecisionOutcomeRecord:
+    payload = row.payload if isinstance(row.payload, dict) else {}
+    recorded_at = row.recorded_at
+    if recorded_at is not None and recorded_at.tzinfo is None:
+        recorded_at = recorded_at.replace(tzinfo=UTC)
+    codes = payload.get("reason_codes") or ()
+    return DecisionOutcomeRecord(
+        id=row.id,
+        symbol=row.symbol,
+        stage=row.stage,
+        outcome=row.outcome,
+        primary_reason=row.primary_reason,
+        reason_codes=tuple(codes),
+        admission=_optional_enum(AdmissionDecision, payload.get("admission")),
+        entry_decision=_optional_enum(EntryDecision, payload.get("entry_decision")),
+        watch_status=_optional_enum(EntryWatchStatus, payload.get("watch_status")),
+        risk_verdict=_optional_enum(RiskVerdict, payload.get("risk_verdict")),
+        geometry_hash=payload.get("geometry_hash"),
+        pipeline_run_id=row.pipeline_run_id,
+        watch_id=row.watch_id,
+        recorded_at=recorded_at,
+    )
 
 
 DECISION_OUTCOMES = DecisionOutcomeLedger()

@@ -1,4 +1,4 @@
-"""Broker factory — Alpaca Paper when keyed, else mock.
+"""Broker factory — Alpaca Paper when keyed; mock only when explicitly requested.
 
 Execution backend is chosen by operator policy (Settings) with TRAIDO_BROKER as
 bootstrap default. Market data stays on Alpaca regardless.
@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 
 _ibkr_broker: BrokerPort | None = None
 _ibkr_lock = threading.Lock()
+
+
+class BrokerCredentialsMissing(RuntimeError):
+    """Alpaca keys absent and TRAIDO_BROKER_MOCK is not set."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "BROKER_CREDENTIALS_MISSING: set ALPACA_API_KEY and ALPACA_API_SECRET, "
+            "or TRAIDO_BROKER_MOCK=true for the in-memory test broker"
+        )
 
 
 def create_broker(settings: Settings) -> BrokerPort:
@@ -58,7 +68,7 @@ def create_broker(settings: Settings) -> BrokerPort:
             api_secret=settings.alpaca_api_secret,
             base_url=settings.alpaca_broker_base_url,
         )
-    return MockPaperBroker()
+    raise BrokerCredentialsMissing()
 
 
 def _disconnect_ibkr_sync(broker: BrokerPort) -> None:

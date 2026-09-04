@@ -24,6 +24,8 @@ _ACTIONABLE = {
     EntryWatchStatus.REVALIDATING,
     EntryWatchStatus.ADMITTED,
     EntryWatchStatus.CONVERTING,
+    EntryWatchStatus.BLOCKED_DATA,
+    EntryWatchStatus.BLOCKED_OPERATIONAL,
 }
 _enabled = False
 _lock = Lock()

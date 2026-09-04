@@ -395,6 +395,16 @@ async def run_symbol_pipeline(
                         symbol=symbol,
                     )
                     return result.model_copy(update={"status": "data_blocked", "opportunity": None})
+                if elig.outcome == "OPERATIONAL_BLOCKED":
+                    BOARD.set_agent(
+                        "risk",
+                        status="done",
+                        detail="OPERATIONAL_BLOCKED (pre-watch)",
+                        symbol=symbol,
+                    )
+                    return result.model_copy(
+                        update={"status": "operational_blocked", "opportunity": None}
+                    )
                 BOARD.set_agent(
                     "risk",
                     status="done",
@@ -661,9 +671,9 @@ async def publish_opportunity(
         entity_type="opportunity",
         entity_id=str(opp.id),
     )
-    from trading.auto_trigger_policy import maybe_auto_approve_opportunity
+    from trading.auto_trigger_policy import enqueue_auto_approve_opportunity
 
-    await maybe_auto_approve_opportunity(
+    enqueue_auto_approve_opportunity(
         opp.id,
         audit=audit,
         symbol=symbol.upper(),

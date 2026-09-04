@@ -121,7 +121,7 @@ def test_user_file_beats_test_redis_even_when_redis_is_newer(
 
 
 @pytest.mark.asyncio
-async def test_auto_approve_reject_skips_card(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_auto_approve_terminal_regime_discards_card(monkeypatch: pytest.MonkeyPatch) -> None:
     from unittest.mock import AsyncMock, MagicMock
     from uuid import uuid4
 
@@ -134,13 +134,13 @@ async def test_auto_approve_reject_skips_card(monkeypatch: pytest.MonkeyPatch) -
     opp.id = opp_id
     opp.status = OpportunityStatus.AWAITING_CONFIRMATION
     opp.decision_version = 0
-    skipped = MagicMock()
-    skipped.id = opp_id
-    skipped.status = OpportunityStatus.SKIPPED
+    discarded = MagicMock()
+    discarded.id = opp_id
+    discarded.status = OpportunityStatus.DISCARDED
 
     store = MagicMock()
     store.get.return_value = opp
-    store.claim.return_value = skipped
+    store.claim.return_value = discarded
     audit = InMemoryAudit()
     service = MagicMock()
     service.decide = AsyncMock(side_effect=RuntimeError("BUY_REJECTED_REGIME:REGIME_BLOCKED"))
@@ -152,9 +152,103 @@ async def test_auto_approve_reject_skips_card(monkeypatch: pytest.MonkeyPatch) -
     store.claim.assert_called_once()
     types = [e["event_type"] for e in audit.events]
     assert "AutoTriggerApproveFailed" in types
-    assert "OpportunitySkipped" in types
+    assert "OpportunityDiscarded" in types
     failed = next(e for e in audit.events if e["event_type"] == "AutoTriggerApproveFailed")
     assert failed["payload"]["error"] == "BUY_REJECTED_REGIME:REGIME_BLOCKED"
+    store.claim.assert_called_once()
+    assert store.claim.call_args.kwargs["to_status"] is OpportunityStatus.DISCARDED
+
+
+@pytest.mark.asyncio
+async def test_auto_approve_wide_spread_keeps_card(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+
+    from core.audit import InMemoryAudit
+    from core.enums import OpportunityStatus
+
+    atp.set_auto_trigger_enabled(True, actor="test")
+    opp_id = uuid4()
+    opp = MagicMock()
+    opp.id = opp_id
+    opp.status = OpportunityStatus.AWAITING_CONFIRMATION
+    opp.decision_version = 0
+    store = MagicMock()
+    store.get.return_value = opp
+    audit = InMemoryAudit()
+    service = MagicMock()
+    service.decide = AsyncMock(side_effect=RuntimeError("BUY_REJECTED_SPREAD:spread_bps=18.4"))
+    monkeypatch.setattr("trading.opportunities.OPPORTUNITIES", store)
+    monkeypatch.setattr("api.deps.build_execution_service", lambda: service)
+
+    ok = await atp.maybe_auto_approve_opportunity(opp_id, audit=audit, symbol="AAPL")
+    assert ok is False
+    store.claim.assert_not_called()
+    types = [e["event_type"] for e in audit.events]
+    assert "AutoTriggerApproveDeferred" in types
+    assert "OpportunityDiscarded" not in types
+
+
+@pytest.mark.asyncio
+async def test_auto_approve_stale_quote_keeps_card(monkeypatch: pytest.MonkeyPatch) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+
+    from core.audit import InMemoryAudit
+    from core.enums import OpportunityStatus
+    from trading.approval_errors import DataBlockedError
+
+    atp.set_auto_trigger_enabled(True, actor="test")
+    opp_id = uuid4()
+    opp = MagicMock()
+    opp.id = opp_id
+    opp.status = OpportunityStatus.AWAITING_CONFIRMATION
+    opp.decision_version = 0
+    store = MagicMock()
+    store.get.return_value = opp
+    audit = InMemoryAudit()
+    service = MagicMock()
+    service.decide = AsyncMock(side_effect=DataBlockedError("PORTFOLIO_STATE_UNAVAILABLE"))
+    monkeypatch.setattr("trading.opportunities.OPPORTUNITIES", store)
+    monkeypatch.setattr("api.deps.build_execution_service", lambda: service)
+
+    ok = await atp.maybe_auto_approve_opportunity(opp_id, audit=audit, symbol="AAPL")
+    assert ok is False
+    store.claim.assert_not_called()
+    types = [e["event_type"] for e in audit.events]
+    assert "AutoTriggerApproveDeferred" in types
+    assert "OpportunityDiscarded" not in types
+
+
+@pytest.mark.asyncio
+async def test_auto_approve_unknown_after_submit_does_not_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+
+    from core.audit import InMemoryAudit
+    from core.enums import OpportunityStatus
+
+    atp.set_auto_trigger_enabled(True, actor="test")
+    opp_id = uuid4()
+    opp = MagicMock()
+    opp.id = opp_id
+    opp.status = OpportunityStatus.AWAITING_CONFIRMATION
+    opp.decision_version = 0
+    store = MagicMock()
+    store.get.return_value = opp
+    audit = InMemoryAudit()
+    service = MagicMock()
+    service.decide = AsyncMock(side_effect=RuntimeError("ENTRY_STATE_UNKNOWN:timeout"))
+    monkeypatch.setattr("trading.opportunities.OPPORTUNITIES", store)
+    monkeypatch.setattr("api.deps.build_execution_service", lambda: service)
+
+    ok = await atp.maybe_auto_approve_opportunity(opp_id, audit=audit, symbol="AAPL")
+    assert ok is False
+    store.claim.assert_not_called()
+    types = [e["event_type"] for e in audit.events]
+    assert "AutoTriggerStateUnknown" in types
 
 
 @pytest.mark.asyncio

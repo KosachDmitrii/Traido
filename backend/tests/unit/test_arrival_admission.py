@@ -36,11 +36,11 @@ def test_strong_blocks_sell_off() -> None:
     assert "ARRIVAL_TYPE_SELL_OFF" in gate.reason_codes
 
 
-def test_weak_allows_cautious_sell_off() -> None:
+def test_weak_blocks_sell_off_until_validated() -> None:
     th = thresholds_for(100)
-    gate = evaluate_arrival_gate(_arrival(arrival_type=ArrivalType.SELL_OFF, score=8.0), th)
-    assert gate.blocked is False
-    assert "SELL_OFF_CAUTION" in gate.warnings
+    gate = evaluate_arrival_gate(_arrival(arrival_type=ArrivalType.SELL_OFF, score=80.0), th)
+    assert gate.blocked is True
+    assert "ARRIVAL_TYPE_SELL_OFF" in gate.reason_codes
 
 
 def test_weak_blocks_very_low_sell_off() -> None:

@@ -120,6 +120,8 @@ def desk_revalidation_hint(watch: EntryWatch) -> str | None:
         EntryWatchStatus.WAITING,
         EntryWatchStatus.TRIGGERED,
         EntryWatchStatus.REVALIDATING,
+        EntryWatchStatus.BLOCKED_DATA,
+        EntryWatchStatus.BLOCKED_OPERATIONAL,
     }:
         return None
     px = float(watch.last_price or watch.current_price_at_creation)

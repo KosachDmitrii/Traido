@@ -236,8 +236,8 @@ def test_b_small_deficit_compensates_and_continues() -> None:
         stop=90.0,
         target=121.0,
     )
-    assert "SETUP_COMPENSATED" in admission.reason_codes
-    assert "SETUP_BELOW_FLOOR" not in admission.reason_codes
+    assert "SETUP_COMPENSATED" not in admission.reason_codes
+    assert admission.decision is not AdmissionDecision.BUY_ALLOWED
     assert admission.decision in {
         AdmissionDecision.BUY_ALLOWED,
         AdmissionDecision.WAIT,
@@ -272,7 +272,7 @@ def test_c_deficit_over_three_is_refused() -> None:
         or "CANDIDATE_SETUP_BELOW_FLOOR" in admission.reason_codes
         or "SETUP_CONFIRMATION_BELOW_FLOOR" in admission.reason_codes
     )
-    assert admission.decision is AdmissionDecision.WAIT
+    assert admission.decision is AdmissionDecision.NO_TRADE
 
 
 def test_d_weak_entry_blocks_compensation() -> None:
@@ -293,7 +293,7 @@ def test_d_weak_entry_blocks_compensation() -> None:
         target=125.0,
     )
     assert "SETUP_COMPENSATED" not in admission.reason_codes
-    assert admission.decision is AdmissionDecision.WAIT
+    assert admission.decision is AdmissionDecision.NO_TRADE
     assert admission.buy_ready is False
 
 
@@ -398,6 +398,7 @@ def test_i_live_does_not_compensate(monkeypatch) -> None:
     assert "SETUP_COMPENSATED" not in admission.reason_codes
     assert (
         "SETUP_BELOW_FLOOR" in admission.reason_codes
+        or "CANDIDATE_SETUP_BELOW_FLOOR" in admission.reason_codes
         or "SETUP_CONFIRMATION_BELOW_FLOOR" in admission.reason_codes
     )
     from trading.entry_policy import get_entry_thresholds
@@ -425,8 +426,8 @@ def test_tsla_borderline_is_compensated_not_setup_floor_wait() -> None:
         target=target,
         atr=4.0,
     )
-    assert "SETUP_BELOW_FLOOR" not in admission.reason_codes
-    assert "SETUP_COMPENSATED" in admission.reason_codes
+    assert "SETUP_COMPENSATED" not in admission.reason_codes
+    assert admission.decision is not AdmissionDecision.BUY_ALLOWED
     assert admission.decision in {
         AdmissionDecision.BUY_ALLOWED,
         AdmissionDecision.WAIT,

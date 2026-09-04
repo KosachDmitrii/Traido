@@ -19,13 +19,11 @@ from trading.zone_arrival import ZoneArrivalFacts
 CANDIDATE_SETUP_FLOOR = 55
 CANDIDATE_ENTRY_FLOOR = 50
 BASE_RR_FLOOR = 1.45
-# Absolute quality floor for BUY_READY: candidate floor plus the weakest
-# confirmation tolerance. Below this, Weak cannot mint a potential buy.
-MAX_SETUP_TOLERANCE = 3
-MAX_ENTRY_TOLERANCE = 3
-BUY_READY_SETUP_FLOOR = CANDIDATE_SETUP_FLOOR - MAX_SETUP_TOLERANCE  # 52
-BUY_READY_ENTRY_FLOOR = CANDIDATE_ENTRY_FLOOR - MAX_ENTRY_TOLERANCE  # 47
+# BUY_READY is the candidate floor. The slider must not mint a weaker setup.
+BUY_READY_SETUP_FLOOR = CANDIDATE_SETUP_FLOOR
+BUY_READY_ENTRY_FLOOR = CANDIDATE_ENTRY_FLOOR
 
+# Shadow-only helper constants — production confirmation never applies these.
 COMPENSATION_MIN_RR = 2.0
 MAX_SETUP_DEFICIT = 3
 
@@ -34,6 +32,8 @@ MATERIAL_NEGATIVE_MOMENTUM_PCT = -0.40
 # Heavy sell / distribution — confirmation cannot waive this.
 HEAVY_SELL_VOLUME_RATIO = 1.60
 
+MATERIAL_NEGATIVE_MOMENTUM = "MATERIAL_NEGATIVE_MOMENTUM"
+HEAVY_SELL_VOLUME = "HEAVY_SELL_VOLUME"
 MOMENTUM_CONFIRMATION_MISSING = "MOMENTUM_CONFIRMATION_MISSING"
 VOLUME_CONFIRMATION_MISSING = "VOLUME_CONFIRMATION_MISSING"
 VWAP_CONFIRMATION_MISSING = "VWAP_CONFIRMATION_MISSING"
@@ -44,6 +44,13 @@ ARRIVAL_CONFIRMATION_MISSING = "ARRIVAL_CONFIRMATION_MISSING"
 BUY_READY_CANDIDATE = "BUY_READY_CANDIDATE"
 BUY_CONFIRMATION_RELAXED = "BUY_CONFIRMATION_RELAXED"
 NOT_BUY_READY = "NOT_BUY_READY"
+
+TERMINAL_CONFIRMATION_CODES = frozenset(
+    {
+        MATERIAL_NEGATIVE_MOMENTUM,
+        HEAVY_SELL_VOLUME,
+    }
+)
 
 CONFIRMATION_REJECTION_CODES = frozenset(
     {
@@ -142,8 +149,8 @@ BUY_CONFIRMATION_LEVELS: dict[int, BuyConfirmationPolicy] = {
     25: BuyConfirmationPolicy(
         strictness=25,
         label="firmer",
-        setup_tolerance=-1,
-        entry_tolerance=-1,
+        setup_tolerance=0,
+        entry_tolerance=0,
         min_effective_rr=1.90,
         momentum_mode=MomentumMode.CONFIRMED,
         volume_mode=VolumeMode.REQUIRED,
@@ -165,8 +172,8 @@ BUY_CONFIRMATION_LEVELS: dict[int, BuyConfirmationPolicy] = {
     50: BuyConfirmationPolicy(
         strictness=50,
         label="medium",
-        setup_tolerance=-2,
-        entry_tolerance=-2,
+        setup_tolerance=0,
+        entry_tolerance=0,
         min_effective_rr=1.75,
         momentum_mode=MomentumMode.MODERATE,
         volume_mode=VolumeMode.PREFERRED,
@@ -188,8 +195,8 @@ BUY_CONFIRMATION_LEVELS: dict[int, BuyConfirmationPolicy] = {
     75: BuyConfirmationPolicy(
         strictness=75,
         label="softer",
-        setup_tolerance=-3,
-        entry_tolerance=-3,
+        setup_tolerance=0,
+        entry_tolerance=0,
         min_effective_rr=1.60,
         momentum_mode=MomentumMode.WEAK_FLAT,
         volume_mode=VolumeMode.SOFT,
@@ -200,7 +207,7 @@ BUY_CONFIRMATION_LEVELS: dict[int, BuyConfirmationPolicy] = {
         require_vol_digest=False,
         min_zone_arrival_quality=44,
         allow_fast_pullback=True,
-        allow_sell_off_arrival=True,
+        allow_sell_off_arrival=False,
         min_sell_off_arrival_quality=22,
         min_fast_pullback_arrival_quality=40,
         weak_setup_min_rr=1.80,
@@ -211,8 +218,8 @@ BUY_CONFIRMATION_LEVELS: dict[int, BuyConfirmationPolicy] = {
     100: BuyConfirmationPolicy(
         strictness=100,
         label="weak",
-        setup_tolerance=-3,
-        entry_tolerance=-3,
+        setup_tolerance=0,
+        entry_tolerance=0,
         min_effective_rr=1.45,
         momentum_mode=MomentumMode.OPTIONAL,
         volume_mode=VolumeMode.SOFT,
@@ -223,7 +230,7 @@ BUY_CONFIRMATION_LEVELS: dict[int, BuyConfirmationPolicy] = {
         require_vol_digest=False,
         min_zone_arrival_quality=35,
         allow_fast_pullback=True,
-        allow_sell_off_arrival=True,
+        allow_sell_off_arrival=False,
         min_sell_off_arrival_quality=8,
         min_fast_pullback_arrival_quality=28,
         weak_setup_min_rr=1.45,
@@ -305,6 +312,9 @@ def evaluate_buy_ready(
             or not stop_valid
             or not target_valid
             or hard_veto
+            or "CANDIDATE_SETUP_BELOW_FLOOR" in reasons
+            or "CANDIDATE_ENTRY_BELOW_FLOOR" in reasons
+            or "PLANNED_RR_BELOW_BASE_FLOOR" in reasons
         ):
             blocked = AdmissionDecision.NO_TRADE
         if blocked is None:
@@ -346,38 +356,28 @@ def evaluate_buy_confirmation(
     arrival_required: bool = False,
 ) -> ConfirmationResult:
     """Soft confirms for a BUY_READY candidate. Never waives a hard gate."""
+    _ = paper  # compensation below the candidate floor is not applied in production
     reasons: list[str] = []
     warnings: list[str] = []
     relaxed = False
 
     if momentum_pct is not None and momentum_pct <= MATERIAL_NEGATIVE_MOMENTUM_PCT:
-        reasons.append(MOMENTUM_CONFIRMATION_MISSING)
+        reasons.append(MATERIAL_NEGATIVE_MOMENTUM)
         return ConfirmationResult(
             passed=False, relaxed=False, reason_codes=reasons, warnings=warnings
         )
 
     if pullback_vol_ratio is not None and pullback_vol_ratio >= HEAVY_SELL_VOLUME_RATIO:
-        reasons.append(VOLUME_CONFIRMATION_MISSING)
+        reasons.append(HEAVY_SELL_VOLUME)
         return ConfirmationResult(
             passed=False, relaxed=False, reason_codes=reasons, warnings=warnings
         )
 
     setup_floor = policy.confirm_setup_floor
     entry_floor = policy.confirm_entry_floor
-    setup_deficit = float(CANDIDATE_SETUP_FLOOR) - float(setup_quality)
 
     if setup_quality < setup_floor:
-        if (
-            paper
-            and 0 < setup_deficit <= MAX_SETUP_DEFICIT
-            and entry_quality >= entry_floor
-            and planned_rr is not None
-            and planned_rr >= COMPENSATION_MIN_RR
-        ):
-            reasons.append("SETUP_COMPENSATED")
-            relaxed = True
-        else:
-            reasons.append(SETUP_CONFIRMATION_BELOW_FLOOR)
+        reasons.append(SETUP_CONFIRMATION_BELOW_FLOOR)
     elif setup_quality < CANDIDATE_SETUP_FLOOR and policy.setup_tolerance < 0:
         relaxed = True
 

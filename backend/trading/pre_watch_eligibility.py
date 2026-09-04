@@ -13,6 +13,7 @@ from trading.decision_precedence import (
     has_data_blocked_signal,
     has_terminal_no_trade,
 )
+from trading.outcome_taxonomy import OutcomeClass, classify_codes
 
 
 @dataclass(frozen=True)
@@ -80,11 +81,17 @@ def evaluate_pre_watch_eligibility(
         return PreWatchEligibility(False, "DATA_BLOCKED", tuple(reasons))
 
     if risk_verdict is not None and risk_verdict is not RiskVerdict.PASS:
-        return PreWatchEligibility(
-            False,
-            "NO_TRADE",
-            tuple(risk_reasons[:6] if risk_reasons else ("RISK_REJECT",)),
-        )
+        codes = list(risk_reasons or ("RISK_REJECT",))
+        outcome = classify_codes(codes)
+        if outcome is OutcomeClass.DATA_BLOCKED:
+            label = "DATA_BLOCKED"
+        elif outcome is OutcomeClass.OPERATIONAL_BLOCKED:
+            label = "OPERATIONAL_BLOCKED"
+        elif outcome is OutcomeClass.WAIT:
+            label = "NO_TRADE"
+        else:
+            label = "NO_TRADE"
+        return PreWatchEligibility(False, label, tuple(codes[:6]))
 
     if admission.reason_codes and any(
         c in DATA_BLOCKED_CODES or c.startswith("DATA_BLOCKED") for c in admission.reason_codes

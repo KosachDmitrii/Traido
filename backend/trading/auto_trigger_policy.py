@@ -1,17 +1,18 @@
 """Desk auto-buy — operator toggle (paper confirmation desk).
 
 When enabled, every new BUY card is approved through ``ExecutionService`` —
-same gates as the Buy button. A reject is shown on the desk and the card is
-skipped. Paper broker env only; live refuses.
+same gates as the Buy button. Transient refusals keep the card and retry;
+only a terminal reject discards it. Paper broker env only; live refuses.
 """
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import threading
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,12 @@ REDIS_KEY = "traido:auto_trigger"
 _LOCK = threading.Lock()
 _cached: bool | None = None
 _in_flight: set[str] = set()
+_retry_after: dict[str, datetime] = {}
+_retry_attempts: dict[str, int] = {}
+_queue: asyncio.Queue[tuple[Any, Any, str]] | None = None
+_worker_started = False
+
+_BACKOFF_STEPS = (5, 15, 45, 120, 300)
 
 
 def _auto_trigger_blocked() -> bool:
@@ -202,6 +209,9 @@ def reset_auto_trigger_cache() -> None:
     global _cached
     with _LOCK:
         _cached = None
+        _retry_after.clear()
+        _retry_attempts.clear()
+        _in_flight.clear()
 
 
 def policy_payload() -> dict[str, Any]:
@@ -215,7 +225,8 @@ def policy_payload() -> dict[str, Any]:
             else (
                 "When on, a BUY card is auto-approved through ExecutionService "
                 "(kill switch, RTH, reconciliation, liquidity, risk — same as "
-                "manual Buy). A reject is shown and the card is removed. Paper only."
+                "manual Buy). A terminal reject discards the card; data or "
+                "operational blocks retry. Paper only."
             )
         ),
     }
@@ -226,12 +237,53 @@ def _error_text(exc: BaseException) -> str:
     return text or type(exc).__name__
 
 
-async def _skip_rejected_card(
+def _classify_failure(exc: BaseException) -> str:
+    from trading.approval_errors import DataBlockedError, NoTradeError, WaitError
+    from trading.outcome_taxonomy import OutcomeClass, classify_exception_text
+
+    if isinstance(exc, DataBlockedError):
+        return OutcomeClass.DATA_BLOCKED.value
+    if isinstance(exc, NoTradeError):
+        return OutcomeClass.NO_TRADE.value
+    if isinstance(exc, WaitError):
+        return OutcomeClass.WAIT.value
+    return classify_exception_text(_error_text(exc)).value
+
+
+def _set_retry(opportunity_id: Any, *, operational: bool) -> datetime:
+    key = str(opportunity_id)
+    with _LOCK:
+        attempt = _retry_attempts.get(key, 0) + 1
+        _retry_attempts[key] = attempt
+        delay = _BACKOFF_STEPS[min(attempt - 1, len(_BACKOFF_STEPS) - 1)]
+        if not operational:
+            delay = min(delay, 30)
+        until = datetime.now(UTC) + timedelta(seconds=delay)
+        _retry_after[key] = until
+        return until
+
+
+def _clear_retry(opportunity_id: Any) -> None:
+    key = str(opportunity_id)
+    with _LOCK:
+        _retry_after.pop(key, None)
+        _retry_attempts.pop(key, None)
+
+
+def _due_for_retry(opportunity_id: Any) -> bool:
+    key = str(opportunity_id)
+    with _LOCK:
+        until = _retry_after.get(key)
+    return until is None or datetime.now(UTC) >= until
+
+
+async def _discard_card(
     opportunity_id: Any,
     *,
     audit: Any,
     symbol: str,
     error: str,
+    outcome: str,
 ) -> None:
     from core.desk_bus import DESK_BUS
     from core.enums import OpportunityStatus
@@ -240,22 +292,29 @@ async def _skip_rejected_card(
     claimed = OPPORTUNITIES.claim(
         opportunity_id,
         from_status=OpportunityStatus.AWAITING_CONFIRMATION,
-        to_status=OpportunityStatus.SKIPPED,
+        to_status=OpportunityStatus.DISCARDED,
     )
+    _clear_retry(opportunity_id)
     await audit.append(
         "AutoTriggerApproveFailed",
         "auto_trigger",
-        {"opportunity_id": str(opportunity_id), "symbol": symbol, "error": error},
+        {
+            "opportunity_id": str(opportunity_id),
+            "symbol": symbol,
+            "error": error,
+            "outcome": outcome,
+        },
     )
     if claimed is not None:
         await audit.append(
-            "OpportunitySkipped",
+            "OpportunityDiscarded",
             "auto_trigger",
             {
                 "opportunity_id": str(opportunity_id),
                 "symbol": symbol,
-                "reason": "auto_trigger_rejected",
+                "reason": "auto_trigger_terminal_reject",
                 "error": error,
+                "outcome": outcome,
             },
         )
     DESK_BUS.bump_desk(
@@ -263,8 +322,41 @@ async def _skip_rejected_card(
         symbol=symbol,
         opportunity_id=str(opportunity_id),
         error=error,
+        outcome=outcome,
     )
     DESK_BUS.bump_broker(kind="auto_trigger_failed")
+
+
+async def _keep_card(
+    opportunity_id: Any,
+    *,
+    audit: Any,
+    symbol: str,
+    error: str,
+    outcome: str,
+) -> None:
+    from core.desk_bus import DESK_BUS
+
+    until = _set_retry(opportunity_id, operational=outcome == "OPERATIONAL_BLOCKED")
+    await audit.append(
+        "AutoTriggerApproveDeferred",
+        "auto_trigger",
+        {
+            "opportunity_id": str(opportunity_id),
+            "symbol": symbol,
+            "error": error,
+            "outcome": outcome,
+            "retry_at": until.isoformat(),
+        },
+    )
+    DESK_BUS.bump_desk(
+        kind="auto_trigger_deferred",
+        symbol=symbol,
+        opportunity_id=str(opportunity_id),
+        error=error,
+        outcome=outcome,
+        retry_at=until.isoformat(),
+    )
 
 
 async def maybe_auto_approve_opportunity(
@@ -294,6 +386,8 @@ async def maybe_auto_approve_opportunity(
         opp = OPPORTUNITIES.get(opp_id)
         if opp is None or opp.status is not OpportunityStatus.AWAITING_CONFIRMATION:
             return False
+        if not _due_for_retry(opp_id):
+            return False
 
         from api.deps import build_execution_service
 
@@ -306,10 +400,32 @@ async def maybe_auto_approve_opportunity(
                 request_id=request_id,
                 expected_decision_version=opp.decision_version,
             )
-        except Exception as exc:  # noqa: BLE001 — desk must continue; card is skipped
+        except Exception as exc:  # noqa: BLE001 — classify; never skip a transient
             error = _error_text(exc)
-            logger.warning("auto trigger: approve failed for %s (%s)", symbol, error)
-            await _skip_rejected_card(opp_id, audit=audit, symbol=symbol, error=error)
+            outcome = _classify_failure(exc)
+            logger.warning(
+                "auto trigger: approve failed for %s outcome=%s (%s)",
+                symbol,
+                outcome,
+                error,
+            )
+            if outcome in {"NO_TRADE", "TERMINAL_REJECT"}:
+                await _discard_card(
+                    opp_id, audit=audit, symbol=symbol, error=error, outcome=outcome
+                )
+            elif outcome == "UNKNOWN":
+                await audit.append(
+                    "AutoTriggerStateUnknown",
+                    "auto_trigger",
+                    {
+                        "opportunity_id": str(opp_id),
+                        "symbol": symbol,
+                        "error": error,
+                        "outcome": outcome,
+                    },
+                )
+            else:
+                await _keep_card(opp_id, audit=audit, symbol=symbol, error=error, outcome=outcome)
             return False
 
         await audit.append(
@@ -330,25 +446,72 @@ async def maybe_auto_approve_opportunity(
             status=result.status.value,
         )
         DESK_BUS.bump_broker(kind="auto_trigger_approve")
+        _clear_retry(opp_id)
         return True
     finally:
         with _LOCK:
             _in_flight.discard(key)
 
 
-async def maybe_auto_approve_open_buys(*, audit: Any) -> int:
-    """Approve every open BUY card. Used when the toggle turns on and each pass."""
+def _ensure_worker() -> asyncio.Queue[tuple[Any, Any, str]] | None:
+    global _queue, _worker_started
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return None
+    if _queue is None:
+        _queue = asyncio.Queue()
+    if not _worker_started:
+        _worker_started = True
+        loop.create_task(_auto_trigger_worker())
+    return _queue
+
+
+async def _auto_trigger_worker() -> None:
+    assert _queue is not None
+    while True:
+        opportunity_id, audit, symbol = await _queue.get()
+        try:
+            await maybe_auto_approve_opportunity(opportunity_id, audit=audit, symbol=symbol)
+        except Exception:
+            logger.exception("auto trigger worker failed for %s", symbol)
+        finally:
+            _queue.task_done()
+
+
+def enqueue_auto_approve_opportunity(
+    opportunity_id: Any,
+    *,
+    audit: Any,
+    symbol: str,
+) -> bool:
+    """Queue an approve. Caller returns immediately — decide() runs off-cycle."""
+    if _auto_trigger_blocked() or not get_auto_trigger_enabled():
+        return False
+    queue = _ensure_worker()
+    if queue is None:
+        return False
+    queue.put_nowait((opportunity_id, audit, symbol))
+    return True
+
+
+def enqueue_auto_approve_open_buys(*, audit: Any) -> int:
+    """Queue every open BUY card without waiting for fills."""
     if _auto_trigger_blocked() or not get_auto_trigger_enabled():
         return 0
     from trading.opportunities import OPPORTUNITIES
 
-    approved = 0
+    queued = 0
     for opp in list(OPPORTUNITIES.list_open()):
-        ok = await maybe_auto_approve_opportunity(
+        if enqueue_auto_approve_opportunity(
             opp.id,
             audit=audit,
             symbol=opp.candidate.symbol,
-        )
-        if ok:
-            approved += 1
-    return approved
+        ):
+            queued += 1
+    return queued
+
+
+async def maybe_auto_approve_open_buys(*, audit: Any) -> int:
+    """Approve every open BUY card. Tests may await this; the desk enqueues."""
+    return enqueue_auto_approve_open_buys(audit=audit)

@@ -313,3 +313,25 @@ class ArchivedActivityEventRow(Base):
     archived_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     archive_reason: Mapped[str] = mapped_column(String(128), nullable=False)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)
+
+
+class DecisionOutcomeRow(Base):
+    """Durable capital-funnel outcome — survives process restart for RCA."""
+
+    __tablename__ = "decision_outcomes"
+    __table_args__ = (
+        Index("ix_decision_outcomes_symbol_recorded", "symbol", "recorded_at"),
+        Index("ix_decision_outcomes_pipeline", "pipeline_run_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUIDType, primary_key=True, default=uuid.uuid4)
+    symbol: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    stage: Mapped[str] = mapped_column(String(64), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    primary_reason: Mapped[str] = mapped_column(String(128), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    pipeline_run_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    watch_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONType, nullable=False, default=dict)

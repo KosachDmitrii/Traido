@@ -112,6 +112,13 @@ async def test_scan_api(client_app=None) -> None:
         assert resp.status_code == 200
         data = resp.json()
         assert data["symbol"] == "AAPL"
-        assert data["status"] in {"completed", "no_candidate", "failed"}
+        assert data["status"] in {
+            "completed",
+            "no_candidate",
+            "failed",
+            "data_blocked",
+            "operational_blocked",
+            "no_trade",
+        }
         health = await client.get("/health")
         assert health.json()["stage"] >= 3

@@ -82,6 +82,8 @@ class EntryWatchStore:
                     EntryWatchStatus.TRIGGERED,
                     EntryWatchStatus.ADMITTED,
                     EntryWatchStatus.CONVERTING,
+                    EntryWatchStatus.BLOCKED_DATA,
+                    EntryWatchStatus.BLOCKED_OPERATIONAL,
                 }:
                     return w
             return None
@@ -158,6 +160,8 @@ class EntryWatchStore:
                     EntryWatchStatus.WAITING,
                     EntryWatchStatus.TRIGGERED,
                     EntryWatchStatus.REVALIDATING,
+                    EntryWatchStatus.BLOCKED_DATA,
+                    EntryWatchStatus.BLOCKED_OPERATIONAL,
                 }
             ]
             triggered = [
@@ -264,6 +268,8 @@ class EntryWatchStore:
                 EntryWatchStatus.REVALIDATING,
                 EntryWatchStatus.ADMITTED,
                 EntryWatchStatus.CONVERTING,
+                EntryWatchStatus.BLOCKED_DATA,
+                EntryWatchStatus.BLOCKED_OPERATIONAL,
             }
             for w in self._rows.values():
                 if w.status in visible:
@@ -349,6 +355,8 @@ class EntryWatchStore:
                     EntryWatchStatus.ADMITTED,
                     EntryWatchStatus.CONVERTING,
                     EntryWatchStatus.REVALIDATING,
+                    EntryWatchStatus.BLOCKED_DATA,
+                    EntryWatchStatus.BLOCKED_OPERATIONAL,
                 }:
                     out.append(w)
             result = list(out)

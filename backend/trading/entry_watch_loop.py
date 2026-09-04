@@ -63,9 +63,9 @@ async def run_watch_pass() -> dict[str, int]:
         "still_waiting": 0,
     }
     if not watches:
-        from trading.auto_trigger_policy import maybe_auto_approve_open_buys
+        from trading.auto_trigger_policy import enqueue_auto_approve_open_buys
 
-        await maybe_auto_approve_open_buys(audit=create_audit())
+        enqueue_auto_approve_open_buys(audit=create_audit())
         return stats
 
     settings = get_settings()
@@ -143,6 +143,28 @@ async def run_watch_pass() -> dict[str, int]:
                     )
                     stats["still_waiting"] += 1
                     continue
+
+            if current.status in {
+                EntryWatchStatus.BLOCKED_DATA,
+                EntryWatchStatus.BLOCKED_OPERATIONAL,
+            }:
+                retry_at = getattr(current, "retry_at", None)
+                if (
+                    current.status is EntryWatchStatus.BLOCKED_OPERATIONAL
+                    and retry_at is not None
+                    and retry_at > datetime.now(UTC)
+                ):
+                    stats["still_waiting"] += 1
+                    continue
+                released = ENTRY_WATCHES.mark(
+                    current.id,
+                    EntryWatchStatus.TRIGGERED,
+                    reason="BLOCKED_RETRY",
+                )
+                if released is None:
+                    stats["still_waiting"] += 1
+                    continue
+                current = released
 
             if current.status is EntryWatchStatus.ADMITTED:
                 stats["triggered"] += 1
@@ -256,11 +278,11 @@ async def run_watch_pass() -> dict[str, int]:
         except Exception:
             logger.warning("entry watch pass failed for %s", watch.symbol, exc_info=True)
 
-    from trading.auto_trigger_policy import maybe_auto_approve_open_buys
+    from trading.auto_trigger_policy import enqueue_auto_approve_open_buys
     from trading.shadow_outcomes import SHADOW_OUTCOMES
 
     SHADOW_OUTCOMES.finalize_expired()
-    await maybe_auto_approve_open_buys(audit=audit)
+    enqueue_auto_approve_open_buys(audit=audit)
     return stats
 
 

@@ -27,10 +27,8 @@ from trading.buy_confirmation import (
     CANDIDATE_ENTRY_FLOOR,
     CANDIDATE_SETUP_FLOOR,
     EFFECTIVE_RR_TOO_LOW,
-    ENTRY_CONFIRMATION_BELOW_FLOOR,
     MOMENTUM_CONFIRMATION_MISSING,
     NOT_BUY_READY,
-    SETUP_CONFIRMATION_BELOW_FLOOR,
     VWAP_CONFIRMATION_MISSING,
     buy_confirmation_for,
     evaluate_buy_ready,
@@ -251,14 +249,13 @@ def test_h_weak_setup_deficit_four_forbids_compensation() -> None:
     assert admission.decision is not AdmissionDecision.BUY_ALLOWED
 
 
-def test_i_weak_setup_deficit_two_allows_confirmation_relaxation() -> None:
+def test_i_weak_setup_below_candidate_floor_is_not_buy_ready() -> None:
     set_entry_aggressiveness(100, actor="test")
     admission = _admit(_bundle(setup_q=53, entry_q=55, target=125.0, momentum=0.05))
-    assert admission.buy_ready is True
-    assert SETUP_CONFIRMATION_BELOW_FLOOR not in admission.reason_codes
-    assert ENTRY_CONFIRMATION_BELOW_FLOOR not in admission.reason_codes
-    assert admission.decision is AdmissionDecision.BUY_ALLOWED
-    assert admission.confirmation_relaxed is True
+    assert admission.buy_ready is False
+    assert "CANDIDATE_SETUP_BELOW_FLOOR" in admission.reason_codes
+    assert admission.decision is AdmissionDecision.NO_TRADE
+    assert admission.admitted is False
 
 
 def test_j_slider_does_not_change_candidate_or_wait_funnel() -> None:

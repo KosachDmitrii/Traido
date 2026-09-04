@@ -72,6 +72,8 @@ export function ScanFunnelCard() {
       value: funnel.wait_for_entry ?? 0,
       note: t("funnel.note.watch"),
     },
+    { labelKey: "funnel.row.dataBlocked", value: funnel.data_blocked ?? 0 },
+    { labelKey: "funnel.row.opsBlocked", value: funnel.operational_blocked ?? 0 },
     { labelKey: "funnel.row.noSetup", value: funnel.deep_analysis_no_candidate },
     { labelKey: "funnel.row.risk", value: funnel.risk_passed, note: t("funnel.note.buyCard") },
     { labelKey: "funnel.row.published", value: funnel.published, note: t("funnel.note.buyCard") },

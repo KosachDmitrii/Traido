@@ -52,6 +52,9 @@ reconciliation settles it.
 | Spread too wide to price against | Never created | Entry refused before the limit is derived rather than after, so the reason names the book and not the drift it caused | `LiquidityGateRejected` (`SPREAD_TOO_WIDE`) | That entry only | The book tightens |
 | Candidate sector could not be established | Never created | Entry refused — `"unknown"` is not a sector, and treating it as one let a name bypass its real sector's cap | `RiskReject` (`SECTOR_UNCLASSIFIED` / `SECTOR_NOT_CONFIGURED` / `SECTOR_UNAVAILABLE` / `SECTOR_UNVERIFIED`) | That symbol | Map it in `configs/universe.json`, configure `FINNHUB_API_KEY` so `profile2` can classify names outside the file, or accept via `require_sector_check=false` |
 | Standing BUY card whose live book no longer clears entry geometry | Card stays `AWAITING_CONFIRMATION` | Desk marks `viability.buyable=false` and disables BUY; card is **not** withdrawn (spread and drift come back) | Desk field `viability.state` ∈ {`wide`,`drifted`,`past_setup`,`unverified`} | That card's BUY only | Book tightens / price returns / next scan redraws levels |
+| Auto Trigger pre-submit refusal (stale quote, unread portfolio, reconciliation, RTH/liquidity, wide spread, chase, RR drop) | Card stays `AWAITING_CONFIRMATION` | Retry with backoff. Never `SKIPPED` or `DISCARDED` | `AutoTriggerApproveDeferred` | That card until retry | Book tightens / data or broker returns |
+| Auto Trigger terminal reject (regime not tradable, thesis, geometry) | `DISCARDED` | No retry | `OpportunityDiscarded` | That card | A later scan may draw a new card |
+| Auto Trigger error after a possible broker submit | Unchanged (`UNKNOWN` / `APPROVING`) | No second `decide()`. Reconciliation only | `AutoTriggerStateUnknown` | Symbol blocked | Reconciliation |
 
 A standing proposal and a live entry are different questions. `withdraw_unactionable`
 removes only durable facts (TTL, open position). Transient book conditions are

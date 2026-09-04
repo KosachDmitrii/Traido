@@ -82,7 +82,7 @@ def test_five_rung_confirmation_tables() -> None:
     assert thresholds_for(75).require_vwap_hold is False
     assert thresholds_for(50).require_vwap_hold is True
     assert strong.allow_sell_off_arrival is False
-    assert weak.allow_sell_off_arrival is True
+    assert weak.allow_sell_off_arrival is False
     assert weak.min_sell_off_arrival_quality == 8
     assert strong.structural_arrival_hard is True
     assert weak.structural_arrival_hard is True

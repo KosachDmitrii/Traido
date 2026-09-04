@@ -315,7 +315,13 @@ def _revalidate_after_claim(
     if admission.decision is AdmissionDecision.DATA_BLOCKED:
         block_status = watch_block_status_for_data_blocked(list(admission.reason_codes))
         reason = ",".join(admission.reason_codes[:6]) or "DATA_BLOCKED"
-        ENTRY_WATCHES.mark(watch.id, block_status, reason=reason)
+        blocked = ENTRY_WATCHES.mark(watch.id, block_status, reason=reason)
+        if blocked is not None and block_status is EntryWatchStatus.BLOCKED_OPERATIONAL:
+            from datetime import timedelta
+
+            ENTRY_WATCHES.update(
+                blocked.model_copy(update={"retry_at": datetime.now(UTC) + timedelta(seconds=30)})
+            )
         DECISION_OUTCOMES.record(
             symbol=watch.symbol,
             stage="watch_revalidate",
