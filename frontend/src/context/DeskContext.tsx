@@ -21,6 +21,7 @@ import {
   fetchKillSwitch,
   mergeDesk,
   subscribeDeskEvents,
+  type DeskStreamEvent,
 } from "@/lib/api";
 import { useI18n } from "@/i18n/I18nProvider";
 import {
@@ -29,7 +30,7 @@ import {
   playBuyableChime,
   unlockBuyableAudioNow,
 } from "@/lib/buyableAlert";
-import { humanizeError, type FlashMessage } from "@/lib/messages";
+import { flashBuyOk, humanizeError, type FlashMessage } from "@/lib/messages";
 import { useToastQueue, type FlashSlot, type Toast } from "@/lib/toasts";
 
 const LIGHT_MS = 5000;
@@ -232,8 +233,20 @@ export function DeskProvider({ children }: { children: ReactNode }) {
       refreshBrokerBackend().catch(() => undefined);
     }, BROKER_MS);
 
-    const unsub = subscribeDeskEvents((ev) => {
-      if (ev.channel === "broker" || ev.type === "decide" || ev.type === "decide_failed") {
+    const unsub = subscribeDeskEvents((ev: DeskStreamEvent) => {
+      if (ev.type === "auto_trigger_failed" && ev.error) {
+        showFlash(humanizeError(ev.error));
+      }
+      if (ev.type === "auto_trigger_approve" && ev.symbol) {
+        showFlash(flashBuyOk(ev.symbol, ev.status || "executed"));
+      }
+      if (
+        ev.channel === "broker" ||
+        ev.type === "decide" ||
+        ev.type === "decide_failed" ||
+        ev.type === "auto_trigger_approve" ||
+        ev.type === "auto_trigger_failed"
+      ) {
         refreshBroker(true).catch(() => undefined);
         refreshBrokerBackend().catch(() => undefined);
       }
@@ -241,6 +254,8 @@ export function DeskProvider({ children }: { children: ReactNode }) {
         ev.type === "opportunity" ||
         ev.type === "decide" ||
         ev.type === "decide_failed" ||
+        ev.type === "auto_trigger_approve" ||
+        ev.type === "auto_trigger_failed" ||
         ev.type === "scan_cycle" ||
         ev.type === "exit_decided" ||
         ev.type === "exit_failed"

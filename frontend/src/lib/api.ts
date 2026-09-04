@@ -550,8 +550,16 @@ export async function runScanner() {
   }).catch(() => undefined);
 }
 
+export type DeskStreamEvent = {
+  type?: string;
+  channel?: string;
+  error?: string;
+  symbol?: string;
+  status?: string;
+};
+
 export function subscribeDeskEvents(
-  onEvent: (ev: { type?: string; channel?: string }) => void,
+  onEvent: (ev: DeskStreamEvent) => void,
 ): () => void {
   if (typeof window === "undefined" || typeof EventSource === "undefined") {
     return () => undefined;
@@ -559,7 +567,7 @@ export function subscribeDeskEvents(
   const es = new EventSource(streamUrl("/api/v1/desk/stream"));
   es.onmessage = (msg) => {
     try {
-      onEvent(JSON.parse(msg.data) as { type?: string; channel?: string });
+      onEvent(JSON.parse(msg.data) as DeskStreamEvent);
     } catch {
       /* ignore malformed */
     }

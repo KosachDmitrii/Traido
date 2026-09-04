@@ -14,6 +14,11 @@
     "llm": "anthropic_claude",
     "notify_confirm": "telegram"
   },
+  "macro_regime": {
+    "dgs10_risk_off": 5.5,
+    "dgs10_risk_on": 3.0,
+    "unrate_risk_off": 5.0
+  },
   "risk_limits_v1": {
     "max_risk_per_trade_pct": 1.0,
     "max_position_pct": 5.0,

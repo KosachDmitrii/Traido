@@ -658,6 +658,13 @@ async def publish_opportunity(
         entity_type="opportunity",
         entity_id=str(opp.id),
     )
+    from trading.auto_trigger_policy import maybe_auto_approve_opportunity
+
+    await maybe_auto_approve_opportunity(
+        opp.id,
+        audit=audit,
+        symbol=symbol.upper(),
+    )
     BOARD.set_agent("scanner", status="idle", detail="Proposal queued")
     return result.model_copy(
         update={

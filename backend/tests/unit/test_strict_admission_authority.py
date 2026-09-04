@@ -407,6 +407,29 @@ async def test_fred_without_key_is_data_blocked() -> None:
     assert "FRED_NOT_CONFIGURED" in result.reasons
 
 
+@pytest.mark.asyncio
+async def test_current_ten_year_is_not_risk_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _latest(_client, _key, series):
+        return {"DGS10": 4.79, "UNRATE": 4.10}[series]
+
+    monkeypatch.setattr("agents.market.agent._fred_latest", _latest)
+    result = await assess_market("fake-key")
+    assert result.regime.value == "neutral"
+    assert result.risk_posture == "neutral"
+    assert result.evaluated_at is not None
+
+
+@pytest.mark.asyncio
+async def test_elevated_ten_year_is_risk_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _latest(_client, _key, series):
+        return {"DGS10": 5.50, "UNRATE": 4.10}[series]
+
+    monkeypatch.setattr("agents.market.agent._fred_latest", _latest)
+    result = await assess_market("fake-key")
+    assert result.regime.value == "risk_off"
+    assert result.risk_posture == "risk_off"
+
+
 def test_sql_no_entry_intent_without_approval_fk() -> None:
     from database.models.desk import OrderIntentRow
     from database.session import session_factory

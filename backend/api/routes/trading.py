@@ -230,13 +230,17 @@ async def get_auto_trigger() -> dict:
 async def put_auto_trigger(body: AutoTriggerBody) -> dict:
     from trading.auto_trigger_policy import policy_payload, set_auto_trigger_enabled
 
-    set_auto_trigger_enabled(body.enabled, actor="user")
+    enabled = set_auto_trigger_enabled(body.enabled, actor="user")
     audit = create_audit()
     await audit.append(
         "AutoTriggerUpdated",
         "user",
         {"enabled": body.enabled},
     )
+    if enabled:
+        from trading.auto_trigger_policy import maybe_auto_approve_open_buys
+
+        await maybe_auto_approve_open_buys(audit=audit)
     DESK_BUS.bump_desk()
     return policy_payload()
 

@@ -63,6 +63,9 @@ async def run_watch_pass() -> dict[str, int]:
         "still_waiting": 0,
     }
     if not watches:
+        from trading.auto_trigger_policy import maybe_auto_approve_open_buys
+
+        await maybe_auto_approve_open_buys(audit=create_audit())
         return stats
 
     settings = get_settings()
@@ -253,9 +256,11 @@ async def run_watch_pass() -> dict[str, int]:
         except Exception:
             logger.warning("entry watch pass failed for %s", watch.symbol, exc_info=True)
 
+    from trading.auto_trigger_policy import maybe_auto_approve_open_buys
     from trading.shadow_outcomes import SHADOW_OUTCOMES
 
     SHADOW_OUTCOMES.finalize_expired()
+    await maybe_auto_approve_open_buys(audit=audit)
     return stats
 
 
@@ -434,13 +439,8 @@ async def _publish_admitted_watch(
                     "symbol": forced.symbol,
                 },
             )
-            from trading.auto_trigger_policy import maybe_auto_approve_opportunity
-
-            await maybe_auto_approve_opportunity(
-                published.opportunity.id,
-                audit=audit,
-                symbol=forced.symbol,
-            )
+            # Auto-buy lives in publish_opportunity — one click path for scanner
+            # and watch conversion alike.
         else:
             ENTRY_WATCHES.mark(current.id, EntryWatchStatus.ADMITTED, reason="PUBLISH_DEFERRED")
             stats["still_waiting"] += 1

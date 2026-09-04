@@ -60,22 +60,25 @@ async def assess_market(
             reasons=["FRED_SERIES_EMPTY", "DATA_BLOCKED", *[f"MISSING_{s}" for s in missing]],
         )
 
+    from risk.limits import load_macro_regime
+
+    th = load_macro_regime()
     notes: list[str] = [f"DGS10={dgs:.2f}", f"UNRATE={unrate:.2f}"]
     score = 55
     regime = MarketRegimeLabel.NEUTRAL
     posture = "neutral"
 
-    if dgs >= 4.5:
+    if dgs >= th.dgs10_risk_off:
         score -= 10
         posture = "risk_off"
         regime = MarketRegimeLabel.RISK_OFF
         notes.append("Elevated yields — caution")
-    elif dgs <= 3.0:
+    elif dgs <= th.dgs10_risk_on:
         score += 8
         posture = "risk_on"
         regime = MarketRegimeLabel.RISK_ON
 
-    if unrate >= 5.0:
+    if unrate >= th.unrate_risk_off:
         score -= 8
         posture = "risk_off"
         regime = MarketRegimeLabel.RISK_OFF

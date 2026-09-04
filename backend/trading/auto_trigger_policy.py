@@ -1,7 +1,8 @@
-"""Desk auto-buy on TRIGGERED→ADMITTED path — operator toggle (paper confirmation desk).
+"""Desk auto-buy — operator toggle (paper confirmation desk).
 
-When enabled, ADMITTED watches that publish a BUY card are auto-approved through
-``ExecutionService`` — same gates as manual Buy. Paper broker env only; live refuses.
+When enabled, every new BUY card is approved through ``ExecutionService`` —
+same gates as the Buy button. A reject is shown on the desk and the card is
+skipped. Paper broker env only; live refuses.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ POLICY_PATH = Path(__file__).resolve().parents[1] / "data" / "auto_trigger.json"
 REDIS_KEY = "traido:auto_trigger"
 _LOCK = threading.Lock()
 _cached: bool | None = None
+_in_flight: set[str] = set()
 
 
 def _auto_trigger_blocked() -> bool:
@@ -211,12 +213,58 @@ def policy_payload() -> dict[str, Any]:
             "Auto-approve is disabled on live broker — switch to paper or use Buy on the card."
             if blocked
             else (
-                "When on, ADMITTED watches that publish a BUY card are auto-approved "
-                "through ExecutionService (kill switch, RTH, reconciliation, liquidity, "
-                "risk — same as manual Buy). Paper execution only."
+                "When on, a BUY card is auto-approved through ExecutionService "
+                "(kill switch, RTH, reconciliation, liquidity, risk — same as "
+                "manual Buy). A reject is shown and the card is removed. Paper only."
             )
         ),
     }
+
+
+def _error_text(exc: BaseException) -> str:
+    text = str(exc).strip()
+    return text or type(exc).__name__
+
+
+async def _skip_rejected_card(
+    opportunity_id: Any,
+    *,
+    audit: Any,
+    symbol: str,
+    error: str,
+) -> None:
+    from core.desk_bus import DESK_BUS
+    from core.enums import OpportunityStatus
+    from trading.opportunities import OPPORTUNITIES
+
+    claimed = OPPORTUNITIES.claim(
+        opportunity_id,
+        from_status=OpportunityStatus.AWAITING_CONFIRMATION,
+        to_status=OpportunityStatus.SKIPPED,
+    )
+    await audit.append(
+        "AutoTriggerApproveFailed",
+        "auto_trigger",
+        {"opportunity_id": str(opportunity_id), "symbol": symbol, "error": error},
+    )
+    if claimed is not None:
+        await audit.append(
+            "OpportunitySkipped",
+            "auto_trigger",
+            {
+                "opportunity_id": str(opportunity_id),
+                "symbol": symbol,
+                "reason": "auto_trigger_rejected",
+                "error": error,
+            },
+        )
+    DESK_BUS.bump_desk(
+        kind="auto_trigger_failed",
+        symbol=symbol,
+        opportunity_id=str(opportunity_id),
+        error=error,
+    )
+    DESK_BUS.bump_broker(kind="auto_trigger_failed")
 
 
 async def maybe_auto_approve_opportunity(
@@ -233,46 +281,74 @@ async def maybe_auto_approve_opportunity(
 
     from uuid import UUID, uuid4
 
-    from core.enums import UserDecision
+    from core.enums import OpportunityStatus, UserDecision
     from trading.opportunities import OPPORTUNITIES
 
     opp_id = opportunity_id if isinstance(opportunity_id, UUID) else UUID(str(opportunity_id))
-    opp = OPPORTUNITIES.get(opp_id)
-    if opp is None:
-        return False
-
-    from api.deps import build_execution_service
-
-    service = build_execution_service()
-    request_id = uuid4()
+    key = str(opp_id)
+    with _LOCK:
+        if key in _in_flight:
+            return False
+        _in_flight.add(key)
     try:
-        result = await service.decide(
-            opp_id,
-            UserDecision.APPROVE,
-            request_id=request_id,
-            expected_decision_version=opp.decision_version,
-        )
-    except Exception as exc:  # noqa: BLE001 — desk must continue on auto-buy failure
-        logger.warning("auto trigger: approve failed for %s (%s)", symbol, exc)
+        opp = OPPORTUNITIES.get(opp_id)
+        if opp is None or opp.status is not OpportunityStatus.AWAITING_CONFIRMATION:
+            return False
+
+        from api.deps import build_execution_service
+
+        service = build_execution_service()
+        request_id = uuid4()
+        try:
+            result = await service.decide(
+                opp_id,
+                UserDecision.APPROVE,
+                request_id=request_id,
+                expected_decision_version=opp.decision_version,
+            )
+        except Exception as exc:  # noqa: BLE001 — desk must continue; card is skipped
+            error = _error_text(exc)
+            logger.warning("auto trigger: approve failed for %s (%s)", symbol, error)
+            await _skip_rejected_card(opp_id, audit=audit, symbol=symbol, error=error)
+            return False
+
         await audit.append(
-            "AutoTriggerApproveFailed",
+            "AutoTriggerApproved",
             "auto_trigger",
-            {"opportunity_id": str(opp_id), "symbol": symbol, "error": type(exc).__name__},
+            {
+                "opportunity_id": str(opp_id),
+                "symbol": symbol,
+                "status": result.status.value,
+                "request_id": str(request_id),
+            },
         )
-        return False
+        from core.desk_bus import DESK_BUS
 
-    await audit.append(
-        "AutoTriggerApproved",
-        "auto_trigger",
-        {
-            "opportunity_id": str(opp_id),
-            "symbol": symbol,
-            "status": result.status.value,
-            "request_id": str(request_id),
-        },
-    )
-    from core.desk_bus import DESK_BUS
+        DESK_BUS.bump_desk(
+            kind="auto_trigger_approve",
+            symbol=symbol,
+            status=result.status.value,
+        )
+        DESK_BUS.bump_broker(kind="auto_trigger_approve")
+        return True
+    finally:
+        with _LOCK:
+            _in_flight.discard(key)
 
-    DESK_BUS.bump_desk(kind="auto_trigger_approve", symbol=symbol)
-    DESK_BUS.bump_broker(kind="auto_trigger_approve")
-    return True
+
+async def maybe_auto_approve_open_buys(*, audit: Any) -> int:
+    """Approve every open BUY card. Used when the toggle turns on and each pass."""
+    if _auto_trigger_blocked() or not get_auto_trigger_enabled():
+        return 0
+    from trading.opportunities import OPPORTUNITIES
+
+    approved = 0
+    for opp in list(OPPORTUNITIES.list_open()):
+        ok = await maybe_auto_approve_opportunity(
+            opp.id,
+            audit=audit,
+            symbol=opp.candidate.symbol,
+        )
+        if ok:
+            approved += 1
+    return approved

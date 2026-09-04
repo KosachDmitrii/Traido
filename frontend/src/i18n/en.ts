@@ -437,9 +437,9 @@ export const en = {
   "settings.trigger.title": "Trigger",
   "settings.trigger.badge.off": "Off",
   "settings.trigger.badge.on": "On",
-  "settings.trigger.lead": "Auto-confirm BUY cards when a watch is admitted after trigger.",
+  "settings.trigger.lead": "Auto-confirm: a BUY card appears — the desk presses Buy.",
   "settings.trigger.what":
-    "When on, the desk approves published BUY opportunities automatically — same gates as clicking Buy (kill switch, RTH, reconciliation, liquidity, risk).",
+    "When on, the desk presses Buy on every BUY card — same gates as a click. A reject is shown and the card is removed.",
   "settings.trigger.keeps":
     "Paper execution only. Does not bypass risk or open the market outside RTH.",
   "settings.trigger.when":

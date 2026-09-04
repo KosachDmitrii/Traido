@@ -9,6 +9,7 @@ are the numbers the engine actually enforces — no second copy to drift.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -47,3 +48,23 @@ def load_risk_limits(path: Path | None = None) -> RiskLimits:
 def default_risk_limits() -> RiskLimits:
     """Cached limits for the running process."""
     return load_risk_limits()
+
+
+@dataclass(frozen=True)
+class MacroRegimeThresholds:
+    """FRED level gates. Absolute yields, not the tape."""
+
+    dgs10_risk_off: float = 5.5
+    dgs10_risk_on: float = 3.0
+    unrate_risk_off: float = 5.0
+
+
+def load_macro_regime(path: Path | None = None) -> MacroRegimeThresholds:
+    raw = load_config(path).get("macro_regime", {})
+    if not isinstance(raw, dict):
+        return MacroRegimeThresholds()
+    return MacroRegimeThresholds(
+        dgs10_risk_off=float(raw.get("dgs10_risk_off", 5.5)),
+        dgs10_risk_on=float(raw.get("dgs10_risk_on", 3.0)),
+        unrate_risk_off=float(raw.get("unrate_risk_off", 5.0)),
+    )
