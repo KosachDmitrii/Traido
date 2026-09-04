@@ -247,8 +247,20 @@ export const ru: Record<MessageKey, string> = {
     "R:R после спреда недостаточен ({detail})",
   "rail.wait.block.SETUP_QUALITY_BELOW_THRESHOLD":
     "Качество сетапа ниже порога для этой ступени входа",
+  "rail.wait.block.SETUP_BELOW_FLOOR":
+    "Качество сетапа ниже порога для этой ступени входа",
+  "rail.wait.block.SETUP_COMPENSATED":
+    "Сетап немного ниже базового порога, но допущен к дальнейшей проверке благодаря позиции в зоне входа и R:R ≥ 2.0.",
   "rail.wait.block.ENTRY_QUALITY_BELOW_THRESHOLD":
     "Качество входа ниже порога для этой ступени",
+  "rail.wait.block.ENTRY_BELOW_FLOOR":
+    "Качество входа ниже порога для этой ступени",
+  "rail.wait.block.RR_BELOW_COMPENSATION_FLOOR":
+    "R:R ниже 2.0 — недобора сетапа недостаточно, чтобы продолжить проверку",
+  "rail.wait.block.WAITING_CONFIRMATION":
+    "Ожидаем подтверждения остальных условий входа",
+  "rail.wait.block.BUY_ALLOWED":
+    "Допуск разрешил покупку — ожидаем подтверждения",
   "rail.wait.block.STALE_DATA": "Котировка устарела — ждём свежее обновление",
   "rail.wait.block.STALE_DATA_AFTER_HOURS":
     "Сессия закрыта — повторная проверка при открытии рынка",

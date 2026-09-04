@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from decimal import Decimal
 
 from core.schemas import EffectiveRRResult, Quote
@@ -10,6 +11,39 @@ DEFAULT_SLIPPAGE_BPS = 5.0
 DEFAULT_ADMISSION_RR_FLOOR = 2.0
 EXCEPTIONAL_RR_FLOOR = 1.8
 WEAK_SETUP_RR_FLOOR = 2.5
+
+
+def planned_long_rr(
+    entry: Decimal | float,
+    stop: Decimal | float,
+    target: Decimal | float,
+) -> float | None:
+    """Canonical long R:R from the same entry/stop/target admission sizes against.
+
+    risk   = entry - stop
+    reward = target - entry
+    RR     = reward / risk
+
+    Returns None when geometry is invalid or RR is non-finite.
+    """
+    try:
+        entry_f = float(entry)
+        stop_f = float(stop)
+        target_f = float(target)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(entry_f) and math.isfinite(stop_f) and math.isfinite(target_f)):
+        return None
+    if stop_f >= entry_f or target_f <= entry_f:
+        return None
+    risk = entry_f - stop_f
+    reward = target_f - entry_f
+    if risk <= 0 or reward <= 0:
+        return None
+    rr = reward / risk
+    if not math.isfinite(rr):
+        return None
+    return rr
 
 
 def price_within_zone_cushion(

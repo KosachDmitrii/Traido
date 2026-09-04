@@ -85,6 +85,10 @@ def has_transient_wait_signal(
         "INSUFFICIENT_EFFECTIVE_RR",
         "SETUP_QUALITY_BELOW_THRESHOLD",
         "ENTRY_QUALITY_BELOW_THRESHOLD",
+        "SETUP_BELOW_FLOOR",
+        "ENTRY_BELOW_FLOOR",
+        "RR_BELOW_COMPENSATION_FLOOR",
+        "WAITING_CONFIRMATION",
     }
     if hard & transient:
         return True

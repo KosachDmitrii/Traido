@@ -244,8 +244,20 @@ export const en = {
     "Effective R:R after spread is too low ({detail})",
   "rail.wait.block.SETUP_QUALITY_BELOW_THRESHOLD":
     "Setup quality is below the threshold for this entry level",
+  "rail.wait.block.SETUP_BELOW_FLOOR":
+    "Setup quality is below the threshold for this entry level",
+  "rail.wait.block.SETUP_COMPENSATED":
+    "Setup is slightly below the base floor, but admitted to further checks because price is in the entry zone and R:R ≥ 2.0.",
   "rail.wait.block.ENTRY_QUALITY_BELOW_THRESHOLD":
     "Entry quality is below the threshold for this level",
+  "rail.wait.block.ENTRY_BELOW_FLOOR":
+    "Entry quality is below the threshold for this level",
+  "rail.wait.block.RR_BELOW_COMPENSATION_FLOOR":
+    "R:R is below 2.0 — not enough to continue with a setup just under the floor",
+  "rail.wait.block.WAITING_CONFIRMATION":
+    "Waiting for the remaining entry conditions to confirm",
+  "rail.wait.block.BUY_ALLOWED":
+    "Admission allowed a buy — awaiting confirmation",
   "rail.wait.block.STALE_DATA": "Quote is stale — waiting for a fresh update",
   "rail.wait.block.STALE_DATA_AFTER_HOURS":
     "Session closed — revalidation resumes when the market opens",

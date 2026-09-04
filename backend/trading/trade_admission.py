@@ -21,12 +21,18 @@ from core.schemas import (
     TradeAdmissionResult,
     TradeCandidate,
 )
+from trading import admission_relaxation
+from trading.admission_relaxation import (
+    emit_relaxation_observation,
+    evaluate_setup_compensation,
+)
 from trading.arrival_admission import evaluate_arrival_gate
 from trading.chase_facts import HARD_CHASE_LIMIT, compute_chase_facts
 from trading.data_integrity import check_data_integrity
 from trading.decision_precedence import resolve_admission_decision
 from trading.effective_rr import (
     compute_effective_rr,
+    planned_long_rr,
     price_within_zone_cushion,
     required_admission_rr,
 )
@@ -167,6 +173,7 @@ def evaluate_trade_admission(
     stop_structural_source: str | None = None,
     stop_structural_level: float | None = None,
     zone_entry_price: float | None = None,
+    regime_allowed: bool = True,
 ) -> TradeAdmissionResult:
     """Apply all trading gates. Does not re-run quant indicators."""
     th = get_entry_thresholds()
@@ -220,6 +227,44 @@ def evaluate_trade_admission(
     if in_cushion and ent is not None:
         admission_facts = facts.model_copy(update={"current_price": float(ent)})
 
+    symbol = (
+        (quote.symbol if quote is not None and quote.symbol else None)
+        or (candidate.symbol if candidate is not None else None)
+        or "UNKNOWN"
+    )
+    planned_rr = (
+        planned_long_rr(ent, stp, tgt)
+        if ent is not None and stp is not None and tgt is not None
+        else None
+    )
+    compensation_eligible = False
+    compensation_applied = False
+    reached_admission = False
+    hard_risk_block = False
+
+    def finish(
+        result: TradeAdmissionResult,
+        *,
+        reached: bool | None = None,
+    ) -> TradeAdmissionResult:
+        emit_relaxation_observation(
+            symbol=str(symbol),
+            relaxation_level=th.aggressiveness,
+            setup_score=setup_q,
+            setup_floor=th.min_setup_quality,
+            entry_score=entry_q,
+            entry_floor=th.min_entry_quality,
+            price_in_entry_zone=in_cushion,
+            rr=planned_rr,
+            compensation_eligible=compensation_eligible,
+            compensation_applied=compensation_applied,
+            result=result,
+            regime_allowed=regime_allowed,
+            hard_risk_block=hard_risk_block,
+            reached_admission=reached_admission if reached is None else reached,
+        )
+        return result
+
     data = check_data_integrity(
         quote=quote,
         bars_count=bars_count,
@@ -229,29 +274,33 @@ def evaluate_trade_admission(
         quote_max_age_sec=th.quote_max_age_sec,
     )
     if data.status is DataHealthStatus.UNHEALTHY:
-        return TradeAdmissionResult(
-            decision=AdmissionDecision.DATA_BLOCKED,
-            admitted=False,
-            setup_type=st,
-            setup_quality=setup_q,
-            entry_quality=entry_q,
-            data_status=data.status,
-            vetoes=vetoes_from_codes(data.reason_codes),
-            reason_codes=[*data.reason_codes, "DATA_BLOCKED"],
-            admission_version=ADMISSION_VERSION,
+        return finish(
+            TradeAdmissionResult(
+                decision=AdmissionDecision.DATA_BLOCKED,
+                admitted=False,
+                setup_type=st,
+                setup_quality=setup_q,
+                entry_quality=entry_q,
+                data_status=data.status,
+                vetoes=vetoes_from_codes(data.reason_codes),
+                reason_codes=[*data.reason_codes, "DATA_BLOCKED"],
+                admission_version=ADMISSION_VERSION,
+            )
         )
 
     if quote is None or quote.bid is None or quote.ask is None or quote.ts is None:
-        return TradeAdmissionResult(
-            decision=AdmissionDecision.DATA_BLOCKED,
-            admitted=False,
-            setup_type=st,
-            setup_quality=setup_q,
-            entry_quality=entry_q,
-            data_status=DataHealthStatus.UNHEALTHY,
-            vetoes=["STALE_DATA"],
-            reason_codes=["QUOTE_INCOMPLETE", "DATA_BLOCKED"],
-            admission_version=ADMISSION_VERSION,
+        return finish(
+            TradeAdmissionResult(
+                decision=AdmissionDecision.DATA_BLOCKED,
+                admitted=False,
+                setup_type=st,
+                setup_quality=setup_q,
+                entry_quality=entry_q,
+                data_status=DataHealthStatus.UNHEALTHY,
+                vetoes=["STALE_DATA"],
+                reason_codes=["QUOTE_INCOMPLETE", "DATA_BLOCKED"],
+                admission_version=ADMISSION_VERSION,
+            )
         )
 
     snap_atr_raw = None
@@ -270,16 +319,18 @@ def evaluate_trade_admission(
         SetupType.MEAN_REVERSION,
         SetupType.BREAKOUT_CONTINUATION,
     }:
-        return TradeAdmissionResult(
-            decision=AdmissionDecision.DATA_BLOCKED,
-            admitted=False,
-            setup_type=st,
-            setup_quality=setup_q,
-            entry_quality=entry_q,
-            data_status=data.status,
-            vetoes=["MISSING_ATR"],
-            reason_codes=["MISSING_ATR", "DATA_BLOCKED"],
-            admission_version=ADMISSION_VERSION,
+        return finish(
+            TradeAdmissionResult(
+                decision=AdmissionDecision.DATA_BLOCKED,
+                admitted=False,
+                setup_type=st,
+                setup_quality=setup_q,
+                entry_quality=entry_q,
+                data_status=data.status,
+                vetoes=["MISSING_ATR"],
+                reason_codes=["MISSING_ATR", "DATA_BLOCKED"],
+                admission_version=ADMISSION_VERSION,
+            )
         )
 
     chase = compute_chase_facts(admission_facts, zone_high=zone_high, thresholds=th)
@@ -290,19 +341,23 @@ def evaluate_trade_admission(
     )
     vetoes: list[str] = []
 
+    reached_admission = True
+
     if bundle.thesis is not InstrumentThesis.BULLISH:
         reason_codes.append("THESIS_NOT_BULLISH")
-        return _result(
-            AdmissionDecision.NO_TRADE,
-            st,
-            setup_q,
-            entry_q,
-            chase.score,
-            structure,
-            data.status,
-            vetoes,
-            warnings,
-            reason_codes,
+        return finish(
+            _result(
+                AdmissionDecision.NO_TRADE,
+                st,
+                setup_q,
+                entry_q,
+                chase.score,
+                structure,
+                data.status,
+                vetoes,
+                warnings,
+                reason_codes,
+            )
         )
 
     allowed, zone_reasons = entry_allowed_for_setup_type(
@@ -434,74 +489,106 @@ def evaluate_trade_admission(
     min_entry = th.min_entry_quality
 
     if hard:
+        hard_risk_block = True
         decision = resolve_admission_decision(hard, reason_codes, zone_allowed=allowed)
-        return _result(
-            decision,
-            st,
-            setup_q,
-            entry_q,
-            chase.score,
-            structure,
-            data.status,
-            hard,
-            warnings,
-            reason_codes,
-            effective_rr=effective_rr_val,
-            stop_valid=stop_valid,
-            target_valid=target_valid,
+        return finish(
+            _result(
+                decision,
+                st,
+                setup_q,
+                entry_q,
+                chase.score,
+                structure,
+                data.status,
+                hard,
+                warnings,
+                reason_codes,
+                effective_rr=effective_rr_val,
+                stop_valid=stop_valid,
+                target_valid=target_valid,
+            )
         )
 
     if zone_arrival_required(st) and zone_arrival is None:
-        return _result(
-            AdmissionDecision.WAIT,
-            st,
-            setup_q,
-            entry_q,
-            chase.score,
-            structure,
-            data.status,
-            vetoes,
-            warnings,
-            reason_codes,
-            effective_rr=effective_rr_val,
-            stop_valid=stop_valid,
-            target_valid=target_valid,
+        reason_codes.append("WAITING_CONFIRMATION")
+        return finish(
+            _result(
+                AdmissionDecision.WAIT,
+                st,
+                setup_q,
+                entry_q,
+                chase.score,
+                structure,
+                data.status,
+                vetoes,
+                warnings,
+                reason_codes,
+                effective_rr=effective_rr_val,
+                stop_valid=stop_valid,
+                target_valid=target_valid,
+            )
         )
 
     if setup_q < min_setup:
-        reason_codes.append("SETUP_QUALITY_BELOW_THRESHOLD")
-        return _result(
-            AdmissionDecision.WAIT,
-            st,
-            setup_q,
-            entry_q,
-            chase.score,
-            structure,
-            data.status,
-            vetoes,
-            warnings,
-            reason_codes,
-            effective_rr=effective_rr_val,
-            stop_valid=stop_valid,
-            target_valid=target_valid,
+        comp = evaluate_setup_compensation(
+            paper=admission_relaxation.is_paper_broker(),
+            setup_score=setup_q,
+            setup_floor=min_setup,
+            entry_score=entry_q,
+            entry_floor=min_entry,
+            price_in_entry_zone=in_cushion,
+            rr=planned_rr,
+            regime_allowed=regime_allowed,
+            required_market_data_fresh=True,
+            hard_risk_block=False,
+            broker_or_data_block=False,
         )
+        compensation_eligible = comp.eligible
+        compensation_applied = comp.applied
+        if comp.applied:
+            reason_codes.append("SETUP_COMPENSATED")
+        else:
+            reason_codes.append("SETUP_BELOW_FLOOR")
+            if entry_q < min_entry:
+                reason_codes.append("ENTRY_BELOW_FLOOR")
+            if comp.deny_reason and comp.deny_reason not in reason_codes:
+                reason_codes.append(comp.deny_reason)
+            return finish(
+                _result(
+                    AdmissionDecision.WAIT,
+                    st,
+                    setup_q,
+                    entry_q,
+                    chase.score,
+                    structure,
+                    data.status,
+                    vetoes,
+                    warnings,
+                    reason_codes,
+                    effective_rr=effective_rr_val,
+                    stop_valid=stop_valid,
+                    target_valid=target_valid,
+                )
+            )
 
     if entry_q < min_entry:
-        reason_codes.append("ENTRY_QUALITY_BELOW_THRESHOLD")
-        return _result(
-            AdmissionDecision.WAIT,
-            st,
-            setup_q,
-            entry_q,
-            chase.score,
-            structure,
-            data.status,
-            vetoes,
-            warnings,
-            reason_codes,
-            effective_rr=effective_rr_val,
-            stop_valid=stop_valid,
-            target_valid=target_valid,
+        reason_codes.append("ENTRY_BELOW_FLOOR")
+        return finish(
+            _result(
+                AdmissionDecision.WAIT,
+                st,
+                setup_q,
+                entry_q,
+                chase.score,
+                structure,
+                data.status,
+                vetoes,
+                warnings,
+                reason_codes,
+                effective_rr=effective_rr_val,
+                stop_valid=stop_valid,
+                target_valid=target_valid,
+            )
         )
 
     if (
@@ -511,37 +598,43 @@ def evaluate_trade_admission(
         and arrival_gate.blocked
         and not arrival_gate.hard_veto
     ):
-        return _result(
-            AdmissionDecision.WAIT,
-            st,
-            setup_q,
-            entry_q,
-            chase.score,
-            structure,
-            data.status,
-            vetoes,
-            warnings,
-            reason_codes,
-            effective_rr=effective_rr_val,
-            stop_valid=stop_valid,
-            target_valid=target_valid,
+        reason_codes.append("WAITING_CONFIRMATION")
+        return finish(
+            _result(
+                AdmissionDecision.WAIT,
+                st,
+                setup_q,
+                entry_q,
+                chase.score,
+                structure,
+                data.status,
+                vetoes,
+                warnings,
+                reason_codes,
+                effective_rr=effective_rr_val,
+                stop_valid=stop_valid,
+                target_valid=target_valid,
+            )
         )
 
     if not allowed:
-        return _result(
-            AdmissionDecision.WAIT,
-            st,
-            setup_q,
-            entry_q,
-            chase.score,
-            structure,
-            data.status,
-            vetoes,
-            warnings,
-            reason_codes,
-            effective_rr=effective_rr_val,
-            stop_valid=stop_valid,
-            target_valid=target_valid,
+        reason_codes.append("WAITING_CONFIRMATION")
+        return finish(
+            _result(
+                AdmissionDecision.WAIT,
+                st,
+                setup_q,
+                entry_q,
+                chase.score,
+                structure,
+                data.status,
+                vetoes,
+                warnings,
+                reason_codes,
+                effective_rr=effective_rr_val,
+                stop_valid=stop_valid,
+                target_valid=target_valid,
+            )
         )
 
     if data.status is DataHealthStatus.DEGRADED:
@@ -562,23 +655,25 @@ def evaluate_trade_admission(
         effective_rr=effective_rr_val,
     )
 
-    return TradeAdmissionResult(
-        decision=AdmissionDecision.BUY_ALLOWED,
-        admitted=True,
-        setup_type=st,
-        setup_quality=setup_q,
-        entry_quality=entry_q,
-        effective_rr=effective_rr_val,
-        chase_score=chase.score,
-        structure_valid=structure.valid,
-        stop_valid=stop_valid,
-        target_valid=target_valid,
-        data_status=data.status,
-        vetoes=[],
-        warnings=warnings,
-        reason_codes=[*reason_codes, "BUY_ALLOWED"],
-        admission_version=ADMISSION_VERSION,
-        snapshot=snapshot,
+    return finish(
+        TradeAdmissionResult(
+            decision=AdmissionDecision.BUY_ALLOWED,
+            admitted=True,
+            setup_type=st,
+            setup_quality=setup_q,
+            entry_quality=entry_q,
+            effective_rr=effective_rr_val,
+            chase_score=chase.score,
+            structure_valid=structure.valid,
+            stop_valid=stop_valid,
+            target_valid=target_valid,
+            data_status=data.status,
+            vetoes=[],
+            warnings=warnings,
+            reason_codes=[*reason_codes, "BUY_ALLOWED"],
+            admission_version=ADMISSION_VERSION,
+            snapshot=snapshot,
+        )
     )
 
 

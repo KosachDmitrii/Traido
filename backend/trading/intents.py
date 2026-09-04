@@ -127,6 +127,10 @@ def _write(session: Session, intent: OrderIntent) -> None:
                 payload=data,
             )
         )
+        if intent.purpose is IntentPurpose.ENTRY:
+            from trading.admission_relaxation import record_funnel
+
+            record_funnel("orders_created")
     else:
         row.status = intent.status.value
         row.broker_order_id = intent.broker_order_id
@@ -351,6 +355,10 @@ class MemoryOrderIntentStore:
                 return self._items[existing_id], False
             self._items[intent.id] = intent
             self._keys[intent.idempotency_key] = intent.id
+            if intent.purpose is IntentPurpose.ENTRY:
+                from trading.admission_relaxation import record_funnel
+
+                record_funnel("orders_created")
             return intent, True
 
     def get(self, intent_id: UUID) -> OrderIntent | None:

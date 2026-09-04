@@ -155,7 +155,12 @@ function watchRevalidationHint(w: EntryWatchCard): string | null {
       raw === "MARKET_DATA_UNHEALTHY" ||
       raw === "DATA_BLOCKED" ||
       raw === "SETUP_QUALITY_BELOW_THRESHOLD" ||
-      raw === "ENTRY_QUALITY_BELOW_THRESHOLD"
+      raw === "ENTRY_QUALITY_BELOW_THRESHOLD" ||
+      raw === "SETUP_BELOW_FLOOR" ||
+      raw === "SETUP_COMPENSATED" ||
+      raw === "ENTRY_BELOW_FLOOR" ||
+      raw === "RR_BELOW_COMPENSATION_FLOOR" ||
+      raw === "WAITING_CONFIRMATION"
     ) {
       return filterResolvedSpreadHints(w, filterHintForCushion(w, raw));
     }

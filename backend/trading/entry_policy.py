@@ -648,7 +648,20 @@ def _with_feed_spread(th: EntryThresholds) -> EntryThresholds:
 
 
 def get_entry_thresholds() -> EntryThresholds:
-    return _with_feed_spread(thresholds_for(get_entry_aggressiveness()))
+    from dataclasses import replace
+
+    from trading.admission_relaxation import is_paper_broker, paper_quality_floors
+
+    th = _with_feed_spread(thresholds_for(get_entry_aggressiveness()))
+    if not is_paper_broker():
+        return th
+    floors = paper_quality_floors(th.aggressiveness)
+    return replace(
+        th,
+        min_setup_quality=floors.setup_floor,
+        min_entry_quality=floors.entry_floor,
+        weak_setup_min_rr=floors.weak_setup_min_rr,
+    )
 
 
 def set_entry_aggressiveness(

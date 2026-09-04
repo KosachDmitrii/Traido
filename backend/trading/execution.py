@@ -930,6 +930,9 @@ class ExecutionService:
             entity_type="order",
             entity_id=entry_fill.broker_order_id,
         )
+        from trading.admission_relaxation import record_funnel
+
+        record_funnel("orders_filled")
 
         filled_qty = round_equity_qty(entry_fill.filled_qty or qty)
         entry_px = round_equity_price(fill_price(entry_fill))
