@@ -6,11 +6,11 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 from sqlalchemy import delete, select
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import CursorResult, Engine
 
 from core.ports import AuditPort
 from core.redaction import redact_mapping
@@ -213,9 +213,12 @@ class DbAudit:
     def prune_before(self, cutoff: datetime) -> int:
         SessionLocal = session_factory(self._engine)
         with SessionLocal() as session:
-            result = session.execute(delete(AuditEventRow).where(AuditEventRow.created_at < cutoff))
+            cursor = cast(
+                CursorResult[Any],
+                session.execute(delete(AuditEventRow).where(AuditEventRow.created_at < cutoff)),
+            )
             session.commit()
-            return int(result.rowcount or 0)
+            return int(cursor.rowcount or 0)
 
 
 # Back-compat alias

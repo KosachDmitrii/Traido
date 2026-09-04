@@ -108,14 +108,14 @@ def run_entry(bundle: TraderBundle) -> StepResult:
         stop_price=float(stop_d),
     )
 
-    bundle._entry_facts = facts  # type: ignore[attr-defined]
+    bundle._entry_facts = facts
     bundle._planned = (
         float(entry_d),
         float(stop_d),
         float(target_plan.price),
-    )  # type: ignore[attr-defined]
-    bundle._entry_decision = decision  # type: ignore[attr-defined]
-    bundle._target_plan = target_plan  # type: ignore[attr-defined]
+    )
+    bundle._entry_decision = decision
+    bundle._target_plan = target_plan
 
     if facts.session_cohort is not SessionCohort.RTH:
         result = StepResult(

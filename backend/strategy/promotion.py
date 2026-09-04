@@ -8,6 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from database.models.journal import BacktestRunRow, TradeJournalRow
 from database.models.strategy import StrategyEvaluationRunRow, StrategyVersionRow
@@ -24,7 +25,7 @@ class PromotionError(ValueError):
     """Illegal promotion transition or missing evidence."""
 
 
-def _paper_stats(session, key: str) -> dict[str, Any]:
+def _paper_stats(session: Session, key: str) -> dict[str, Any]:
     rows = session.scalars(
         select(TradeJournalRow).where(
             TradeJournalRow.strategy_version == key,
@@ -63,7 +64,7 @@ def _paper_stats(session, key: str) -> dict[str, Any]:
     }
 
 
-def _backtest_stats(session, key: str) -> dict[str, Any]:
+def _backtest_stats(session: Session, key: str) -> dict[str, Any]:
     rows = session.scalars(
         select(BacktestRunRow)
         .where(BacktestRunRow.strategy_version == key)
@@ -90,7 +91,7 @@ def _backtest_stats(session, key: str) -> dict[str, Any]:
     }
 
 
-def _oos_aggregate(session, key: str) -> dict[str, Any]:
+def _oos_aggregate(session: Session, key: str) -> dict[str, Any]:
     runs = session.scalars(
         select(StrategyEvaluationRunRow)
         .where(StrategyEvaluationRunRow.strategy_version_key == key)
@@ -241,6 +242,7 @@ def recompute_version(version_id: UUID | str) -> dict[str, Any]:
         evidence["recomputed_at"] = datetime.now(UTC).isoformat()
 
         current = StrategyPromotionStage(row.stage)
+        new_stage: StrategyPromotionStage
         # Never auto-demote past human/production; never auto-promote into them.
         if current in {
             StrategyPromotionStage.HUMAN_APPROVED,

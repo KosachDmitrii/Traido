@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from uuid import uuid4
 
 from agents.supervisor.agent import build_supervisor
@@ -22,12 +23,15 @@ from core.enums import (
 )
 from core.schemas import (
     AdmissionSnapshot,
+    Bar,
+    EntryDecisionBundle,
     EntryWatch,
     MarketAssessment,
     PipelineResult,
     Quote,
     RiskDecision,
     TradeAdmissionResult,
+    TradeCandidate,
 )
 from database.session import session_factory
 from notifications.telegram import get_notifier
@@ -39,6 +43,7 @@ from trading.opportunities import OPPORTUNITIES, _write_payload
 from trading.scan_context import ScanContext, open_scan_context
 from trading.shadow_policy import record_shadow_async
 from trading.trade_admission import evaluate_trade_admission
+from trading.zone_arrival import ZoneArrivalFacts, evaluate_zone_arrival, zone_arrival_required
 
 UNTRADABLE_REGIMES = {
     MarketRegimeLabel.BEARISH,
@@ -76,13 +81,11 @@ def regime_allows_long(
 def zone_arrival_for_admission(
     *,
     symbol: str,
-    candidate,
-    bundle,
-    bars: list,
-):
+    candidate: TradeCandidate,
+    bundle: EntryDecisionBundle,
+    bars: list[Bar],
+) -> ZoneArrivalFacts | None:
     """Minimal watch shell so pipeline admission can score zone arrival."""
-    from trading.zone_arrival import evaluate_zone_arrival, zone_arrival_required
-
     if not zone_arrival_required(candidate.setup_type):
         return None
     if bundle.entry_zone_low is None or bundle.entry_zone_high is None:
@@ -112,7 +115,7 @@ def zone_arrival_for_admission(
         valid_until=now + timedelta(hours=4),
         thesis=candidate.thesis or InstrumentThesis.BULLISH,
         signal_price=candidate.entry,
-        current_price_at_creation=bundle.facts.current_price,
+        current_price_at_creation=Decimal(str(bundle.facts.current_price)),
         entry_zone_low=bundle.entry_zone_low,
         entry_zone_high=bundle.entry_zone_high,
         planned_entry=candidate.entry,
@@ -242,9 +245,9 @@ async def run_symbol_pipeline(
                 }
             )
             result = result.model_copy(update={"candidate": candidate})
-        bars_h1: list = []
-        last_bar_ts = None
-        zone_arrival = None
+        bars_h1: list[Bar] = []
+        last_bar_ts: datetime | None = None
+        zone_arrival: ZoneArrivalFacts | None = None
         if context.market_data is not None and bundle is not None:
             try:
                 end = datetime.now(UTC)

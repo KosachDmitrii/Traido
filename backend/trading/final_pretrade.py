@@ -20,6 +20,7 @@ from core.enums import (
 from core.schemas import (
     AdmissionInput,
     AdmissionSnapshot,
+    Bar,
     EntryDecisionBundle,
     EntryQualityBreakdown,
     FeatureSnapshot,
@@ -145,7 +146,7 @@ def final_pretrade_validation(
     quote: Quote,
     snapshot: AdmissionSnapshot | None = None,
     bars_count: int | None = None,
-    bars: list | None = None,
+    bars: list[Bar] | None = None,
     last_bar_ts: datetime | None = None,
     now: datetime | None = None,
     exec_snap: FeatureSnapshot | None = None,

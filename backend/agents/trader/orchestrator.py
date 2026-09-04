@@ -287,7 +287,7 @@ async def run_trader_desk(
                 float(wait_levels.entry),
                 float(wait_levels.stop),
                 float(tp.price),
-            )  # type: ignore[attr-defined]
+            )
             if bundle.risk_plan is not None:
                 risk = wait_levels.entry - wait_levels.stop
                 rr = float((tp.price - wait_levels.entry) / risk) if risk > 0 else 0.0
@@ -301,7 +301,7 @@ async def run_trader_desk(
             entry_bundle = entry_bundle.model_copy(
                 update={"stop_price": wait_levels.stop, "target": tp}
             )
-            bundle._entry_decision = entry_bundle  # type: ignore[attr-defined]
+            bundle._entry_decision = entry_bundle
         candidate = _build_candidate(bundle, run_id=run_id)
         await audit.append(
             "TraderDeskWaitCandidate",
@@ -372,7 +372,7 @@ async def run_trader_desk(
 
 
 def _fail(
-    run_id,
+    run_id: UUID,
     symbol: str,
     bundle: TraderBundle,
     prompt_versions: dict[str, str],

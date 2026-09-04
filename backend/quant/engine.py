@@ -111,8 +111,8 @@ def compute_features(symbol: str, timeframe: Timeframe, bars: list[Bar]) -> Feat
     candles = detect_candles(o, h, l, c)
     charts = detect_chart_patterns(h, l, c)
     pa = detect_price_action(o, h, l, c)
-    for k, v in pa.as_flags().items():
-        indicators[f"pa_{k}"] = v
+    for flag, flag_value in pa.as_flags().items():
+        indicators[f"pa_{flag}"] = flag_value
     indicators["pa_reasons"] = "|".join(pa.reasons)
     support, resistance = support_resistance(h, l)
 

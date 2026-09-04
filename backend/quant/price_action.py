@@ -98,9 +98,9 @@ def detect_price_action(
     gap_pct = (open_ - prev_close) / prev_close if prev_close else None
     gap_up = bool(gap_pct is not None and gap_pct >= gap_min_pct)
     gap_down = bool(gap_pct is not None and gap_pct <= -gap_min_pct)
-    if gap_up:
+    if gap_up and gap_pct is not None:
         reasons.append(f"gap_up_{gap_pct * 100:.1f}%")
-    if gap_down:
+    if gap_down and gap_pct is not None:
         reasons.append(f"gap_down_{gap_pct * 100:.1f}%")
 
     if support is not None:

@@ -18,6 +18,7 @@ from trading.watch_desk import (
     desk_revalidation_hint,
     enrich_watch_for_desk,
     strip_resolved_spread_hints,
+    zone_arrival_from_cached,
 )
 
 # Display-only keys cached on the watch. Machine state always comes from the row.
@@ -223,25 +224,7 @@ def desk_payload(watch: EntryWatch) -> dict[str, Any]:
         raw = base.get("zone_arrival")
         if isinstance(raw, dict):
             try:
-                from trading.zone_arrival import ArrivalType, ZoneArrivalFacts
-
-                arrival = ZoneArrivalFacts(
-                    score=float(raw["score"]),
-                    arrival_type=ArrivalType(str(raw["arrival_type"])),
-                    arrival_speed_pct=raw.get("arrival_speed_pct"),  # type: ignore[arg-type]
-                    arrival_speed_atr=raw.get("arrival_speed_atr"),  # type: ignore[arg-type]
-                    atr_velocity=raw.get("atr_velocity"),  # type: ignore[arg-type]
-                    bars_to_zone=raw.get("bars_to_zone"),  # type: ignore[arg-type]
-                    red_bar_ratio=raw.get("red_bar_ratio"),  # type: ignore[arg-type]
-                    consecutive_red_bars=int(raw.get("consecutive_red_bars") or 0),
-                    largest_red_bar_atr=raw.get("largest_red_bar_atr"),  # type: ignore[arg-type]
-                    sell_volume_ratio=raw.get("sell_volume_ratio"),  # type: ignore[arg-type]
-                    volume_acceleration=raw.get("volume_acceleration"),  # type: ignore[arg-type]
-                    gap_down_pct=raw.get("gap_down_pct"),  # type: ignore[arg-type]
-                    crash_velocity=bool(raw.get("crash_velocity")),
-                    structural_damage=bool(raw.get("structural_damage")),
-                    reason_codes=list(raw.get("reason_codes") or []),
-                )
+                arrival = zone_arrival_from_cached(raw)
                 base["desk_block_reason"] = desk_block_reason_from_arrival(arrival, th)
             except (KeyError, TypeError, ValueError):
                 base["desk_block_reason"] = None

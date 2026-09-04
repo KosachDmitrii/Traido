@@ -11,7 +11,15 @@ from decimal import Decimal
 from enum import StrEnum
 
 from core.enums import SetupType, Timeframe
-from core.schemas import FeatureSnapshot, MarketAssessment, NewsAssessment, TechnicalAssessment
+from core.schemas import (
+    EntryDecisionBundle,
+    EntryTimingFacts,
+    FeatureSnapshot,
+    MarketAssessment,
+    NewsAssessment,
+    TargetPlan,
+    TechnicalAssessment,
+)
 
 
 class TraderStep(StrEnum):
@@ -57,6 +65,10 @@ class TraderBundle:
     steps: list[StepResult] = field(default_factory=list)
     quote_spread_bps: float | None = None
     last_price: Decimal | None = None
+    _entry_facts: EntryTimingFacts | None = field(default=None, repr=False)
+    _planned: tuple[float, float, float] | None = field(default=None, repr=False)
+    _entry_decision: EntryDecisionBundle | None = field(default=None, repr=False)
+    _target_plan: TargetPlan | None = field(default=None, repr=False)
 
     def record(self, result: StepResult) -> None:
         self.steps.append(result)

@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import threading
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -365,7 +366,7 @@ _STEP_ALLOW_BELOW_SMA: dict[int, bool] = {
 }
 
 
-def _step_value(table: dict[int, float | int | bool], aggressiveness: int) -> float | int | bool:
+def _step_value(table: Mapping[int, float | int | bool], aggressiveness: int) -> float | int | bool:
     a = clamp_aggressiveness(aggressiveness)
     return table[a]
 

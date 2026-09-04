@@ -163,29 +163,59 @@ def desk_block_reason_from_arrival(arrival: ZoneArrivalFacts, th: EntryThreshold
     return gate.desk_summary()
 
 
+def _cached_arrival_float(raw: dict[str, object], key: str) -> float | None:
+    val = raw.get(key)
+    if isinstance(val, bool) or val is None:
+        return None
+    if isinstance(val, (int, float)):
+        return float(val)
+    return None
+
+
+def _cached_arrival_int(raw: dict[str, object], key: str) -> int | None:
+    val = raw.get(key)
+    if isinstance(val, bool) or val is None:
+        return None
+    if isinstance(val, int):
+        return val
+    if isinstance(val, float):
+        return int(val)
+    return None
+
+
+def zone_arrival_from_cached(raw: dict[str, object]) -> ZoneArrivalFacts:
+    score_raw = raw["score"]
+    score = float(score_raw) if isinstance(score_raw, (int, float)) else float(str(score_raw))
+    cr = raw.get("consecutive_red_bars") or 0
+    consecutive = int(cr) if isinstance(cr, (int, float)) and not isinstance(cr, bool) else 0
+    rc = raw.get("reason_codes") or []
+    reason_codes = [str(x) for x in rc] if isinstance(rc, list) else []
+    return ZoneArrivalFacts(
+        score=score,
+        arrival_type=ArrivalType(str(raw["arrival_type"])),
+        arrival_speed_pct=_cached_arrival_float(raw, "arrival_speed_pct"),
+        arrival_speed_atr=_cached_arrival_float(raw, "arrival_speed_atr"),
+        atr_velocity=_cached_arrival_float(raw, "atr_velocity"),
+        bars_to_zone=_cached_arrival_int(raw, "bars_to_zone"),
+        red_bar_ratio=_cached_arrival_float(raw, "red_bar_ratio"),
+        consecutive_red_bars=consecutive,
+        largest_red_bar_atr=_cached_arrival_float(raw, "largest_red_bar_atr"),
+        sell_volume_ratio=_cached_arrival_float(raw, "sell_volume_ratio"),
+        volume_acceleration=_cached_arrival_float(raw, "volume_acceleration"),
+        gap_down_pct=_cached_arrival_float(raw, "gap_down_pct"),
+        crash_velocity=bool(raw.get("crash_velocity")),
+        structural_damage=bool(raw.get("structural_damage")),
+        reason_codes=reason_codes,
+    )
+
+
 def buy_blocked_from_arrival_dict(payload: dict[str, object], th: EntryThresholds) -> bool:
     """Recompute display block from cached zone_arrival + live thresholds."""
     raw = payload.get("zone_arrival")
     if not isinstance(raw, dict):
         return False
     try:
-        arrival = ZoneArrivalFacts(
-            score=float(raw["score"]),
-            arrival_type=ArrivalType(str(raw["arrival_type"])),
-            arrival_speed_pct=raw.get("arrival_speed_pct"),  # type: ignore[arg-type]
-            arrival_speed_atr=raw.get("arrival_speed_atr"),  # type: ignore[arg-type]
-            atr_velocity=raw.get("atr_velocity"),  # type: ignore[arg-type]
-            bars_to_zone=raw.get("bars_to_zone"),  # type: ignore[arg-type]
-            red_bar_ratio=raw.get("red_bar_ratio"),  # type: ignore[arg-type]
-            consecutive_red_bars=int(raw.get("consecutive_red_bars") or 0),
-            largest_red_bar_atr=raw.get("largest_red_bar_atr"),  # type: ignore[arg-type]
-            sell_volume_ratio=raw.get("sell_volume_ratio"),  # type: ignore[arg-type]
-            volume_acceleration=raw.get("volume_acceleration"),  # type: ignore[arg-type]
-            gap_down_pct=raw.get("gap_down_pct"),  # type: ignore[arg-type]
-            crash_velocity=bool(raw.get("crash_velocity")),
-            structural_damage=bool(raw.get("structural_damage")),
-            reason_codes=list(raw.get("reason_codes") or []),
-        )
+        arrival = zone_arrival_from_cached(raw)
     except (KeyError, TypeError, ValueError):
         return False
     return buy_blocked_for_arrival(arrival, th)

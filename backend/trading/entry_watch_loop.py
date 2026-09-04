@@ -78,9 +78,11 @@ async def run_watch_pass() -> dict[str, int]:
         try:
             current = ENTRY_WATCHES.get(watch.id) or watch
             prev_price = prev_by_id.get(current.id)
-            marked = marks.get(current.symbol)
-            if marked is not None:
-                price, quote = marked
+            mark = marks.get(current.symbol)
+            price: float | None
+            quote: Quote | None
+            if mark is not None:
+                price, quote = mark
             else:
                 price = prev_price
                 quote = None
@@ -98,13 +100,13 @@ async def run_watch_pass() -> dict[str, int]:
             if current.status is EntryWatchStatus.WAITING:
                 stale = stale_invalidate_reason(current, price)
                 if stale is not None:
-                    marked = ENTRY_WATCHES.mark(
+                    invalidated = ENTRY_WATCHES.mark(
                         current.id, EntryWatchStatus.INVALIDATED, reason=stale
                     )
-                    if marked is not None:
+                    if invalidated is not None:
                         from trading.shadow_outcomes import maybe_begin_shadow_for_terminal_watch
 
-                        maybe_begin_shadow_for_terminal_watch(marked)
+                        maybe_begin_shadow_for_terminal_watch(invalidated)
                     DESK_BUS.bump_desk(kind="entry_watch_invalidated", symbol=current.symbol)
                     stats["invalidated"] += 1
                     continue

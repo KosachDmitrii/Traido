@@ -267,8 +267,8 @@ def recover_stale_leases(*, engine: Engine | None = None) -> int:
                 .all()
             )
             for row in rows:
-                watch = _watch_from_row(row)
-                if watch is None or not lease_expired(watch, now=now):
+                row_watch = _watch_from_row(row)
+                if row_watch is None or not lease_expired(row_watch, now=now):
                     continue
                 if row.status == EntryWatchStatus.REVALIDATING.value:
                     target = EntryWatchStatus.TRIGGERED
@@ -276,14 +276,14 @@ def recover_stale_leases(*, engine: Engine | None = None) -> int:
                 else:
                     target = EntryWatchStatus.ADMITTED
                     reason = "LEASE_EXPIRED_CONVERTING"
-                out = try_transition(watch, target, reason=reason, engine=engine)
+                out = try_transition(row_watch, target, reason=reason, engine=engine)
                 if out is None:
                     continue
                 ENTRY_WATCHES.update(out)
                 recovered += 1
                 logger.info(
                     "entry watch lease recovery (db): %s → %s",
-                    watch.symbol,
+                    row_watch.symbol,
                     target.value,
                 )
 

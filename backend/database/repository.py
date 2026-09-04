@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
+
+from sqlalchemy.engine import Engine
 
 from core.enums import TradingMode
 from core.schemas import BacktestSummary
@@ -13,10 +16,10 @@ from database.session import session_factory
 def persist_backtest_summary(
     summary: BacktestSummary,
     *,
-    params: dict | None = None,
+    params: dict[str, Any] | None = None,
     notes: str | None = None,
     trading_mode: TradingMode = TradingMode.CONFIRMATION,
-    engine=None,
+    engine: Engine | None = None,
 ) -> uuid.UUID:
     SessionLocal = session_factory(engine)
     run_id = uuid.uuid4()
@@ -77,7 +80,9 @@ def persist_backtest_summary(
     return run_id
 
 
-def list_journal_for_run(run_id: uuid.UUID, *, engine=None) -> list[TradeJournalRow]:
+def list_journal_for_run(
+    run_id: uuid.UUID, *, engine: Engine | None = None
+) -> list[TradeJournalRow]:
     SessionLocal = session_factory(engine)
     with SessionLocal() as session:
         return list(

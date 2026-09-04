@@ -1,0 +1,19 @@
+# Run before every commit: make install-hooks (once), then git commit as usual.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.5
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^backend/
+      - id: ruff-format
+        files: ^backend/
+
+  - repo: local
+    hooks:
+      - id: mypy-backend
+        name: mypy (backend capital path)
+        entry: bash -c 'cd backend && ../.venv/bin/mypy'
+        language: system
+        pass_filenames: false
+        files: ^backend/

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from core.enums import (
     AdmissionDecision,
@@ -156,7 +156,7 @@ def revalidate_triggered_watch_full(
     return result
 
 
-def _release_revalidating(watch_id, *, reason: str) -> None:
+def _release_revalidating(watch_id: UUID, *, reason: str) -> None:
     if ENTRY_WATCHES.mark(watch_id, EntryWatchStatus.TRIGGERED, reason=reason) is not None:
         return
     current = ENTRY_WATCHES.get(watch_id)

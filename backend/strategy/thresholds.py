@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -27,14 +28,14 @@ class PromotionThresholds:
     min_regimes_with_trades: int = 1
     """Paper/OOS must not be a single-regime anecdote when regime tags exist."""
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
 _DEFAULT_PATH = Path(__file__).resolve().parents[1] / "config" / "promotion_thresholds.json"
 
 
-def _load_file(path: Path) -> dict:
+def _load_file(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {}
     raw = json.loads(path.read_text(encoding="utf-8"))
@@ -47,6 +48,6 @@ def _load_file(path: Path) -> dict:
 def get_promotion_thresholds() -> PromotionThresholds:
     path = Path(os.getenv("TRAIDO_PROMOTION_THRESHOLDS_PATH") or _DEFAULT_PATH)
     data = _load_file(path)
-    known = {f.name for f in PromotionThresholds.__dataclass_fields__.values()}  # type: ignore[attr-defined]
+    known = {f.name for f in fields(PromotionThresholds)}
     filtered = {k: v for k, v in data.items() if k in known}
     return PromotionThresholds(**filtered)

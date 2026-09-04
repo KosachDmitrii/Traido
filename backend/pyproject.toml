@@ -24,8 +24,9 @@ dependencies = [
 dev = [
   "pytest>=8.3.0",
   "pytest-asyncio>=0.24.0",
-  "ruff>=0.8.0",
+  "ruff>=0.16.5,<0.17",
   "mypy>=1.13.0",
+  "pre-commit>=4.0.0",
 ]
 # Only needed by broker/ibkr/live_transport.py, which is never imported unless a
 # deployment explicitly selects a live IB session. ib_async is the maintained
