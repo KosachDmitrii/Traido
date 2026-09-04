@@ -42,7 +42,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
     TRAIDO_ENV=production
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && apt-get install -y --no-install-recommends curl ca-certificates util-linux \
     && curl -fsSL https://tailscale.com/install.sh | sh \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 traido
