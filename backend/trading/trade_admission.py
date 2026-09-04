@@ -74,6 +74,7 @@ def build_admission_snapshot(
         entry_quality_at_creation=entry_quality,
         stop_at_creation=float(stop),
         target_at_creation=float(target),
+        entry_at_creation=float(entry),
         effective_rr_at_creation=effective_rr,
         policy_version=POLICY_VERSION,
         aggressiveness=aggressiveness if aggressiveness is not None else th.aggressiveness,

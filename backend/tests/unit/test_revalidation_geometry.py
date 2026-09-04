@@ -1,4 +1,4 @@
-"""Watch revalidation must publish the same geometry admission checked."""
+"""Watch revalidation must publish the same full geometry admission checked."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from uuid import uuid4
 
 from core.enums import (
     AdmissionDecision,
-    EntryDecision,
     EntryWatchStatus,
     InstrumentThesis,
     SetupType,
@@ -23,10 +22,12 @@ from core.schemas import (
     TradeAdmissionResult,
     TradeCandidate,
 )
-from trading.entry_watch_eval import build_candidate_from_revalidation
+from trading.entry_watch_eval import RevalidationBuildResult, build_candidate_from_revalidation
 from trading.execution_geometry import (
+    ExecutionGeometry,
     executable_geometry_for_watch,
-    geometry_matches_admission_snapshot,
+    normalize_geometry_price,
+    validate_geometry_against_admission_snapshot,
 )
 from trading.geometry_hash import compute_geometry_hash, geometry_hash_from_candidate
 
@@ -81,7 +82,11 @@ def _base_candidate(watch: EntryWatch) -> TradeCandidate:
 
 
 def _admission_for(
-    *, target: float, stop: float = 98.5, entry: float = 100.05
+    *,
+    target: float,
+    stop: float = 98.5,
+    entry: float = 100.05,
+    include_entry_at_creation: bool = True,
 ) -> TradeAdmissionResult:
     snap = AdmissionSnapshot(
         price_at_creation=entry,
@@ -91,6 +96,7 @@ def _admission_for(
         entry_quality_at_creation=70,
         stop_at_creation=stop,
         target_at_creation=target,
+        entry_at_creation=entry if include_entry_at_creation else None,
         effective_rr_at_creation=2.0,
     )
     return TradeAdmissionResult(
@@ -123,58 +129,184 @@ def test_executable_geometry_uses_recalculated_target_not_planned() -> None:
     assert geometry.target != watch.planned_target
 
 
-def test_build_candidate_matches_admission_target_and_hash() -> None:
-    watch = _watch(planned_target=Decimal(103))
-    quote = _quote()
-    recalc_target = 105.5
-    admission = _admission_for(target=recalc_target)
-    geometry = executable_geometry_for_watch(
-        watch, quote=quote, target_plan=None, admission=admission
+def test_entry_mismatch_blocks_candidate() -> None:
+    watch = _watch()
+    admission = _admission_for(target=105.5, entry=100.05)
+    quote = _quote(ask="101.00", bid="100.95")
+    result = build_candidate_from_revalidation(
+        watch,
+        base=_base_candidate(watch),
+        admission=admission,
+        quote=quote,
     )
-    assert geometry_matches_admission_snapshot(geometry, admission.snapshot)
+    assert isinstance(result, RevalidationBuildResult)
+    assert result.candidate is None
+    assert result.mismatch_reason == "ENTRY_GEOMETRY_MISMATCH"
 
-    built = build_candidate_from_revalidation(
+
+def test_stop_mismatch_blocks_candidate() -> None:
+    watch = _watch()
+    admission = _admission_for(target=105.5, stop=98.5, entry=100.05)
+    snap = admission.snapshot.model_copy(update={"stop_at_creation": 97.0})
+    admission = admission.model_copy(update={"snapshot": snap})
+    quote = _quote()
+    geometry = executable_geometry_for_watch(watch, quote=quote, admission=admission)
+    result = build_candidate_from_revalidation(
         watch,
         base=_base_candidate(watch),
         admission=admission,
         quote=quote,
         geometry=geometry,
     )
-    assert built is not None
-    assert float(built.target) == recalc_target
-    assert float(built.target) != float(watch.planned_target)
-    assert (
-        geometry_hash_from_candidate(built, exec_timeframe=watch.exec_timeframe)
-        == geometry.geometry_hash
-    )
-    assert float(built.admission_snapshot["target_at_creation"]) == recalc_target
+    assert result.candidate is None
+    assert result.mismatch_reason == "STOP_GEOMETRY_MISMATCH"
 
 
-def test_geometry_mismatch_returns_no_candidate() -> None:
+def test_target_mismatch_blocks_candidate() -> None:
     watch = _watch()
+    admission = _admission_for(target=105.5, entry=100.05)
+    snap = admission.snapshot.model_copy(update={"target_at_creation": 103.0})
+    admission = admission.model_copy(update={"snapshot": snap})
     quote = _quote()
-    admission = _admission_for(target=105.5)
-    wrong_geometry = executable_geometry_for_watch(
+    geometry = executable_geometry_for_watch(
         watch,
         quote=quote,
         target_plan=TargetPlan(
-            price=Decimal(103),
+            price=Decimal("105.5"),
             model="2R",
             reachability=TargetReachabilityClass.REALISTIC,
             two_r_target=Decimal(103),
         ),
         atr=1.0,
     )
-    assert (
-        build_candidate_from_revalidation(
-            watch,
-            base=_base_candidate(watch),
-            admission=admission,
-            quote=quote,
-            geometry=wrong_geometry,
-        )
-        is None
+    result = build_candidate_from_revalidation(
+        watch,
+        base=_base_candidate(watch),
+        admission=admission,
+        quote=quote,
+        geometry=geometry,
     )
+    assert result.candidate is None
+    assert result.mismatch_reason == "TARGET_GEOMETRY_MISMATCH"
+
+
+def test_missing_entry_at_creation_blocks_modern_capital_path() -> None:
+    watch = _watch()
+    admission = _admission_for(target=105.5, include_entry_at_creation=False)
+    quote = _quote()
+    result = build_candidate_from_revalidation(
+        watch,
+        base=_base_candidate(watch),
+        admission=admission,
+        quote=quote,
+    )
+    assert result.candidate is None
+    assert result.mismatch_reason == "ADMISSION_ENTRY_MISSING"
+
+
+def test_build_candidate_matches_full_admission_geometry() -> None:
+    watch = _watch(planned_target=Decimal(103))
+    quote = _quote()
+    recalc_target = 105.5
+    admission = _admission_for(target=recalc_target, entry=100.05)
+    snap = admission.snapshot.model_copy(update={"target_at_creation": recalc_target})
+    admission = admission.model_copy(update={"snapshot": snap})
+    geometry = executable_geometry_for_watch(
+        watch,
+        quote=quote,
+        target_plan=TargetPlan(
+            price=Decimal(str(recalc_target)),
+            model="structure",
+            reachability=TargetReachabilityClass.REALISTIC,
+            two_r_target=Decimal(103),
+        ),
+        atr=1.0,
+    )
+    check = validate_geometry_against_admission_snapshot(
+        geometry,
+        admission.snapshot,
+        exec_timeframe=watch.exec_timeframe,
+        strategy_version=watch.strategy_version,
+    )
+    assert check.ok
+
+    result = build_candidate_from_revalidation(
+        watch,
+        base=_base_candidate(watch),
+        admission=admission,
+        quote=quote,
+        geometry=geometry,
+    )
+    assert result.candidate is not None
+    built = result.candidate
+    assert normalize_geometry_price(built.entry) == normalize_geometry_price(
+        admission.snapshot.entry_at_creation
+    )
+    assert normalize_geometry_price(built.stop) == normalize_geometry_price(
+        admission.snapshot.stop_at_creation
+    )
+    assert normalize_geometry_price(built.target) == normalize_geometry_price(
+        admission.snapshot.target_at_creation
+    )
+    assert (
+        geometry_hash_from_candidate(built, exec_timeframe=watch.exec_timeframe)
+        == geometry.geometry_hash
+    )
+
+
+def test_geometry_built_inside_function_is_validated() -> None:
+    watch = _watch()
+    quote = _quote(ask="101.00")
+    admission = _admission_for(target=105.5, entry=100.05)
+    result = build_candidate_from_revalidation(
+        watch,
+        base=_base_candidate(watch),
+        admission=admission,
+        quote=quote,
+    )
+    assert result.candidate is None
+    assert result.mismatch_reason == "ENTRY_GEOMETRY_MISMATCH"
+
+
+def test_decimal_tick_normalization_does_not_false_reject() -> None:
+    watch = _watch()
+    admission = _admission_for(target=105.5, entry=100.0500)
+    quote = _quote(ask="100.0500001", bid="100.00")
+    geometry = executable_geometry_for_watch(watch, quote=quote, admission=admission)
+    check = validate_geometry_against_admission_snapshot(
+        geometry,
+        admission.snapshot,
+        exec_timeframe=watch.exec_timeframe,
+        strategy_version=watch.strategy_version,
+    )
+    assert check.ok
+
+
+def test_geometry_hash_mismatch_blocks_candidate() -> None:
+    watch = _watch()
+    admission = _admission_for(target=105.5, entry=100.05)
+    quote = _quote()
+    geometry = executable_geometry_for_watch(watch, quote=quote, admission=admission)
+    wrong_hash_geometry = ExecutionGeometry(
+        entry=geometry.entry,
+        stop=geometry.stop,
+        target=geometry.target,
+        quote_bid=geometry.quote_bid,
+        quote_ask=geometry.quote_ask,
+        quote_ts=geometry.quote_ts,
+        quote_source=geometry.quote_source,
+        geometry_hash="deadbeef",
+        effective_rr=geometry.effective_rr,
+    )
+    result = build_candidate_from_revalidation(
+        watch,
+        base=_base_candidate(watch),
+        admission=admission,
+        quote=quote,
+        geometry=wrong_hash_geometry,
+    )
+    assert result.candidate is None
+    assert result.mismatch_reason == "GEOMETRY_HASH_MISMATCH"
 
 
 def test_admission_record_hash_matches_candidate_when_target_recalculated() -> None:
@@ -187,16 +319,17 @@ def test_admission_record_hash_matches_candidate_when_target_recalculated() -> N
         two_r_target=Decimal(103),
     )
     geometry = executable_geometry_for_watch(watch, quote=quote, target_plan=target_plan, atr=1.0)
-    admission = _admission_for(target=float(target_plan.price))
+    admission = _admission_for(target=float(target_plan.price), entry=float(geometry.entry))
     record_hash = geometry.geometry_hash
-    built = build_candidate_from_revalidation(
+    result = build_candidate_from_revalidation(
         watch,
         base=_base_candidate(watch),
         admission=admission,
         quote=quote,
         geometry=geometry,
     )
-    assert built is not None
+    assert result.candidate is not None
+    built = result.candidate
     assert record_hash == geometry_hash_from_candidate(built, exec_timeframe=watch.exec_timeframe)
     assert (
         compute_geometry_hash(
@@ -208,18 +341,3 @@ def test_admission_record_hash_matches_candidate_when_target_recalculated() -> N
         )
         == record_hash
     )
-
-
-def test_build_candidate_without_geometry_uses_admission_snapshot_target() -> None:
-    watch = _watch(planned_target=Decimal(103))
-    quote = _quote()
-    admission = _admission_for(target=107.25)
-    built = build_candidate_from_revalidation(
-        watch,
-        base=_base_candidate(watch),
-        admission=admission,
-        quote=quote,
-    )
-    assert built is not None
-    assert float(built.target) == 107.25
-    assert built.entry_decision is EntryDecision.BUY_NOW

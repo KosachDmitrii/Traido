@@ -492,6 +492,8 @@ class AdmissionSnapshot(StrictModel):
     entry_quality_at_creation: int = Field(ge=0, le=100, default=0)
     stop_at_creation: float | None = None
     target_at_creation: float | None = None
+    """Executable entry (typically ask) frozen at BUY_ALLOWED — required on capital path."""
+    entry_at_creation: float | None = None
     effective_rr_at_creation: float | None = None
     policy_version: str = "entry_policy@1"
     aggressiveness: int = Field(ge=0, le=100, default=0)

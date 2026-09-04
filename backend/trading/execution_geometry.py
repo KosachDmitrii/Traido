@@ -24,6 +24,17 @@ class ExecutionGeometry:
     effective_rr: float | None
 
 
+@dataclass(frozen=True)
+class GeometryValidationResult:
+    ok: bool
+    reason: str | None = None
+
+
+def normalize_geometry_price(value: Decimal | float | str) -> float:
+    """Same rounding as ``compute_geometry_hash`` — single canonical price form."""
+    return round(float(value), 4)
+
+
 def resolve_capital_atr(
     *,
     facts_atr: float | None = None,
@@ -134,13 +145,55 @@ def executable_geometry_for_watch(
     )
 
 
+def validate_geometry_against_admission_snapshot(
+    geometry: ExecutionGeometry,
+    snapshot: AdmissionSnapshot,
+    *,
+    exec_timeframe: str,
+    strategy_version: str,
+) -> GeometryValidationResult:
+    """Full executable geometry must match the snapshot that received BUY_ALLOWED."""
+    if snapshot.entry_at_creation is None:
+        return GeometryValidationResult(ok=False, reason="ADMISSION_ENTRY_MISSING")
+    if snapshot.stop_at_creation is None or snapshot.target_at_creation is None:
+        return GeometryValidationResult(ok=False, reason="REVALIDATION_GEOMETRY_MISMATCH")
+
+    if normalize_geometry_price(geometry.entry) != normalize_geometry_price(
+        snapshot.entry_at_creation
+    ):
+        return GeometryValidationResult(ok=False, reason="ENTRY_GEOMETRY_MISMATCH")
+    if normalize_geometry_price(geometry.stop) != normalize_geometry_price(
+        snapshot.stop_at_creation
+    ):
+        return GeometryValidationResult(ok=False, reason="STOP_GEOMETRY_MISMATCH")
+    if normalize_geometry_price(geometry.target) != normalize_geometry_price(
+        snapshot.target_at_creation
+    ):
+        return GeometryValidationResult(ok=False, reason="TARGET_GEOMETRY_MISMATCH")
+
+    expected_hash = compute_geometry_hash(
+        entry=snapshot.entry_at_creation,
+        stop=snapshot.stop_at_creation,
+        target=snapshot.target_at_creation,
+        exec_timeframe=exec_timeframe,
+        strategy_version=strategy_version,
+    )
+    if geometry.geometry_hash != expected_hash:
+        return GeometryValidationResult(ok=False, reason="GEOMETRY_HASH_MISMATCH")
+    return GeometryValidationResult(ok=True)
+
+
 def geometry_matches_admission_snapshot(
     geometry: ExecutionGeometry,
     snapshot: AdmissionSnapshot,
+    *,
+    exec_timeframe: str = "H1",
+    strategy_version: str = "",
 ) -> bool:
-    """Admission snapshot must describe the same executable geometry."""
-    if snapshot.target_at_creation is None or snapshot.stop_at_creation is None:
-        return False
-    return round(float(geometry.target), 4) == round(
-        float(snapshot.target_at_creation), 4
-    ) and round(float(geometry.stop), 4) == round(float(snapshot.stop_at_creation), 4)
+    """Backward-compatible bool wrapper — prefer ``validate_geometry_against_admission_snapshot``."""
+    return validate_geometry_against_admission_snapshot(
+        geometry,
+        snapshot,
+        exec_timeframe=exec_timeframe,
+        strategy_version=strategy_version,
+    ).ok

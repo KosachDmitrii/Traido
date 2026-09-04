@@ -144,12 +144,19 @@ async def run_watch_pass() -> dict[str, int]:
             if current.status is EntryWatchStatus.ADMITTED:
                 stats["triggered"] += 1
                 await _convert_admitted_watch(
-                    current, md, settings, audit, stats, price=price, quote=quote
+                    current,
+                    md,
+                    settings,
+                    audit,
+                    stats,
+                    price=price,
+                    quote=quote,
+                    admission=None,
                 )
                 continue
 
             if current.status is EntryWatchStatus.CONVERTING:
-                stats["still_waiting"] += 1
+                _defer_to_recovery_revalidation(current, stats=stats)
                 continue
 
             if current.status is EntryWatchStatus.REVALIDATING:
@@ -263,11 +270,22 @@ async def _convert_admitted_watch(
     quote: Quote | None,
     admission: TradeAdmissionResult | None = None,
 ) -> None:
-    """ADMITTED → CONVERTING → publish opportunity → CONVERTED."""
+    """ADMITTED → CONVERTING → publish opportunity → CONVERTED.
+
+    Requires ``admission`` from the current watch pass. Stale records after restart
+    must not authorize a new executable entry — defer to full revalidation.
+    """
     from core.enums import EntryWatchStatus
 
     current = ENTRY_WATCHES.get(watch.id) or watch
+    if current.status is EntryWatchStatus.ADMITTED and admission is None:
+        _defer_to_recovery_revalidation(current, stats=stats)
+        return
     if current.status is not EntryWatchStatus.ADMITTED:
+        return
+
+    if admission is None:
+        _defer_to_recovery_revalidation(current, stats=stats)
         return
 
     admission_key = f"watch:{current.id}:{current.trigger_version}"
@@ -295,30 +313,21 @@ async def _convert_admitted_watch(
         stats["still_waiting"] += 1
         return
 
-    if admission is None:
-        if not current.last_admission_record_id:
-            ENTRY_WATCHES.mark(
-                current.id, EntryWatchStatus.INVALIDATED, reason="MISSING_ADMISSION_RECORD"
-            )
-            stats["invalidated"] += 1
-            return
-        try:
-            admission = _admission_from_record(current)
-        except ValueError:
-            ENTRY_WATCHES.mark(
-                current.id, EntryWatchStatus.ADMITTED, reason="MISSING_ADMISSION_RECORD"
-            )
-            stats["still_waiting"] += 1
-            return
+    revalidation = build_candidate_from_revalidation(
+        current, base=base, admission=admission, quote=q
+    )
 
-    forced = build_candidate_from_revalidation(current, base=base, admission=admission, quote=q)
-
-    if forced is None:
+    if revalidation.candidate is None:
+        reason = revalidation.mismatch_reason or "REVALIDATION_GEOMETRY_MISMATCH"
         ENTRY_WATCHES.mark(
-            current.id, EntryWatchStatus.INVALIDATED, reason="REVALIDATION_GEOMETRY_MISMATCH"
+            current.id,
+            EntryWatchStatus.INVALIDATED,
+            reason=f"REVALIDATION_GEOMETRY_MISMATCH:{reason}",
         )
         stats["invalidated"] += 1
         return
+
+    forced = revalidation.candidate
 
     from agents.market.agent import assess_market
     from trading.market_gate import evaluate_market_gate_for_candidate
@@ -335,7 +344,7 @@ async def _convert_admitted_watch(
         return
 
     async with open_scan_context(settings) as ctx:
-        built = await build_risk_context(
+        risk_ctx = await build_risk_context(
             forced.symbol,
             broker=ctx.broker,
             market_data=ctx.market_data,
@@ -343,7 +352,7 @@ async def _convert_admitted_watch(
             regime_tradable=gate.tradable_long,
         )
         risk = RiskEngine(default_risk_limits()).evaluate(
-            forced, await ctx.portfolio(), context=built.context
+            forced, await ctx.portfolio(), context=risk_ctx.context
         )
         if risk.verdict != RiskVerdict.PASS:
             ENTRY_WATCHES.mark(
@@ -359,7 +368,7 @@ async def _convert_admitted_watch(
             )
             return
 
-        adm = admission or _admission_from_record(current)
+        adm = admission
         result = PipelineResult(
             pipeline_run_id=forced.pipeline_run_id or uuid4(),
             symbol=forced.symbol,
@@ -405,6 +414,57 @@ async def _convert_admitted_watch(
         else:
             ENTRY_WATCHES.mark(current.id, EntryWatchStatus.ADMITTED, reason="PUBLISH_DEFERRED")
             stats["still_waiting"] += 1
+
+
+def _defer_to_recovery_revalidation(watch: EntryWatch, *, stats: dict[str, int]) -> None:
+    """Stale ADMITTED/CONVERTING after restart — require a fresh revalidation pass."""
+    from core.enums import EntryWatchStatus
+
+    current = ENTRY_WATCHES.get(watch.id) or watch
+    if current.status is EntryWatchStatus.CONVERTING:
+        released = ENTRY_WATCHES.mark(
+            current.id,
+            EntryWatchStatus.ADMITTED,
+            reason="RECOVERY_REVALIDATION_REQUIRED",
+        )
+        if released is None:
+            ENTRY_WATCHES.update(
+                current.model_copy(
+                    update={
+                        "status": EntryWatchStatus.ADMITTED,
+                        "reasons": [*current.reasons, "RECOVERY_REVALIDATION_REQUIRED"],
+                        "claimed_at": None,
+                        "claim_token": None,
+                        "claim_owner_id": None,
+                        "lease_expires_at": None,
+                    }
+                )
+            )
+        current = ENTRY_WATCHES.get(watch.id) or watch
+
+    if current.status is not EntryWatchStatus.ADMITTED:
+        stats["still_waiting"] += 1
+        return
+
+    marked = ENTRY_WATCHES.mark(
+        current.id,
+        EntryWatchStatus.TRIGGERED,
+        reason="RECOVERY_REVALIDATION_REQUIRED",
+    )
+    if marked is None:
+        ENTRY_WATCHES.update(
+            current.model_copy(
+                update={
+                    "status": EntryWatchStatus.TRIGGERED,
+                    "reasons": [*current.reasons, "RECOVERY_REVALIDATION_REQUIRED"],
+                    "claimed_at": None,
+                    "claim_token": None,
+                    "claim_owner_id": None,
+                    "lease_expires_at": None,
+                }
+            )
+        )
+    stats["still_waiting"] += 1
 
 
 def _admission_from_record(watch: EntryWatch) -> TradeAdmissionResult:

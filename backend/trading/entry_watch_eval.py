@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
@@ -38,7 +39,7 @@ from trading.entry_watches import (
 from trading.execution_geometry import (
     ExecutionGeometry,
     executable_geometry_for_watch,
-    geometry_matches_admission_snapshot,
+    validate_geometry_against_admission_snapshot,
 )
 from trading.target_model import build_target_plan
 from trading.trade_admission import evaluate_trade_admission
@@ -56,6 +57,12 @@ from trading.zone_geometry import (
 
 class WaitRevalidationError(RuntimeError):
     """A triggered wait must not become exposure without a fresh pass."""
+
+
+@dataclass(frozen=True)
+class RevalidationBuildResult:
+    candidate: TradeCandidate | None
+    mismatch_reason: str | None = None
 
 
 def observe_price(watch: EntryWatch, price: float, *, atr: float | None = None) -> EntryWatch:
@@ -330,15 +337,21 @@ def _revalidate_after_claim(
         )
 
     gh = exec_gh
-    if (
-        admission.snapshot
-        and admission.admitted
-        and not geometry_matches_admission_snapshot(exec_geometry, admission.snapshot)
-    ):
-        ENTRY_WATCHES.mark(
-            watch.id, EntryWatchStatus.INVALIDATED, reason="GEOMETRY_VERSION_MISMATCH"
+    if admission.snapshot and admission.admitted:
+        geom_check = validate_geometry_against_admission_snapshot(
+            exec_geometry,
+            admission.snapshot,
+            exec_timeframe=watch.exec_timeframe,
+            strategy_version=watch.strategy_version,
         )
-        return None
+        if not geom_check.ok:
+            reason = (
+                "GEOMETRY_VERSION_MISMATCH"
+                if geom_check.reason == "GEOMETRY_HASH_MISMATCH"
+                else f"REVALIDATION_GEOMETRY_MISMATCH:{geom_check.reason}"
+            )
+            ENTRY_WATCHES.mark(watch.id, EntryWatchStatus.INVALIDATED, reason=reason)
+            return None
 
     stop_plan = StopPlan(
         price=watch.planned_stop,
@@ -361,10 +374,12 @@ def _revalidate_after_claim(
             quote=quote,
             geometry=exec_geometry,
         )
+        if built.candidate is None:
+            return None
         return WatchRevalidationResult(
             entry_decision=EntryDecision.BUY_NOW,
             admission=admission,
-            candidate=built,
+            candidate=built.candidate,
             target_plan=target,
             stop_plan=stop_plan,
             quote=quote,
@@ -440,24 +455,32 @@ def build_candidate_from_revalidation(
     admission: TradeAdmissionResult,
     quote: Quote,
     geometry: ExecutionGeometry | None = None,
-) -> TradeCandidate | None:
+) -> RevalidationBuildResult:
     """Immutable candidate from fresh revalidation — never reuse stale geometry."""
     if admission.decision is not AdmissionDecision.BUY_ALLOWED or not admission.admitted:
-        return None
+        return RevalidationBuildResult(None, "REVALIDATION_GEOMETRY_MISMATCH")
     if admission.snapshot is None:
-        return None
+        return RevalidationBuildResult(None, "REVALIDATION_GEOMETRY_MISMATCH")
 
     if geometry is None:
         geometry = executable_geometry_for_watch(
             watch, quote=quote, admission=admission, atr=admission.snapshot.atr_at_creation
         )
-    elif not geometry_matches_admission_snapshot(geometry, admission.snapshot):
-        return None
+
+    geom_check = validate_geometry_against_admission_snapshot(
+        geometry,
+        admission.snapshot,
+        exec_timeframe=watch.exec_timeframe,
+        strategy_version=watch.strategy_version,
+    )
+    if not geom_check.ok:
+        return RevalidationBuildResult(None, geom_check.reason or "REVALIDATION_GEOMETRY_MISMATCH")
 
     if not (geometry.stop < geometry.entry < geometry.target):
-        return None
+        return RevalidationBuildResult(None, "REVALIDATION_GEOMETRY_MISMATCH")
+
     snap = admission.snapshot
-    return base.model_copy(
+    candidate = base.model_copy(
         update={
             "entry_decision": EntryDecision.BUY_NOW,
             "entry": geometry.entry,
@@ -479,3 +502,4 @@ def build_candidate_from_revalidation(
             ],
         }
     )
+    return RevalidationBuildResult(candidate, None)
