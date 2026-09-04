@@ -11,6 +11,7 @@ from enum import StrEnum
 
 from core.enums import SetupType
 from core.schemas import Bar, EntryWatch
+from trading.execution_geometry import resolve_capital_atr
 
 # Overnight session gap (prev close → next open) at or above this pct → GAP_DOWN.
 GAP_DOWN_MIN_PCT = 1.5
@@ -138,11 +139,14 @@ def evaluate_zone_arrival(
 
     snap = watch.admission_snapshot
     origin = _path_origin(watch)
-    atr_f = atr or (snap.atr_at_creation if snap else None) or max(price * 0.02, 0.01)
+    atr_f = resolve_capital_atr(
+        facts_atr=atr,
+        snapshot_atr=(snap.atr_at_creation if snap else None),
+    )
 
     if len(bars) < 5:
         return ZoneArrivalFacts(
-            score=50.0,
+            score=0.0,
             arrival_type=ArrivalType.UNKNOWN,
             arrival_speed_pct=None,
             arrival_speed_atr=None,
@@ -157,6 +161,25 @@ def evaluate_zone_arrival(
             crash_velocity=False,
             structural_damage=False,
             reason_codes=["INSUFFICIENT_BARS"],
+        )
+
+    if atr_f is None:
+        return ZoneArrivalFacts(
+            score=0.0,
+            arrival_type=ArrivalType.UNKNOWN,
+            arrival_speed_pct=None,
+            arrival_speed_atr=None,
+            atr_velocity=None,
+            bars_to_zone=None,
+            red_bar_ratio=None,
+            consecutive_red_bars=0,
+            largest_red_bar_atr=None,
+            sell_volume_ratio=None,
+            volume_acceleration=None,
+            gap_down_pct=None,
+            crash_velocity=False,
+            structural_damage=False,
+            reason_codes=["MISSING_ATR", "INSUFFICIENT_BARS"],
         )
 
     window = bars[-min(25, len(bars)) :]

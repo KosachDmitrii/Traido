@@ -181,11 +181,13 @@ def build_nested_evidence(
         ok=inp.liquidity_ok,
         facts=_facts_from_mapping(sealed.liquidity_snapshot),
     )
+    news_status_name = _status_name(sealed.news_status)
+    earnings_status_name = _status_name(sealed.earnings_status)
     event_ev = EventRiskEvidence(
-        news_status=_status_name(sealed.news_status),
-        earnings_status=_status_name(sealed.earnings_status),
-        news_blocked=False,
-        earnings_blocked=False,
+        news_status=news_status_name,
+        earnings_status=earnings_status_name,
+        news_blocked=news_status_name != "checked",
+        earnings_blocked=earnings_status_name != "checked",
     )
     broker_ev = BrokerEvidence(
         broker=inp.broker,

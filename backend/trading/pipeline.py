@@ -38,8 +38,10 @@ from notifications.telegram import get_notifier
 from risk.context_builder import build_risk_context
 from risk.limits import default_risk_limits
 from risk.risk_engine import RiskEngine
+from trading.decision_outcome import DECISION_OUTCOMES
 from trading.entry_watches import ENTRY_WATCHES
 from trading.opportunities import OPPORTUNITIES, _write_payload
+from trading.pre_watch_eligibility import evaluate_pre_watch_eligibility
 from trading.scan_context import ScanContext, open_scan_context
 from trading.shadow_policy import record_shadow_async
 from trading.trade_admission import evaluate_trade_admission
@@ -352,6 +354,55 @@ async def run_symbol_pipeline(
         bundle = result.entry_decision
         watch = None
         if bundle is not None:
+            broker = context.broker
+            portfolio = await context.portfolio()
+            built = await build_risk_context(
+                symbol,
+                broker=broker,
+                market_data=context.market_data,
+                finnhub_api_key=settings.finnhub_api_key,
+                regime_tradable=regime_allows_long(result.market, now=datetime.now(UTC)),
+                news=result.news.status if result.news else None,
+            )
+            for note in built.notes:
+                BOARD.log("risk", note, symbol=symbol, level="warn")
+            risk_preview = RiskEngine(default_risk_limits()).evaluate(
+                candidate, portfolio, context=built.context
+            )
+            elig = evaluate_pre_watch_eligibility(
+                admission,
+                risk_verdict=risk_preview.verdict,
+                risk_reasons=list(risk_preview.reasons),
+                context=built.context,
+            )
+            DECISION_OUTCOMES.record(
+                symbol=symbol,
+                stage="pre_watch",
+                outcome=elig.outcome,
+                primary_reason=elig.reason_codes[0] if elig.reason_codes else elig.outcome,
+                reason_codes=elig.reason_codes,
+                admission=admission.decision if admission else None,
+                entry_decision=EntryDecision.WAIT_FOR_ENTRY,
+                risk_verdict=risk_preview.verdict,
+                pipeline_run_id=result.pipeline_run_id,
+            )
+            if not elig.eligible:
+                if elig.outcome == "DATA_BLOCKED":
+                    BOARD.set_agent(
+                        "risk",
+                        status="done",
+                        detail="DATA_BLOCKED (pre-watch)",
+                        symbol=symbol,
+                    )
+                    return result.model_copy(update={"status": "data_blocked", "opportunity": None})
+                BOARD.set_agent(
+                    "risk",
+                    status="done",
+                    detail=f"NO_TRADE (pre-watch) {elig.reason_codes[0] if elig.reason_codes else ''}",
+                    symbol=symbol,
+                )
+                return result.model_copy(update={"status": "no_trade", "opportunity": None})
+
             watch = ENTRY_WATCHES.create_from_bundle(candidate, bundle)
             from trading.admission_records import persist_admission
             from trading.shadow_outcomes import SHADOW_OUTCOMES
@@ -380,6 +431,19 @@ async def run_symbol_pipeline(
                 pipeline_run_id=result.pipeline_run_id,
                 entity_type="entry_watch",
                 entity_id=str(watch.id),
+            )
+            DECISION_OUTCOMES.record(
+                symbol=symbol,
+                stage="watch_created",
+                outcome="WAIT",
+                primary_reason="PRE_WATCH_ELIGIBLE",
+                reason_codes=elig.reason_codes,
+                admission=admission.decision if admission else None,
+                entry_decision=EntryDecision.WAIT_FOR_ENTRY,
+                watch_status=EntryWatchStatus.WAITING,
+                risk_verdict=risk_preview.verdict,
+                pipeline_run_id=result.pipeline_run_id,
+                watch_id=watch.id,
             )
         BOARD.set_agent(
             "risk",

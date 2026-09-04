@@ -736,6 +736,8 @@ class ExecutionService:
             sector_classification_version=sector.classification_version,
             target_reachability=target_reach,
             entry_quality=int(getattr(admission_input.bundle, "entry_quality", 0) or 0),
+            effective_rr=final_eval.admission.effective_rr,
+            spread=Decimal(str(spread.bps)) if spread.bps is not None else None,
             zone_arrival=final_eval.zone_arrival,
             tape_last=tape_last,
         )

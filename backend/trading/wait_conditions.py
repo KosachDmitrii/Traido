@@ -30,24 +30,23 @@ def unmet_wait_conditions(
     required = set(getattr(watch, "required_conditions", None) or [])
     missing: list[str] = []
 
+    if price is None:
+        missing.append("MISSING_PRICE")
+        return missing
+
     if PRICE_ENTERS_ZONE in required and not price_in_zone(price, watch):  # type: ignore[arg-type]
         missing.append(PRICE_ENTERS_ZONE)
 
-    if (
-        VWAP_HOLDS in required
-        and th.require_vwap_hold
-        and (
-            (
-                facts.distance_from_vwap_pct is not None
-                and facts.distance_from_vwap_pct < th.vwap_hold_min_pct
-            )
-            or (
-                facts.anchor_price is not None
-                and price < facts.anchor_price * th.vwap_anchor_hold_frac
-            )
-        )
-    ):
-        missing.append(VWAP_HOLDS)
+    if VWAP_HOLDS in required and th.require_vwap_hold:
+        if facts.distance_from_vwap_pct is None and facts.anchor_price is None:
+            missing.append("MISSING_VWAP")
+        elif (
+            facts.distance_from_vwap_pct is not None
+            and facts.distance_from_vwap_pct < th.vwap_hold_min_pct
+        ) or (
+            facts.anchor_price is not None and price < facts.anchor_price * th.vwap_anchor_hold_frac
+        ):
+            missing.append(VWAP_HOLDS)
 
     if MOMENTUM_TURNS_POSITIVE in required and th.require_momentum_flip:
         mom = facts.short_term_momentum_pct
@@ -56,20 +55,25 @@ def unmet_wait_conditions(
 
     if PULLBACK_VOL_DIGESTING in required and th.require_vol_digest:
         ratio = facts.pullback_vol_ratio
-        if ratio is not None and ratio > th.pullback_vol_digest_max:
+        if ratio is None:
+            missing.append("MISSING_VOL_DIGEST")
+        elif ratio > th.pullback_vol_digest_max:
             missing.append(PULLBACK_VOL_DIGESTING)
 
-    if SPREAD_ACCEPTABLE in required and quote is not None:
-        from trading import execution as execution_mod
-        from trading.entry_spread_gate import evaluate_entry_spread
+    if SPREAD_ACCEPTABLE in required:
+        if quote is None:
+            missing.append("MISSING_QUOTE")
+        else:
+            from trading import execution as execution_mod
+            from trading.entry_spread_gate import evaluate_entry_spread
 
-        spread_gate = evaluate_entry_spread(
-            quote,
-            now=execution_mod._utcnow(),
-            facts_price=float(price) if price is not None else None,
-            thresholds=th,
-        )
-        if not spread_gate.acceptable and spread_gate.reason_codes:
-            missing.append(SPREAD_ACCEPTABLE)
+            spread_gate = evaluate_entry_spread(
+                quote,
+                now=execution_mod._utcnow(),
+                facts_price=float(price),
+                thresholds=th,
+            )
+            if not spread_gate.acceptable and spread_gate.reason_codes:
+                missing.append(SPREAD_ACCEPTABLE)
 
     return missing

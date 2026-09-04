@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from enum import StrEnum
 
 from core.schemas import EntryTimingFacts, EntryWatch
+from trading.execution_geometry import resolve_capital_atr
 
 
 class LikelihoodClass(StrEnum):
@@ -84,7 +85,23 @@ def evaluate_entry_likelihood(
     zone_lo = float(watch.entry_zone_low)
     zone_hi = float(watch.entry_zone_high)
     anchor = (zone_lo + zone_hi) / 2.0
-    atr = (facts.atr if facts and facts.atr else None) or max(price * 0.02, 0.01)
+    atr = resolve_capital_atr(
+        facts_atr=(facts.atr if facts else None),
+        snapshot_atr=(
+            watch.admission_snapshot.atr_at_creation if watch.admission_snapshot else None
+        ),
+    )
+    if atr is None:
+        return EntryLikelihood(
+            classification=LikelihoodClass.LOW,
+            score=0.0,
+            distance_pct=None,
+            distance_atr=None,
+            volatility_support=0.0,
+            trend_penalty=0.0,
+            time_remaining_minutes=_minutes_remaining(watch, now),
+            reason_codes=["MISSING_ATR"],
+        )
 
     if zone_lo <= price <= zone_hi:
         return EntryLikelihood(

@@ -66,11 +66,14 @@ async def build_risk_context(
     sector_exposure: dict[str, Decimal] = {}
     unclassified_exposure = Decimal(0)
     sectors = get_sector_resolver(finnhub_api_key)
+    positions_trusted = True
+    unresolved_intents_trusted = True
 
     try:
         positions = await broker.list_positions()
-    except Exception as exc:  # noqa: BLE001 — never let telemetry break the risk path
+    except Exception as exc:  # noqa: BLE001 — report unreadable, never pretend empty
         positions = []
+        positions_trusted = False
         notes.append(f"positions unavailable: {type(exc).__name__}")
 
     for pos in positions:
@@ -124,6 +127,10 @@ async def build_risk_context(
             notes.append(news_assessment.reasons[0])
 
     unresolved = _unresolved_symbols(notes)
+    if any("unresolved intents unavailable" in n for n in notes):
+        unresolved_intents_trusted = False
+    else:
+        unresolved_intents_trusted = True
 
     # Curated universe.json wins; Finnhub fills names outside the file. Either
     # way `"unknown"` never travels as a sector — that is what let a name skip
@@ -145,6 +152,8 @@ async def build_risk_context(
         news=news,
         regime_tradable=regime_tradable,
         unresolved_symbols=unresolved,
+        positions_trusted=positions_trusted,
+        unresolved_intents_trusted=unresolved_intents_trusted,
         now=now,
     )
     return ContextBuildResult(context=context, notes=notes)

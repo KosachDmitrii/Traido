@@ -224,7 +224,7 @@ def test_structural_damage_no_trade() -> None:
         stop=108.0,
         target=125.0,
     )
-    assert admission.decision is AdmissionDecision.WAIT
+    assert admission.decision is AdmissionDecision.NO_TRADE
     assert admission.admitted is False
     assert "STRUCTURAL_DAMAGE" in admission.vetoes or any(
         "STRUCTURAL_DAMAGE" in r for r in admission.reason_codes

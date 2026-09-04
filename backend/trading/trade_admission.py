@@ -24,12 +24,14 @@ from core.schemas import (
 from trading.arrival_admission import evaluate_arrival_gate
 from trading.chase_facts import HARD_CHASE_LIMIT, compute_chase_facts
 from trading.data_integrity import check_data_integrity
+from trading.decision_precedence import resolve_admission_decision
 from trading.effective_rr import (
     compute_effective_rr,
     price_within_zone_cushion,
     required_admission_rr,
 )
 from trading.entry_policy import get_entry_thresholds
+from trading.execution_geometry import resolve_capital_atr
 from trading.stop_validation import validate_stop
 from trading.structural_integrity import evaluate_structural_integrity
 from trading.target_validation import validate_target
@@ -92,7 +94,10 @@ def entry_allowed_for_setup_type(
     if setup_type is SetupType.PULLBACK_CONTINUATION:
         if zone_low is None or zone_high is None:
             return False, ["MISSING_ENTRY_ZONE"]
-        buffer = (atr or price * 0.01) * ZONE_ABOVE_BUFFER_ATR
+        atr_v = resolve_capital_atr(facts_atr=atr)
+        if atr_v is None:
+            return False, ["MISSING_ATR"]
+        buffer = atr_v * ZONE_ABOVE_BUFFER_ATR
         if price > zone_high + buffer:
             return False, ["ENTRY_OUTSIDE_ALLOWED_ZONE"]
         # Deep undercut: wait for reclaim of the zone, not BUY at the print.
@@ -249,6 +254,34 @@ def evaluate_trade_admission(
             admission_version=ADMISSION_VERSION,
         )
 
+    snap_atr_raw = None
+    if (
+        candidate
+        and candidate.admission_snapshot
+        and isinstance(candidate.admission_snapshot, dict)
+    ):
+        raw = candidate.admission_snapshot.get("atr_at_creation")
+        if isinstance(raw, (int, float)) and raw > 0:
+            snap_atr_raw = float(raw)
+    capital_atr = resolve_capital_atr(facts_atr=facts.atr, snapshot_atr=snap_atr_raw)
+    if capital_atr is None and st in {
+        SetupType.PULLBACK_CONTINUATION,
+        SetupType.VWAP_RECLAIM,
+        SetupType.MEAN_REVERSION,
+        SetupType.BREAKOUT_CONTINUATION,
+    }:
+        return TradeAdmissionResult(
+            decision=AdmissionDecision.DATA_BLOCKED,
+            admitted=False,
+            setup_type=st,
+            setup_quality=setup_q,
+            entry_quality=entry_q,
+            data_status=data.status,
+            vetoes=["MISSING_ATR"],
+            reason_codes=["MISSING_ATR", "DATA_BLOCKED"],
+            admission_version=ADMISSION_VERSION,
+        )
+
     chase = compute_chase_facts(admission_facts, zone_high=zone_high, thresholds=th)
     structure = evaluate_structural_integrity(
         admission_facts,
@@ -277,7 +310,7 @@ def evaluate_trade_admission(
         zone_entry_price if zone_entry_price is not None else facts.current_price,
         zone_low,
         zone_high,
-        facts.atr,
+        capital_atr or facts.atr,
     )
     reason_codes.extend(zone_reasons)
     if not allowed:
@@ -360,7 +393,7 @@ def evaluate_trade_admission(
             quote=quote,
             zone_low=zone_low,
             zone_high=zone_high,
-            atr=facts.atr,
+            atr=capital_atr or facts.atr,
             cushion_atr=ZONE_ABOVE_BUFFER_ATR,
         )
         effective_rr_val = rr_res.effective_rr
@@ -419,36 +452,7 @@ def evaluate_trade_admission(
     min_entry = th.min_entry_quality
 
     if hard:
-        decision = (
-            AdmissionDecision.NO_TRADE
-            if any(
-                v in hard
-                for v in (
-                    "STRUCTURAL_DAMAGE",
-                    "INSUFFICIENT_EFFECTIVE_RR",
-                    "MISSING_TARGET",
-                    "MISSING_STOP",
-                    "MISSING_ENTRY_ZONE",
-                    "SETUP_TYPE_UNKNOWN",
-                    "INVALID_STOP",
-                    "TARGET_UNREALISTIC",
-                    "TARGET_PLAN_MISMATCH",
-                    "TARGET_NO_BASIS",
-                )
-            )
-            else AdmissionDecision.WAIT
-        )
-        if "STALE_DATA" in hard or "MARKET_DATA_UNHEALTHY" in hard:
-            decision = AdmissionDecision.DATA_BLOCKED
-        elif (
-            not allowed
-            or "ENTRY_OUTSIDE_ALLOWED_ZONE" in hard
-            or "EXTREME_CHASE" in hard
-            or "SPREAD_TOO_WIDE" in hard
-            or "ZONE_ARRIVAL_MISSING" in hard
-            or any("ZONE_ARRIVAL" in r or "ARRIVAL_TYPE" in r for r in reason_codes)
-        ):
-            decision = AdmissionDecision.WAIT
+        decision = resolve_admission_decision(hard, reason_codes, zone_allowed=allowed)
         return _result(
             decision,
             st,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from decimal import Decimal
 from uuid import UUID, uuid4
 
 from core.enums import (
@@ -24,6 +23,8 @@ from core.schemas import (
     TradeCandidate,
     WatchRevalidationResult,
 )
+from trading.decision_outcome import DECISION_OUTCOMES
+from trading.decision_precedence import watch_block_status_for_data_blocked
 from trading.entry_policy import get_entry_thresholds
 from trading.entry_quality import decide_entry
 from trading.entry_timing import evaluate_timing
@@ -35,6 +36,7 @@ from trading.entry_watches import (
     ZONE_RECLAIM,
     price_in_zone,
 )
+from trading.execution_geometry import build_execution_geometry
 from trading.geometry_hash import compute_geometry_hash, geometry_hash_from_watch
 from trading.target_model import build_target_plan
 from trading.trade_admission import evaluate_trade_admission
@@ -319,14 +321,23 @@ def _revalidate_after_claim(
     )
 
     if admission.decision is AdmissionDecision.DATA_BLOCKED:
-        # Transient quote latency — keep TRIGGERED so the next pass retries admission.
-        ENTRY_WATCHES.mark(
-            watch.id,
-            EntryWatchStatus.TRIGGERED,
-            reason=",".join(admission.reason_codes[:6]) or "DATA_BLOCKED",
+        block_status = watch_block_status_for_data_blocked(list(admission.reason_codes))
+        reason = ",".join(admission.reason_codes[:6]) or "DATA_BLOCKED"
+        ENTRY_WATCHES.mark(watch.id, block_status, reason=reason)
+        DECISION_OUTCOMES.record(
+            symbol=watch.symbol,
+            stage="watch_revalidate",
+            outcome="DATA_BLOCKED",
+            primary_reason=reason,
+            reason_codes=tuple(admission.reason_codes[:8]),
+            admission=admission.decision,
+            watch_status=block_status,
+            geometry_hash=geometry_hash_from_watch(watch),
+            pipeline_run_id=watch.pipeline_run_id,
+            watch_id=watch.id,
         )
         return WatchRevalidationResult(
-            entry_decision=EntryDecision.WAIT_FOR_ENTRY,
+            entry_decision=EntryDecision.NO_TRADE,
             admission=admission,
             quote=quote,
             evaluated_at=datetime.now(UTC),
@@ -449,34 +460,41 @@ def build_candidate_from_revalidation(
         return None
     if admission.snapshot is None:
         return None
-    ask = float(quote.ask or watch.planned_entry)
-    entry = Decimal(str(round(ask, 4)))
-    stop = watch.planned_stop
-    target_px = watch.planned_target
-    if not (stop < entry < target_px):
+    zone_low = float(watch.entry_zone_low) if watch.entry_zone_low else None
+    zone_high = float(watch.entry_zone_high) if watch.entry_zone_high else None
+    geometry = build_execution_geometry(
+        entry=quote.ask or watch.planned_entry,
+        stop=watch.planned_stop,
+        target=watch.planned_target,
+        quote=quote,
+        exec_timeframe=watch.exec_timeframe,
+        strategy_version=watch.strategy_version,
+        zone_low=zone_low,
+        zone_high=zone_high,
+        atr=admission.snapshot.atr_at_creation,
+    )
+    if not (geometry.stop < geometry.entry < geometry.target):
         return None
-    rr = float((target_px - entry) / (entry - stop))
     snap = admission.snapshot
-    gh = geometry_hash_from_watch(watch)
     return base.model_copy(
         update={
             "entry_decision": EntryDecision.BUY_NOW,
-            "entry": entry,
-            "stop": stop,
-            "target": target_px,
-            "risk_reward": round(rr, 2),
+            "entry": geometry.entry,
+            "stop": geometry.stop,
+            "target": geometry.target,
+            "risk_reward": round(geometry.effective_rr or 0.0, 2),
             "entry_quality": admission.entry_quality,
             "setup_quality": admission.setup_quality,
             "admission_version": admission.admission_version,
             "admission_snapshot": snap.model_dump(mode="json"),
-            "effective_rr_at_creation": admission.effective_rr,
+            "effective_rr_at_creation": geometry.effective_rr,
             "pipeline_run_id": uuid4(),
             "market_label": base.market_label,
             "reasons": [
                 *base.reasons[:8],
                 "WAIT_TRIGGERED_REEVAL_BUY_NOW",
                 f"watch_id={watch.id}",
-                f"geometry_hash={gh}",
+                f"geometry_hash={geometry.geometry_hash}",
             ],
         }
     )

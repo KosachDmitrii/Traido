@@ -88,6 +88,12 @@ class RiskContext:
     unresolved_symbols: frozenset[str] = frozenset()
     """Symbols whose broker state is unresolved. No new exposure until it is."""
 
+    positions_trusted: bool = True
+    """False when broker positions could not be read — fail-closed for new exposure."""
+
+    unresolved_intents_trusted: bool = True
+    """False when local intent ledger could not be read — fail-closed."""
+
     now: datetime | None = None
 
     def today(self) -> date:
@@ -175,6 +181,11 @@ class RiskEngine:
             # We do not know what we already own here. Adding to it is the one
             # action guaranteed to make the ambiguity worse.
             reasons.append("UNRESOLVED_BROKER_STATE")
+
+        if not ctx.positions_trusted:
+            reasons.append("POSITIONS_UNREADABLE")
+        if not ctx.unresolved_intents_trusted:
+            reasons.append("UNRESOLVED_INTENTS_UNREADABLE")
 
         reasons.extend(self._event_risk(candidate, ctx))
         reasons.extend(self._concentration(candidate, ctx))

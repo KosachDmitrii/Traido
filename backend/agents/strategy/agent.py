@@ -151,15 +151,14 @@ def propose_with_entry_timing(
     if not isinstance(close, (int, float)) or close <= 0:
         return None, None
     if not isinstance(atr_v, (int, float)) or atr_v <= 0:
-        atr_v = close * 0.02
+        return None, None
 
     quant_score = technical.score
     stub_news = any("not configured" in r.lower() for r in news.reasons)
     stub_market = any("not configured" in r.lower() for r in market.reasons)
-    if stub_news and stub_market:
-        overall = technical.score
-    else:
-        overall = round(0.55 * technical.score + 0.2 * news.score + 0.25 * market.score)
+    if stub_news or stub_market:
+        return None, None
+    overall = round(0.55 * technical.score + 0.2 * news.score + 0.25 * market.score)
 
     if technical.score < min_technical:
         return None, None
