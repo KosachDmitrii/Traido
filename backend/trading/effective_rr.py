@@ -58,22 +58,7 @@ def compute_effective_rr(
                 last_price=entry_f,
                 feed=resolve_alpaca_data_feed(get_settings()),
             )
-            # Inside the printed ±0.2 ATR cushion, score R:R at the planned entry —
-            # the desk explicitly allows fills there; do not chase-penalize the band.
-            if (
-                price_within_zone_cushion(
-                    price=ask,
-                    zone_low=zone_low,
-                    zone_high=zone_high,
-                    atr=atr,
-                    cushion_atr=cushion_atr,
-                )
-                and ask > stop_f
-            ):
-                effective_entry = entry_f * (1.0 + slippage_bps / 10000.0)
-            # Ask only counts as the fill when it sits above the stop. A WAIT plan
-            # whose zone is still above the tape must be scored at planned entry.
-            elif ask > stop_f:
+            if ask > stop_f:
                 effective_entry = ask * (1.0 + slippage_bps / 10000.0)
             else:
                 effective_entry = entry_f * (1.0 + slippage_bps / 10000.0)

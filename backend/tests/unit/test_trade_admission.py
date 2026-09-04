@@ -330,32 +330,38 @@ def test_cushion_band_allows_zone_when_mark_inside_ask_in_band() -> None:
     assert "ENTRY_OUTSIDE_ALLOWED_ZONE" not in admission.reason_codes
 
 
-def test_cushion_rr_scores_at_planned_entry_not_ask() -> None:
+def test_executable_rr_uses_ask_not_planned_entry() -> None:
+    """Effective R:R must score at the executable ask when entry is the ask."""
     zone_lo, zone_hi = 69.301, 72.295
     atr = 1.195
-    rr = compute_effective_rr(
-        entry=72.295,
+    ask = 72.52
+    rr_at_ask = compute_effective_rr(
+        entry=ask,
         stop=67.505,
         target=81.875,
-        quote=_quote(72.48, 72.52),
+        quote=_quote(72.48, ask),
         zone_low=zone_lo,
         zone_high=zone_hi,
         atr=atr,
         slippage_bps=0.0,
     )
-    rr_ask = compute_effective_rr(
+    rr_planned_entry = compute_effective_rr(
         entry=72.295,
         stop=67.505,
         target=81.875,
-        quote=_quote(72.48, 72.52),
+        quote=_quote(72.48, ask),
+        zone_low=zone_lo,
+        zone_high=zone_hi,
+        atr=atr,
         slippage_bps=0.0,
     )
-    assert rr.effective_entry == pytest.approx(72.295, abs=0.01)
-    assert rr.effective_rr > rr_ask.effective_rr
+    assert rr_at_ask.effective_entry == pytest.approx(ask, abs=0.01)
+    assert rr_planned_entry.effective_entry == pytest.approx(ask, abs=0.01)
+    assert rr_at_ask.effective_rr == pytest.approx(rr_planned_entry.effective_rr, abs=0.001)
 
 
-def test_cushion_fill_suppresses_chase_and_softens_atr_stop() -> None:
-    """Mark inside ±0.2 ATR must not hard-block on chase / ATR stop at revalidation."""
+def test_cushion_band_does_not_soften_stop_or_target_vetoes() -> None:
+    """Mark inside ±0.2 ATR must not bypass hard stop/target geometry gates."""
     set_entry_aggressiveness(100, actor="test")
     zone_lo, zone_hi = 69.301, 72.295
     atr = 1.195
@@ -423,7 +429,7 @@ def test_cushion_fill_suppresses_chase_and_softens_atr_stop() -> None:
         bundle=bundle,
         setup_type=SetupType.PULLBACK_CONTINUATION,
         quote=_quote(72.30, 72.33),
-        entry=72.295,
+        entry=72.33,
         stop=67.505,
         target=81.875,
         target_plan=TargetPlan(
@@ -432,11 +438,10 @@ def test_cushion_fill_suppresses_chase_and_softens_atr_stop() -> None:
             reachability=TargetReachabilityClass.UNREALISTIC,
         ),
         zone_entry_price=mark,
-        cushion_fill=True,
     )
     assert "EXTREME_CHASE" in with_cushion.reason_codes
-    assert "INVALID_STOP" not in with_cushion.vetoes
-    assert "TARGET_UNREALISTIC" not in with_cushion.vetoes
+    assert "INVALID_STOP" in with_cushion.vetoes or "ATR_ONLY_STOP" in with_cushion.reason_codes
+    assert "TARGET_UNREALISTIC" in with_cushion.vetoes
 
 
 @pytest.mark.parametrize("level", [0, 25, 50, 75, 100])

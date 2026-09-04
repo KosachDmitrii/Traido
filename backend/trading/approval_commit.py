@@ -247,11 +247,6 @@ def _commit_sql(
                 if prior_fp is None and live.approval_admission_record_id is not None:
                     adm_rec = admission_store.get(live.approval_admission_record_id)
                     prior_fp = adm_rec.request_fingerprint if adm_rec is not None else None
-                # UNKNOWN + same request_id = transport retry after lost reply:
-                # recover the existing intent; do not demand a fresh fingerprint
-                # match (re-evaluation always drifts wall-clock snapshot fields).
-                if live.status is IntentStatus.UNKNOWN:
-                    prior_fp = fp
                 if prior_fp is not None and prior_fp != fp:
                     METRICS.counter(
                         "approval_fingerprint_mismatch",
@@ -270,12 +265,8 @@ def _commit_sql(
                 if row_adm is None:
                     raise StaleDecisionError("admission_missing_for_intent")
                 record = AdmissionRecord.model_validate(row_adm.payload)
-            # Same request_id + fingerprint (or UNKNOWN recovery): reuse.
-            if (
-                record.request_fingerprint
-                and record.request_fingerprint != fp
-                and live.status is not IntentStatus.UNKNOWN
-            ):
+            # Same request_id + exact fingerprint: reuse transport retry.
+            if record.request_fingerprint and record.request_fingerprint != fp:
                 if request_id is not None and live.request_id == request_id:
                     raise IdempotencyConflictError(f"request_id={request_id}")
                 raise StaleDecisionError("admission_fingerprint_mismatch")
@@ -509,8 +500,6 @@ def _commit_memory(
                 if prior_fp is None and live.approval_admission_record_id is not None:
                     adm_rec = admission_store.get(live.approval_admission_record_id)
                     prior_fp = adm_rec.request_fingerprint if adm_rec is not None else None
-                if live.status is IntentStatus.UNKNOWN:
-                    prior_fp = fp
                 if prior_fp is not None and prior_fp != fp:
                     METRICS.counter(
                         "approval_fingerprint_mismatch",
@@ -524,11 +513,7 @@ def _commit_memory(
             record = admission_store.get(live.approval_admission_record_id)
             if record is None:
                 raise StaleDecisionError("admission_missing_for_intent")
-            if (
-                record.request_fingerprint
-                and record.request_fingerprint != fp
-                and live.status is not IntentStatus.UNKNOWN
-            ):
+            if record.request_fingerprint and record.request_fingerprint != fp:
                 if request_id is not None and live.request_id == request_id:
                     raise IdempotencyConflictError(f"request_id={request_id}")
                 raise StaleDecisionError("admission_fingerprint_mismatch")

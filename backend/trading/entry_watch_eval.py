@@ -10,7 +10,6 @@ from core.enums import (
     EntryDecision,
     EntryWatchStatus,
     SetupType,
-    TargetReachabilityClass,
 )
 from core.schemas import (
     Bar,
@@ -19,6 +18,7 @@ from core.schemas import (
     MarketAssessment,
     Quote,
     StopPlan,
+    TargetPlan,
     TradeAdmissionResult,
     TradeCandidate,
     WatchRevalidationResult,
@@ -37,7 +37,7 @@ from trading.entry_watches import (
     price_in_zone,
 )
 from trading.execution_geometry import build_execution_geometry
-from trading.geometry_hash import compute_geometry_hash, geometry_hash_from_watch
+from trading.geometry_hash import compute_geometry_hash
 from trading.target_model import build_target_plan
 from trading.trade_admission import evaluate_trade_admission
 from trading.wait_conditions import TRANSIENT_TRIGGER_CONDITIONS, unmet_wait_conditions
@@ -202,19 +202,7 @@ def _revalidate_after_claim(
     if watch.admission_snapshot and watch.admission_snapshot.atr_at_creation:
         atr_v = atr_v or watch.admission_snapshot.atr_at_creation
     in_cushion = price_in_zone(mark_price, watch, atr=atr_v)
-    if in_cushion:
-        # Score chase / target at the planned fill inside the printed cushion band.
-        facts = evaluate_timing(
-            exec_snap,
-            signal_price=float(watch.signal_price),
-            planned_entry=float(watch.planned_entry),
-            planned_stop=float(watch.planned_stop),
-            planned_target=float(watch.planned_target),
-            market=market,
-        )
-        eval_price = float(watch.planned_entry)
-    else:
-        eval_price = float(quote.ask)
+    eval_price = float(quote.ask)
     facts_for_wait = facts.model_copy(update={"current_price": mark_price})
     facts = facts.model_copy(update={"current_price": eval_price})
     if facts.nearest_support is not None and float(quote.ask) < facts.nearest_support:
@@ -231,13 +219,6 @@ def _revalidate_after_claim(
         historical_mfe_pct=hist_mfe,
         historical_sample_size=hist_n,
     )
-    if in_cushion and target.reachability is TargetReachabilityClass.UNREALISTIC:
-        target = target.model_copy(
-            update={
-                "price": watch.planned_target,
-                "reachability": TargetReachabilityClass.INSUFFICIENT_DATA,
-            }
-        )
     bundle = decide_entry(
         watch.thesis,
         facts,
@@ -289,6 +270,7 @@ def _revalidate_after_claim(
     candidate = watch.candidate
     from trading.data_integrity import last_bar_timestamp
 
+    exec_entry = quote.ask
     admission = evaluate_trade_admission(
         bundle=bundle,
         candidate=candidate,
@@ -297,13 +279,12 @@ def _revalidate_after_claim(
         bars_count=len(bars) if bars else 0,
         last_bar_ts=last_bar_timestamp(bars) if bars else None,
         require_bars=True,
-        entry=watch.planned_entry,
+        entry=exec_entry,
         stop=watch.planned_stop,
         target=target.price if target else watch.planned_target,
         target_plan=target,
         zone_arrival=arrival_facts,
         zone_entry_price=zone_entry_price,
-        cushion_fill=True,
     )
 
     from trading.admission_records import persist_admission
@@ -317,8 +298,10 @@ def _revalidate_after_claim(
         zone_arrival_quality=zone_arrival_quality,
         zone_arrival_type=zone_arrival_type,
         context={"source": "watch_revalidate", "phase": "watch_revalidation"},
-        geometry_hash=geometry_hash_from_watch(watch),
+        geometry_hash=_executable_geometry_hash(watch, entry=float(exec_entry), target=target),
     )
+
+    exec_gh = _executable_geometry_hash(watch, entry=float(exec_entry), target=target)
 
     if admission.decision is AdmissionDecision.DATA_BLOCKED:
         block_status = watch_block_status_for_data_blocked(list(admission.reason_codes))
@@ -332,7 +315,7 @@ def _revalidate_after_claim(
             reason_codes=tuple(admission.reason_codes[:8]),
             admission=admission.decision,
             watch_status=block_status,
-            geometry_hash=geometry_hash_from_watch(watch),
+            geometry_hash=exec_gh,
             pipeline_run_id=watch.pipeline_run_id,
             watch_id=watch.id,
         )
@@ -341,13 +324,13 @@ def _revalidate_after_claim(
             admission=admission,
             quote=quote,
             evaluated_at=datetime.now(UTC),
-            geometry_hash=geometry_hash_from_watch(watch),
+            geometry_hash=exec_gh,
         )
 
-    gh = geometry_hash_from_watch(watch)
+    gh = exec_gh
     if admission.snapshot and admission.admitted:
         snap_gh = compute_geometry_hash(
-            entry=float(watch.planned_entry),
+            entry=float(exec_entry),
             stop=float(watch.planned_stop),
             target=float(target.price if target else watch.planned_target),
             exec_timeframe=watch.exec_timeframe,
@@ -428,6 +411,22 @@ def _revalidate_after_claim(
         quote=quote,
         evaluated_at=datetime.now(UTC),
         geometry_hash=gh,
+    )
+
+
+def _executable_geometry_hash(
+    watch: EntryWatch,
+    *,
+    entry: float,
+    target: TargetPlan | None,
+) -> str:
+    tgt = float(target.price if target else watch.planned_target)
+    return compute_geometry_hash(
+        entry=entry,
+        stop=float(watch.planned_stop),
+        target=tgt,
+        exec_timeframe=watch.exec_timeframe,
+        strategy_version=watch.strategy_version,
     )
 
 

@@ -395,13 +395,6 @@ async def _convert_admitted_watch(
                     "symbol": forced.symbol,
                 },
             )
-            from trading.auto_trigger_policy import maybe_auto_approve_opportunity
-
-            await maybe_auto_approve_opportunity(
-                published.opportunity.id,
-                audit=audit,
-                symbol=forced.symbol,
-            )
         else:
             ENTRY_WATCHES.mark(current.id, EntryWatchStatus.ADMITTED, reason="PUBLISH_DEFERRED")
             stats["still_waiting"] += 1

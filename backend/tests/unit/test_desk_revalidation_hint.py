@@ -87,7 +87,8 @@ def test_spread_shown_inside_cushion_band() -> None:
     assert desk_revalidation_hint(watch) == "SPREAD_ACCEPTABLE"
 
 
-def test_cushion_suppresses_stale_chase_hint() -> None:
+def test_cushion_shows_stale_geometry_hint() -> None:
+    """Inside the cushion band, geometry vetoes remain visible on the desk."""
     watch = _watch(
         reasons=[
             "EXTREME_CHASE,ATR_ONLY_STOP,INVALID_STOP,TARGET_UNREALISTIC",
@@ -104,7 +105,9 @@ def test_cushion_suppresses_stale_chase_hint() -> None:
             ),
         }
     )
-    assert desk_revalidation_hint(watch) is None
+    assert desk_revalidation_hint(watch) == (
+        "EXTREME_CHASE,ATR_ONLY_STOP,INVALID_STOP,TARGET_UNREALISTIC"
+    )
 
 
 def test_strip_resolved_spread_hints() -> None:

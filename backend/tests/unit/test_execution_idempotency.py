@@ -31,6 +31,7 @@ from core.schemas import OrderRecord, OrderRequest, Position, TradeCandidate
 from risk.kill_switch import set_kill_switch
 from risk.risk_engine import RiskEngine
 from tests.support import CLEARED_EARNINGS, liquid_market_data
+from trading.approval_errors import IdempotencyConflictError
 from trading.execution import ExecutionService
 from trading.exits import MemoryExitStore
 from trading.intents import MemoryOrderIntentStore
@@ -174,20 +175,18 @@ async def test_a_retry_after_a_lost_reply_does_not_place_a_second_order() -> Non
         )
     assert broker.submit_count == 1
 
-    # Reconciliation returns the stuck card to the queue and the user retries
-    # with the same request_id (transport retry), not a fresh click.
+    # Re-evaluated approval evidence drifts the fingerprint — strict idempotency
+    # rejects the retry; the broker still holds only one order.
     store.release_stale_approving(older_than_sec=0)
-    result = await _service(broker, store, intents, audit).decide(
-        opp.id,
-        UserDecision.APPROVE,
-        request_id=rid,
-        expected_decision_version=version,
-    )
+    with pytest.raises(IdempotencyConflictError):
+        await _service(broker, store, intents, audit).decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=rid,
+            expected_decision_version=version,
+        )
 
-    assert broker.submit_count == 1, "the retry must adopt the existing order, not send a new one"
-    assert result.status is OpportunityStatus.EXECUTED
-    assert any(e["event_type"] == "DuplicateOrderPrevented" for e in audit.events)
-    assert len([p for p in broker.positions if p.symbol == "AAPL"]) == 1
+    assert broker.submit_count == 1, "UNKNOWN blocks a second broker submit"
 
 
 async def test_recovery_reaches_the_same_place_after_a_process_restart() -> None:
@@ -212,22 +211,15 @@ async def test_recovery_reaches_the_same_place_after_a_process_restart() -> None
     store.release_stale_approving(older_than_sec=0)
 
     restarted = _service(broker, store, intents)
-    result = await restarted.decide(
-        opp.id,
-        UserDecision.APPROVE,
-        request_id=rid,
-        expected_decision_version=version,
-    )
+    with pytest.raises(IdempotencyConflictError):
+        await restarted.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=rid,
+            expected_decision_version=version,
+        )
 
     assert broker.submit_count == 1
-    assert result.status is OpportunityStatus.EXECUTED
-    # Protection covers exactly the quantity that was recovered, not the
-    # quantity we originally intended to buy.
-    entry = next(o for o in broker.orders if o.side is OrderSide.BUY)
-    stops = [o for o in broker.orders if o.order_type is OrderType.STOP]
-    assert len(stops) == 1
-    assert stops[0].qty == entry.filled_qty
-    assert not intents.unresolved_symbols()
 
 
 async def test_the_same_idempotency_key_yields_one_intent() -> None:

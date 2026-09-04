@@ -1,7 +1,7 @@
 """Desk auto-buy on TRIGGERED→ADMITTED path — operator toggle (paper confirmation desk).
 
-When enabled, a published BUY opportunity is approved through ExecutionService.decide()
-with the same gates as a human click. This is not TRAIDO_TRADING_MODE automatic execution.
+Auto-approve is forbidden while ``TRAIDO_TRADING_MODE=confirmation`` (the default).
+Human Buy is the only approval path until automatic trading mode is implemented.
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import UUID, uuid4
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +20,13 @@ POLICY_PATH = Path(__file__).resolve().parents[1] / "data" / "auto_trigger.json"
 REDIS_KEY = "traido:auto_trigger"
 _LOCK = threading.Lock()
 _cached: bool | None = None
+
+
+def _confirmation_mode_blocks_auto_trigger() -> bool:
+    from core.config import get_settings
+    from core.enums import TradingMode
+
+    return get_settings().trading_mode is TradingMode.CONFIRMATION
 
 
 def _redis_client() -> Any:
@@ -122,6 +128,8 @@ def _heal_redis_from_file(
 
 def _load_enabled() -> bool:
     """Prefer the newer of Redis vs file; ignore test snapshots over operator file."""
+    if _confirmation_mode_blocks_auto_trigger():
+        return False
     redis_val, redis_ts, redis_actor = _read_redis()
     file_val, file_ts, file_actor = _read_file()
 
@@ -167,6 +175,11 @@ def get_auto_trigger_enabled() -> bool:
 
 def set_auto_trigger_enabled(value: bool, *, actor: str = "user") -> bool:
     global _cached
+    if value and _confirmation_mode_blocks_auto_trigger():
+        logger.warning("auto trigger: cannot enable while trading_mode=confirmation")
+        with _LOCK:
+            _cached = False
+        return False
     enabled = bool(value)
     updated_at = datetime.now(UTC).isoformat()
     _write_file(enabled, actor=actor, updated_at=updated_at)
@@ -189,30 +202,41 @@ def reset_auto_trigger_cache() -> None:
 
 
 def policy_payload() -> dict[str, Any]:
+    blocked = _confirmation_mode_blocks_auto_trigger()
     return {
         "enabled": get_auto_trigger_enabled(),
+        "available": not blocked,
         "note": (
-            "When on, ADMITTED watches that publish a BUY card are auto-approved "
-            "through ExecutionService (kill switch, RTH, reconciliation, liquidity, "
-            "risk — same as manual Buy). Paper execution only."
+            "Auto-approve is disabled in confirmation mode — use Buy on the card."
+            if blocked
+            else (
+                "When on, ADMITTED watches that publish a BUY card are auto-approved "
+                "through ExecutionService (kill switch, RTH, reconciliation, liquidity, "
+                "risk — same as manual Buy). Paper execution only."
+            )
         ),
     }
 
 
 async def maybe_auto_approve_opportunity(
-    opportunity_id: UUID,
+    opportunity_id: Any,
     *,
     audit: Any,
     symbol: str,
 ) -> bool:
     """Return True when an approve decision was attempted and succeeded."""
+    if _confirmation_mode_blocks_auto_trigger():
+        return False
     if not get_auto_trigger_enabled():
         return False
+
+    from uuid import UUID, uuid4
 
     from core.enums import UserDecision
     from trading.opportunities import OPPORTUNITIES
 
-    opp = OPPORTUNITIES.get(opportunity_id)
+    opp_id = opportunity_id if isinstance(opportunity_id, UUID) else UUID(str(opportunity_id))
+    opp = OPPORTUNITIES.get(opp_id)
     if opp is None:
         return False
 
@@ -222,7 +246,7 @@ async def maybe_auto_approve_opportunity(
     request_id = uuid4()
     try:
         result = await service.decide(
-            opportunity_id,
+            opp_id,
             UserDecision.APPROVE,
             request_id=request_id,
             expected_decision_version=opp.decision_version,
@@ -232,7 +256,7 @@ async def maybe_auto_approve_opportunity(
         await audit.append(
             "AutoTriggerApproveFailed",
             "auto_trigger",
-            {"opportunity_id": str(opportunity_id), "symbol": symbol, "error": type(exc).__name__},
+            {"opportunity_id": str(opp_id), "symbol": symbol, "error": type(exc).__name__},
         )
         return False
 
@@ -240,7 +264,7 @@ async def maybe_auto_approve_opportunity(
         "AutoTriggerApproved",
         "auto_trigger",
         {
-            "opportunity_id": str(opportunity_id),
+            "opportunity_id": str(opp_id),
             "symbol": symbol,
             "status": result.status.value,
             "request_id": str(request_id),

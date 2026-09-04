@@ -166,7 +166,6 @@ def evaluate_trade_admission(
     stop_structural_source: str | None = None,
     stop_structural_level: float | None = None,
     zone_entry_price: float | None = None,
-    cushion_fill: bool = False,
 ) -> TradeAdmissionResult:
     """Apply all trading gates. Does not re-run quant indicators."""
     th = get_entry_thresholds()
@@ -353,15 +352,7 @@ def evaluate_trade_admission(
             structural_level=snap_level,
         )
         stop_valid = stop_res.valid
-        if (
-            cushion_fill
-            and in_cushion
-            and not stop_valid
-            and frozenset(stop_res.reason_codes) <= frozenset({"ATR_ONLY_STOP", "INVALID_STOP"})
-        ):
-            stop_valid = True
-            warnings.append("CUSHION_ATR_STOP")
-        elif not stop_valid:
+        if not stop_valid:
             vetoes.extend(vetoes_from_codes(stop_res.reason_codes))
             reason_codes.extend(stop_res.reason_codes)
 
@@ -372,17 +363,7 @@ def evaluate_trade_admission(
     else:
         target_res = validate_target(entry=ent, target=tgt, target_plan=tp)
         target_valid = target_res.valid
-        if (
-            cushion_fill
-            and in_cushion
-            and not target_valid
-            and tp is not None
-            and frozenset(target_res.reason_codes) <= frozenset({"TARGET_UNREALISTIC"})
-            and float(tgt) == float(tp.price)
-        ):
-            target_valid = True
-            warnings.append("CUSHION_FROZEN_TARGET")
-        elif not target_valid:
+        if not target_valid:
             vetoes.extend(vetoes_from_codes(target_res.reason_codes))
             reason_codes.extend(target_res.reason_codes)
 

@@ -41,14 +41,28 @@ def test_default_off() -> None:
     assert "note" in payload
 
 
-def test_set_persists_to_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_set_persists_to_file_when_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     path = tmp_path / "auto_trigger.json"
     monkeypatch.setattr(atp, "POLICY_PATH", path)
-    atp.set_auto_trigger_enabled(True, actor="test")
-    assert atp.get_auto_trigger_enabled() is True
+    assert atp.set_auto_trigger_enabled(False, actor="test") is False
+    assert atp.get_auto_trigger_enabled() is False
     raw = json.loads(path.read_text(encoding="utf-8"))
-    assert raw["enabled"] is True
+    assert raw["enabled"] is False
     assert raw["actor"] == "test"
+
+
+def test_cannot_enable_in_confirmation_mode(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "auto_trigger.json"
+    monkeypatch.setattr(atp, "POLICY_PATH", path)
+    assert atp.set_auto_trigger_enabled(True, actor="test") is False
+    assert atp.get_auto_trigger_enabled() is False
+    payload = atp.policy_payload()
+    assert payload["enabled"] is False
+    assert payload["available"] is False
 
 
 def test_user_file_beats_test_redis_even_when_redis_is_newer(
@@ -88,6 +102,4 @@ def test_user_file_beats_test_redis_even_when_redis_is_newer(
     monkeypatch.setattr(atp, "POLICY_PATH", path)
     monkeypatch.setattr(atp, "_redis_client", lambda: _FakeRedis())
     atp.reset_auto_trigger_cache()
-    assert atp.get_auto_trigger_enabled() is True
-    assert store[atp.REDIS_KEY]["enabled"] == "1"
-    assert store[atp.REDIS_KEY]["actor"] == "user"
+    assert atp.get_auto_trigger_enabled() is False

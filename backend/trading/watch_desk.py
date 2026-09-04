@@ -81,16 +81,7 @@ def _hint_from_reason(raw: str) -> str | None:
     return None
 
 
-# Geometry-only — stale at the cushion fill price; never hide live quote gates.
-_CUSHION_SUPPRESSED_HINTS = frozenset(
-    {
-        "EXTREME_CHASE",
-        "INVALID_STOP",
-        "TARGET_UNREALISTIC",
-        "ATR_ONLY_STOP",
-    }
-)
-
+# Geometry-only stale hints are no longer hidden in the cushion band — admission uses ask.
 _SPREAD_HINT_CODES = frozenset(
     {
         "SPREAD_ACCEPTABLE",
@@ -114,29 +105,6 @@ def strip_resolved_spread_hints(hint: str | None, *, spread_acceptable: bool) ->
     return ",".join(kept[:4]) if kept else None
 
 
-def _filter_hint_for_cushion(
-    hint: str | None,
-    watch: EntryWatch,
-    *,
-    atr: float | None,
-) -> str | None:
-    """Inside ±0.2 ATR the desk allows fill — do not show chase/geometry stale blocks."""
-    if not hint:
-        return None
-    px = float(watch.last_price or watch.current_price_at_creation)
-    if not price_in_zone(px, watch, atr=atr):
-        return hint
-    kept: list[str] = []
-    for part in hint.split(","):
-        token = part.strip()
-        if not token:
-            continue
-        code = token.split(":")[0]
-        if code not in _CUSHION_SUPPRESSED_HINTS:
-            kept.append(token)
-    return ",".join(kept[:4]) if kept else None
-
-
 def desk_revalidation_hint(watch: EntryWatch) -> str | None:
     """Latest admission / trigger reason for desk display (not arrival-only)."""
     if watch.status not in {
@@ -155,7 +123,7 @@ def desk_revalidation_hint(watch: EntryWatch) -> str | None:
         if parsed:
             hint = parsed
             break
-    return _filter_hint_for_cushion(hint, watch, atr=atr_v)
+    return hint
 
 
 def desk_block_reason_from_arrival(arrival: ZoneArrivalFacts, th: EntryThresholds) -> str | None:
