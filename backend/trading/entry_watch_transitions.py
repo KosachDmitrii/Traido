@@ -229,8 +229,12 @@ def recover_stale_leases(*, engine: Engine | None = None) -> int:
             target = EntryWatchStatus.TRIGGERED
             reason = "LEASE_EXPIRED_REVALIDATING"
         elif watch.status is EntryWatchStatus.CONVERTING:
-            target = EntryWatchStatus.ADMITTED
-            reason = "LEASE_EXPIRED_CONVERTING"
+            if watch.converted_opportunity_id is not None:
+                target = EntryWatchStatus.CONVERTED
+                reason = "LEASE_EXPIRED_ALREADY_PUBLISHED"
+            else:
+                target = EntryWatchStatus.ADMITTED
+                reason = "LEASE_EXPIRED_CONVERTING"
         else:
             continue
         out = ENTRY_WATCHES.mark(watch.id, target, reason=reason)
@@ -249,6 +253,8 @@ def recover_stale_leases(*, engine: Engine | None = None) -> int:
             )
             ENTRY_WATCHES.update(cleared)
             out = cleared
+        if target is EntryWatchStatus.ADMITTED:
+            ENTRY_WATCHES.release_admission_if_unpublished(out)
         recovered += 1
         logger.info(
             "entry watch lease recovery (memory): %s %s → %s",
@@ -273,6 +279,9 @@ def recover_stale_leases(*, engine: Engine | None = None) -> int:
                 if row.status == EntryWatchStatus.REVALIDATING.value:
                     target = EntryWatchStatus.TRIGGERED
                     reason = "LEASE_EXPIRED_REVALIDATING"
+                elif row_watch.converted_opportunity_id is not None:
+                    target = EntryWatchStatus.CONVERTED
+                    reason = "LEASE_EXPIRED_ALREADY_PUBLISHED"
                 else:
                     target = EntryWatchStatus.ADMITTED
                     reason = "LEASE_EXPIRED_CONVERTING"
@@ -280,6 +289,8 @@ def recover_stale_leases(*, engine: Engine | None = None) -> int:
                 if out is None:
                     continue
                 ENTRY_WATCHES.update(out)
+                if target is EntryWatchStatus.ADMITTED:
+                    ENTRY_WATCHES.release_admission_if_unpublished(out)
                 recovered += 1
                 logger.info(
                     "entry watch lease recovery (db): %s → %s",

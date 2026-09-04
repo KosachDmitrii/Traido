@@ -30,7 +30,7 @@ from trading.entry_watch_loop import (
     _defer_to_recovery_revalidation,
     run_watch_pass,
 )
-from trading.entry_watches import ENTRY_WATCHES
+from trading.entry_watches import ENTRY_WATCHES, admission_claim_key
 
 
 def _quote(*, ask: str) -> Quote:
@@ -283,3 +283,124 @@ async def test_stale_recovery_never_auto_triggers_even_when_enabled() -> None:
         )
 
     auto_mock.assert_not_called()
+
+
+def test_recovery_releases_stuck_admission_claim_after_converting_crash() -> None:
+    """Same-process CONVERTING crash must not block the next conversion attempt."""
+    watch = _admitted_watch(entry=100.05, trigger_version=1)
+    key = admission_claim_key(watch.id, watch.trigger_version)
+    assert ENTRY_WATCHES.claim_admission(key) is True
+
+    converting = ENTRY_WATCHES.mark(
+        watch.id, EntryWatchStatus.CONVERTING, reason="CONVERSION_CLAIM"
+    )
+    assert converting is not None
+    assert converting.status is EntryWatchStatus.CONVERTING
+
+    stats = {"still_waiting": 0, "converted": 0, "invalidated": 0}
+    _defer_to_recovery_revalidation(converting, stats=stats)
+
+    updated = ENTRY_WATCHES.get(watch.id)
+    assert updated is not None
+    assert updated.status is EntryWatchStatus.TRIGGERED
+    assert updated.trigger_version == 1
+    assert ENTRY_WATCHES.claim_admission(key) is True
+
+
+def test_published_opportunity_keeps_admission_claim() -> None:
+    watch = _admitted_watch(trigger_version=2)
+    key = admission_claim_key(watch.id, watch.trigger_version)
+    assert ENTRY_WATCHES.claim_admission(key) is True
+
+    opp_id = uuid4()
+    published = ENTRY_WATCHES.update(watch.model_copy(update={"converted_opportunity_id": opp_id}))
+    assert ENTRY_WATCHES.release_admission_if_unpublished(published) is False
+    assert ENTRY_WATCHES.claim_admission(key) is False
+
+
+@pytest.mark.asyncio
+async def test_watch_pass_recovers_converting_and_releases_admission_claim() -> None:
+    """CONVERTING leftover from a same-process crash must reclaim on the next pass."""
+    watch = _admitted_watch(entry=100.05, trigger_version=1)
+    key = admission_claim_key(watch.id, watch.trigger_version)
+    assert ENTRY_WATCHES.claim_admission(key) is True
+    converting = ENTRY_WATCHES.mark(
+        watch.id, EntryWatchStatus.CONVERTING, reason="CONVERSION_CLAIM"
+    )
+    assert converting is not None
+
+    with (
+        patch(
+            "trading.watch_marks.refresh_all_watch_marks",
+            new_callable=AsyncMock,
+            return_value={watch.symbol: (100.05, _quote(ask="100.05"))},
+        ),
+        patch("trading.entry_watch_loop.publish_opportunity", AsyncMock()),
+        patch("trading.auto_trigger_policy.maybe_auto_approve_opportunity", AsyncMock()),
+        patch("trading.entry_watch_loop.ensure_seeded_from_aftermath", return_value=0),
+        patch("trading.shadow_outcomes.SHADOW_OUTCOMES.finalize_expired"),
+    ):
+        stats = await run_watch_pass()
+
+    assert stats["converted"] == 0
+    updated = ENTRY_WATCHES.get(watch.id)
+    assert updated is not None
+    assert updated.status is EntryWatchStatus.TRIGGERED
+    assert updated.trigger_version == 1
+    assert ENTRY_WATCHES.claim_admission(key) is True
+
+
+@pytest.mark.asyncio
+async def test_convert_exception_releases_unpublished_admission_claim() -> None:
+    """Crash after claim, before publish — same-process reclaim must succeed."""
+    watch = _admitted_watch(entry=100.05, trigger_version=1)
+    key = admission_claim_key(watch.id, watch.trigger_version)
+    admission = _fresh_admission(entry=100.05, target=105.0)
+    stats = {"converted": 0, "invalidated": 0, "still_waiting": 0}
+
+    with (
+        patch(
+            "trading.entry_watch_loop.build_candidate_from_revalidation",
+            side_effect=RuntimeError("boom"),
+        ),
+        pytest.raises(RuntimeError, match="boom"),
+    ):
+        await _convert_admitted_watch(
+            watch,
+            md=AsyncMock(),
+            settings=MagicMock(fred_api_key=None, finnhub_api_key=None),
+            audit=AsyncMock(),
+            stats=stats,
+            price=100.05,
+            quote=_quote(ask="100.05"),
+            admission=admission,
+        )
+
+    updated = ENTRY_WATCHES.get(watch.id)
+    assert updated is not None
+    assert updated.status is EntryWatchStatus.CONVERTING
+    assert updated.converted_opportunity_id is None
+    assert updated.trigger_version == 1
+    assert ENTRY_WATCHES.claim_admission(key) is True
+
+
+def test_recovery_finishes_converting_when_opportunity_already_published() -> None:
+    watch = _admitted_watch(trigger_version=1)
+    key = admission_claim_key(watch.id, watch.trigger_version)
+    assert ENTRY_WATCHES.claim_admission(key) is True
+    converting = ENTRY_WATCHES.mark(
+        watch.id, EntryWatchStatus.CONVERTING, reason="CONVERSION_CLAIM"
+    )
+    assert converting is not None
+    opp_id = uuid4()
+    ENTRY_WATCHES.update(converting.model_copy(update={"converted_opportunity_id": opp_id}))
+
+    stats = {"still_waiting": 0, "converted": 0, "invalidated": 0}
+    _defer_to_recovery_revalidation(ENTRY_WATCHES.get(watch.id) or converting, stats=stats)
+
+    updated = ENTRY_WATCHES.get(watch.id)
+    assert updated is not None
+    assert updated.status is EntryWatchStatus.CONVERTED
+    assert updated.converted_opportunity_id == opp_id
+    assert stats["converted"] == 1
+    assert ENTRY_WATCHES.claim_admission(key) is False

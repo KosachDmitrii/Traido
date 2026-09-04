@@ -9,7 +9,7 @@ from uuid import uuid4
 from core.enums import EntryWatchStatus, SetupType
 from core.schemas import EntryWatch
 from trading.entry_watch_transitions import LEASE_SECONDS, lease_expired, recover_stale_leases
-from trading.entry_watches import ENTRY_WATCHES
+from trading.entry_watches import ENTRY_WATCHES, admission_claim_key
 
 
 def _watch(*, status: EntryWatchStatus, lease_expired_ago: float | None = 30.0) -> EntryWatch:
@@ -73,3 +73,25 @@ def test_recover_stale_leases_clears_memory_revalidating(monkeypatch) -> None:
     assert got.lease_expires_at is None
     assert got.claim_token is None
     assert "LEASE_EXPIRED_REVALIDATING" in got.reasons
+
+
+def test_recover_stale_leases_releases_converting_admission_claim(monkeypatch) -> None:
+    from trading import entry_watch_persistence as pers
+    from trading import entry_watch_transitions as transitions
+
+    monkeypatch.setattr(pers, "_enabled", False)
+    monkeypatch.setattr(transitions, "persistence_enabled", lambda: False)
+
+    ENTRY_WATCHES.clear()
+    stuck = _watch(status=EntryWatchStatus.CONVERTING, lease_expired_ago=30)
+    ENTRY_WATCHES.update(stuck)
+    key = admission_claim_key(stuck.id, stuck.trigger_version)
+    assert ENTRY_WATCHES.claim_admission(key) is True
+
+    n = recover_stale_leases()
+    assert n >= 1
+    got = ENTRY_WATCHES.get(stuck.id)
+    assert got is not None
+    assert got.status is EntryWatchStatus.ADMITTED
+    assert "LEASE_EXPIRED_CONVERTING" in got.reasons
+    assert ENTRY_WATCHES.claim_admission(key) is True

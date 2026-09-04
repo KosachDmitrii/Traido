@@ -288,13 +288,44 @@ async def _convert_admitted_watch(
         _defer_to_recovery_revalidation(current, stats=stats)
         return
 
-    admission_key = f"watch:{current.id}:{current.trigger_version}"
+    from trading.entry_watches import admission_claim_key
+
+    admission_key = admission_claim_key(current.id, current.trigger_version)
     if not ENTRY_WATCHES.claim_admission(admission_key):
         stats["still_waiting"] += 1
         return
 
+    try:
+        await _publish_admitted_watch(
+            current,
+            settings,
+            audit,
+            stats,
+            quote=quote,
+            admission=admission,
+        )
+    finally:
+        latest = ENTRY_WATCHES.get(current.id)
+        if latest is not None:
+            ENTRY_WATCHES.release_admission_if_unpublished(latest)
+        else:
+            ENTRY_WATCHES.release_admission(admission_key)
+
+
+async def _publish_admitted_watch(
+    watch: EntryWatch,
+    settings: Settings,
+    audit: Any,
+    stats: dict[str, int],
+    *,
+    quote: Quote | None,
+    admission: TradeAdmissionResult,
+) -> None:
+    """CONVERTING → publish or fail. Caller holds and releases the admission claim."""
+    from core.enums import EntryWatchStatus
+
     converting = ENTRY_WATCHES.mark(
-        current.id, EntryWatchStatus.CONVERTING, reason="CONVERSION_CLAIM"
+        watch.id, EntryWatchStatus.CONVERTING, reason="CONVERSION_CLAIM"
     )
     if converting is None:
         stats["still_waiting"] += 1
@@ -368,7 +399,6 @@ async def _convert_admitted_watch(
             )
             return
 
-        adm = admission
         result = PipelineResult(
             pipeline_run_id=forced.pipeline_run_id or uuid4(),
             symbol=forced.symbol,
@@ -376,7 +406,7 @@ async def _convert_admitted_watch(
             candidate=forced,
         )
         published = await publish_opportunity(
-            result, risk, settings=settings, admission=adm, quote=q
+            result, risk, settings=settings, admission=admission, quote=q
         )
         if published.opportunity is not None:
             ENTRY_WATCHES.mark(
@@ -417,10 +447,41 @@ async def _convert_admitted_watch(
 
 
 def _defer_to_recovery_revalidation(watch: EntryWatch, *, stats: dict[str, int]) -> None:
-    """Stale ADMITTED/CONVERTING after restart — require a fresh revalidation pass."""
+    """Stale ADMITTED/CONVERTING after restart — require a fresh revalidation pass.
+
+    Releases an in-memory admission claim only when conversion never published.
+    A published card must not be reopened as TRIGGERED.
+    """
     from core.enums import EntryWatchStatus
 
     current = ENTRY_WATCHES.get(watch.id) or watch
+    if current.converted_opportunity_id is not None:
+        if current.status is EntryWatchStatus.CONVERTING:
+            finished = ENTRY_WATCHES.mark(
+                current.id,
+                EntryWatchStatus.CONVERTED,
+                reason="RECOVERY_ALREADY_PUBLISHED",
+                converted_opportunity_id=current.converted_opportunity_id,
+            )
+            if finished is None:
+                ENTRY_WATCHES.update(
+                    current.model_copy(
+                        update={
+                            "status": EntryWatchStatus.CONVERTED,
+                            "reasons": [*current.reasons, "RECOVERY_ALREADY_PUBLISHED"],
+                            "claimed_at": None,
+                            "claim_token": None,
+                            "claim_owner_id": None,
+                            "lease_expires_at": None,
+                        }
+                    )
+                )
+            stats["converted"] = stats.get("converted", 0) + 1
+        else:
+            stats["still_waiting"] += 1
+        return
+
+    ENTRY_WATCHES.release_admission_if_unpublished(current)
     if current.status is EntryWatchStatus.CONVERTING:
         released = ENTRY_WATCHES.mark(
             current.id,

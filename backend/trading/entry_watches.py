@@ -57,6 +57,20 @@ class EntryWatchStore:
             self._admitted_keys.add(key)
             return True
 
+    def release_admission(self, key: str) -> bool:
+        """Drop an in-memory claim — safe when no opportunity was published for that key."""
+        with self._lock:
+            if key not in self._admitted_keys:
+                return False
+            self._admitted_keys.discard(key)
+            return True
+
+    def release_admission_if_unpublished(self, watch: EntryWatch) -> bool:
+        """Release claim for this trigger when conversion never published an opportunity."""
+        if watch.converted_opportunity_id is not None:
+            return False
+        return self.release_admission(admission_claim_key(watch.id, watch.trigger_version))
+
     def find_open(self, symbol: str) -> EntryWatch | None:
         """At most one actionable WAIT/TRIGGERED watch per symbol."""
         symbol = symbol.upper()
@@ -409,6 +423,11 @@ class EntryWatchStore:
         with self._lock:
             self._rows.clear()
             self._admitted_keys.clear()
+
+
+def admission_claim_key(watch_id: UUID, trigger_version: int) -> str:
+    """One claim per trigger — matches ``_convert_admitted_watch`` idempotency key."""
+    return f"watch:{watch_id}:{trigger_version}"
 
 
 def Decimal_safe(x: float) -> Decimal:
