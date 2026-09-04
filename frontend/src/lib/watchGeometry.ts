@@ -31,10 +31,6 @@ export function watchInOrNearZone(w: EntryWatchCard): boolean {
   return typeof atr === "number" && Number.isFinite(atr) && atr <= 0.2;
 }
 
-export function watchInCushionOnly(w: EntryWatchCard): boolean {
-  return watchInOrNearZone(w) && !watchStrictInZone(w);
-}
-
 export function watchAboveStrictZone(w: EntryWatchCard): boolean {
   const price = waitPrice(w);
   const hi = Number(w.entry_zone_high);
@@ -53,10 +49,6 @@ export function watchApproaching(w: EntryWatchCard): boolean {
   if (ui === "APPROACHING") return true;
   const atr = w.distance_to_zone_atr;
   return typeof atr === "number" && Number.isFinite(atr) && atr <= 0.5;
-}
-
-export function watchAttentionRank(w: EntryWatchCard): number {
-  return watchPipelineSortRank(w);
 }
 
 /** Lower = closer to BUY — rail order: buy → trigger → in zone → near → waiting. */

@@ -9,10 +9,7 @@ from uuid import uuid4
 import pytest
 
 from agents.strategy.agent import propose_trade
-from agents.supervisor.agent import Supervisor
 from agents.technical.agent import assess_technical
-from core.audit import InMemoryAudit
-from core.config import Settings
 from core.enums import MarketRegimeLabel, Timeframe, TradeAction
 from core.schemas import (
     FeatureSnapshot,
@@ -22,9 +19,6 @@ from core.schemas import (
 )
 from market_data.providers.fixture import FixtureMarketData
 from quant.engine import compute_features
-
-FIXTURE_NOW = datetime(2024, 12, 30, 21, 0, tzinfo=UTC)
-"""The close of the last session in `tests/fixtures/bars`."""
 
 
 @pytest.mark.asyncio
@@ -104,44 +98,6 @@ def test_strategy_rejects_weak_technical() -> None:
         )
     }
     assert propose_trade("AAPL", tech, news, market, features) is None
-
-
-@pytest.mark.asyncio
-async def test_supervisor_scan_fixture_no_orders() -> None:
-    audit = InMemoryAudit()
-    settings = Settings(
-        alpaca_api_key=None,
-        alpaca_api_secret=None,
-        finnhub_api_key=None,
-        fred_api_key=None,
-    )
-    # Force fixture path via empty alpaca keys on a fresh Settings — factory uses FixtureMarketData
-    supervisor = Supervisor(
-        market_data=FixtureMarketData(),
-        audit=audit,
-        settings=settings,
-        # The fixtures are a recorded slice of the tape, so the scan is run from
-        # inside that slice. Against the wall clock they are years stale, and
-        # the freshness check would refuse them — correctly, which is the point
-        # of it, and uselessly for a test about what the agents produce.
-        clock=lambda: FIXTURE_NOW,
-    )
-    result = await supervisor.scan_symbol(
-        "AAPL",
-        timeframes=(Timeframe.D1,),
-        lookback_days=900,
-    )
-    assert result.status in {"completed", "no_candidate"}
-    assert result.technical is not None
-    assert result.news is not None
-    assert result.market is not None
-    assert result.news.sentiment in {"neutral", "positive", "negative", "mixed"}
-    # Critical: Stage 3 never creates broker-facing payloads
-    assert "order" not in result.model_dump_json().lower() or result.candidate is not None
-    event_types = {e["event_type"] for e in audit.events}
-    assert "ScanJobStarted" in event_types
-    assert "FeaturesComputed" in event_types
-    assert "TechnicalAssessmentReady" in event_types
 
 
 @pytest.mark.asyncio

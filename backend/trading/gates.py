@@ -22,7 +22,6 @@ from typing import Any
 from core.enums import BrokerConnectionState
 from core.schemas import Bar, Quote
 from market_data.entry_spread import spread_bps_for_entry
-from quant.filters import TradabilityLimits, check_tradability
 from quant.volatility import average_dollar_volume
 from trading.session_hours import SessionPhase, session_phase
 
@@ -243,29 +242,6 @@ def _liquidity_thresholds(pol: LiquidityPolicy) -> dict[str, Any]:
         "require_live_spread": pol.require_live_spread,
         "max_quote_age_sec": pol.max_quote_age_sec,
     }
-
-
-def check_tradability_gate(
-    symbol: str,
-    bars: list[Bar],
-    *,
-    target: Decimal | None = None,
-    stop: Decimal | None = None,
-    limits: TradabilityLimits | None = None,
-) -> GateResult:
-    """Reuse the existing scanner-side tradability checks at execution time."""
-    result = check_tradability(symbol, bars, limits=limits, target=target, stop=stop)
-    return GateResult(
-        gate="tradability",
-        passed=result.passed,
-        reasons=tuple(result.rejections),
-        measured={
-            "avg_dollar_volume": result.avg_dollar_volume,
-            "atr_pct": result.atr_pct,
-            "edge_to_cost_ratio": result.edge_to_cost_ratio,
-            "notes": result.notes,
-        },
-    )
 
 
 # ── Data freshness ───────────────────────────────────────────────────────────

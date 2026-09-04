@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from core.enums import EntryWatchStatus, InstrumentThesis, SetupType, Timeframe
+from core.enums import EntryWatchStatus, InstrumentThesis, SetupType
 from core.schemas import EntryWatch
 from trading.entry_policy import get_entry_thresholds, set_entry_aggressiveness
 from trading.zone_geometry import (

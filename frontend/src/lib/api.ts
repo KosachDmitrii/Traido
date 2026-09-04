@@ -245,26 +245,6 @@ export type EntryWatchCard = {
   spread_acceptable?: boolean | null;
 };
 
-export type AdmissionExplainField = {
-  label: string;
-  value: string;
-  status: "pass" | "warn" | "fail" | "info";
-};
-
-export type TradeAdmissionExplain = {
-  entity_type: string;
-  entity_id: string;
-  symbol: string;
-  headline: string;
-  decision: string;
-  admitted: boolean;
-  fields: AdmissionExplainField[];
-  vetoes: string[];
-  reason_codes: string[];
-  admission_version: string;
-  recorded_at: string | null;
-};
-
 export type SellOpportunity = {
   id: string;
   status: string;
@@ -505,18 +485,6 @@ export async function fetchBroker(fresh = false): Promise<BrokerSnapshot> {
   return data as BrokerSnapshot;
 }
 
-/** @deprecated use fetchDeskLight + fetchBroker */
-export async function fetchDesk(): Promise<DeskResponse> {
-  const [light, broker] = await Promise.all([
-    fetchDeskLight(),
-    fetchBroker(false).catch(() => null),
-  ]);
-  if (!light) {
-    throw new Error("desk_not_modified_without_local_state");
-  }
-  return mergeDesk(light, broker);
-}
-
 export async function decideBuy(
   id: string,
   decision: "approve" | "skip",
@@ -559,19 +527,6 @@ export async function decideSell(id: string, decision: "sell" | "hold") {
     throw new Error(parseApiError(data, res.statusText || "exit_failed"));
   }
   return data;
-}
-
-export async function fetchAdmissionExplain(watchId: string): Promise<TradeAdmissionExplain> {
-  const q = new URLSearchParams({ watch_id: watchId });
-  const res = await fetch(apiUrl(`/api/v1/admission/explain?${q}`), {
-    headers: apiHeaders(),
-    cache: "no-store",
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(parseApiError(data, res.statusText || "admission_explain_failed"));
-  }
-  return data as TradeAdmissionExplain;
 }
 
 /** Flatten a position on demand, without waiting for an agent to propose it. */
