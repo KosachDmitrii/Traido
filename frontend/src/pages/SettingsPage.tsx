@@ -81,6 +81,8 @@ export function SettingsPage() {
   const [aggressiveness, setAggressiveness] = useState<number | null>(null);
   const [brokerBackend, setBrokerBackendState] = useState<"alpaca" | "ibkr" | null>(null);
   const [autoTrigger, setAutoTriggerState] = useState<boolean | null>(null);
+  const [autoTriggerAvailable, setAutoTriggerAvailable] = useState(true);
+  const [autoTriggerNote, setAutoTriggerNote] = useState<string | null>(null);
   const entrySaveGen = useRef(0);
   const brokerSaveGen = useRef(0);
   const triggerSaveGen = useRef(0);
@@ -100,6 +102,8 @@ export function SettingsPage() {
         }
         if (triggerSaveGen.current === 0) {
           setAutoTriggerState(trigger.enabled);
+          setAutoTriggerAvailable(trigger.available !== false);
+          setAutoTriggerNote(trigger.note ?? null);
         }
         if (brokerSaveGen.current === 0) {
           setBrokerBackendState(broker.backend === "ibkr" ? "ibkr" : "alpaca");
@@ -128,10 +132,12 @@ export function SettingsPage() {
   }, [desk?.broker_backend?.backend]);
 
   useEffect(() => {
-    const enabled = desk?.auto_trigger?.enabled;
+    const trigger = desk?.auto_trigger;
     if (triggerSaveGen.current !== 0) return;
-    if (typeof enabled === "boolean") setAutoTriggerState(enabled);
-  }, [desk?.auto_trigger?.enabled]);
+    if (typeof trigger?.enabled === "boolean") setAutoTriggerState(trigger.enabled);
+    if (trigger?.available !== undefined) setAutoTriggerAvailable(trigger.available !== false);
+    if (trigger?.note) setAutoTriggerNote(trigger.note);
+  }, [desk?.auto_trigger]);
 
   const saveKey = useCallback(() => {
     if (apiKey.trim()) {
@@ -244,7 +250,7 @@ export function SettingsPage() {
   );
 
   const toggleAutoTrigger = useCallback(async () => {
-    if (autoTrigger === null) return;
+    if (autoTrigger === null || !autoTriggerAvailable) return;
     const next = !autoTrigger;
     setAutoTriggerState(next);
     const gen = ++triggerSaveGen.current;
@@ -252,16 +258,26 @@ export function SettingsPage() {
     try {
       const result = await setAutoTrigger(next);
       setAutoTriggerState(result.enabled);
+      setAutoTriggerAvailable(result.available !== false);
+      setAutoTriggerNote(result.note ?? null);
       invalidateDeskEtag();
-      showFlash({
-        kind: result.enabled ? "info" : "ok",
-        title: result.enabled
-          ? t("settings.trigger.flash.on.title")
-          : t("settings.trigger.flash.off.title"),
-        detail: result.enabled
-          ? t("settings.trigger.flash.on.detail")
-          : t("settings.trigger.flash.off.detail"),
-      });
+      if (next && !result.enabled) {
+        showFlash({
+          kind: "error",
+          title: t("settings.trigger.flash.failed"),
+          detail: result.note ?? t("settings.trigger.flash.rejected.detail"),
+        });
+      } else {
+        showFlash({
+          kind: result.enabled ? "info" : "ok",
+          title: result.enabled
+            ? t("settings.trigger.flash.on.title")
+            : t("settings.trigger.flash.off.title"),
+          detail: result.enabled
+            ? t("settings.trigger.flash.on.detail")
+            : t("settings.trigger.flash.off.detail"),
+        });
+      }
       await refreshAll();
     } catch (err) {
       setAutoTriggerState(!next);
@@ -274,7 +290,7 @@ export function SettingsPage() {
       if (triggerSaveGen.current === gen) triggerSaveGen.current = 0;
       setBusy(false);
     }
-  }, [autoTrigger, refreshAll, showFlash, t]);
+  }, [autoTrigger, autoTriggerAvailable, refreshAll, showFlash, t]);
 
   const scanNow = useCallback(async () => {
     setBusy(true);
@@ -369,6 +385,9 @@ export function SettingsPage() {
             <li>{t("settings.trigger.keeps")}</li>
             <li>{t("settings.trigger.when")}</li>
           </ul>
+          {!autoTriggerAvailable && autoTriggerNote ? (
+            <p className="settings-card__lead">{autoTriggerNote}</p>
+          ) : null}
           <div className="settings-kill-control">
             <div className="settings-kill-control__copy">
               <strong>
@@ -379,7 +398,7 @@ export function SettingsPage() {
             <SwitchControl
               checked={autoTrigger ?? false}
               onCheckedChange={() => void toggleAutoTrigger()}
-              disabled={controlsDisabled}
+              disabled={controlsDisabled || !autoTriggerAvailable}
               aria-label={
                 autoTrigger ? t("settings.trigger.disable") : t("settings.trigger.enable")
               }

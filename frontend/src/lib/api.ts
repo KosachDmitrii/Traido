@@ -350,6 +350,7 @@ export type WatchFunnel = {
 
 export type AutoTrigger = {
   enabled: boolean;
+  available?: boolean;
   note?: string;
 };
 

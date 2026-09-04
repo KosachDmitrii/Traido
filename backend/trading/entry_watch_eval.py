@@ -18,7 +18,6 @@ from core.schemas import (
     MarketAssessment,
     Quote,
     StopPlan,
-    TargetPlan,
     TradeAdmissionResult,
     TradeCandidate,
     WatchRevalidationResult,
@@ -36,8 +35,11 @@ from trading.entry_watches import (
     ZONE_RECLAIM,
     price_in_zone,
 )
-from trading.execution_geometry import build_execution_geometry
-from trading.geometry_hash import compute_geometry_hash
+from trading.execution_geometry import (
+    ExecutionGeometry,
+    executable_geometry_for_watch,
+    geometry_matches_admission_snapshot,
+)
 from trading.target_model import build_target_plan
 from trading.trade_admission import evaluate_trade_admission
 from trading.wait_conditions import TRANSIENT_TRIGGER_CONDITIONS, unmet_wait_conditions
@@ -271,6 +273,7 @@ def _revalidate_after_claim(
     from trading.data_integrity import last_bar_timestamp
 
     exec_entry = quote.ask
+    exec_geometry = executable_geometry_for_watch(watch, quote=quote, target_plan=target, atr=atr_v)
     admission = evaluate_trade_admission(
         bundle=bundle,
         candidate=candidate,
@@ -281,7 +284,7 @@ def _revalidate_after_claim(
         require_bars=True,
         entry=exec_entry,
         stop=watch.planned_stop,
-        target=target.price if target else watch.planned_target,
+        target=exec_geometry.target,
         target_plan=target,
         zone_arrival=arrival_facts,
         zone_entry_price=zone_entry_price,
@@ -289,6 +292,7 @@ def _revalidate_after_claim(
 
     from trading.admission_records import persist_admission
 
+    exec_gh = exec_geometry.geometry_hash
     record = persist_admission(
         symbol=watch.symbol,
         admission=admission,
@@ -298,10 +302,8 @@ def _revalidate_after_claim(
         zone_arrival_quality=zone_arrival_quality,
         zone_arrival_type=zone_arrival_type,
         context={"source": "watch_revalidate", "phase": "watch_revalidation"},
-        geometry_hash=_executable_geometry_hash(watch, entry=float(exec_entry), target=target),
+        geometry_hash=exec_gh,
     )
-
-    exec_gh = _executable_geometry_hash(watch, entry=float(exec_entry), target=target)
 
     if admission.decision is AdmissionDecision.DATA_BLOCKED:
         block_status = watch_block_status_for_data_blocked(list(admission.reason_codes))
@@ -328,19 +330,15 @@ def _revalidate_after_claim(
         )
 
     gh = exec_gh
-    if admission.snapshot and admission.admitted:
-        snap_gh = compute_geometry_hash(
-            entry=float(exec_entry),
-            stop=float(watch.planned_stop),
-            target=float(target.price if target else watch.planned_target),
-            exec_timeframe=watch.exec_timeframe,
-            strategy_version=watch.strategy_version,
+    if (
+        admission.snapshot
+        and admission.admitted
+        and not geometry_matches_admission_snapshot(exec_geometry, admission.snapshot)
+    ):
+        ENTRY_WATCHES.mark(
+            watch.id, EntryWatchStatus.INVALIDATED, reason="GEOMETRY_VERSION_MISMATCH"
         )
-        if snap_gh != gh:
-            ENTRY_WATCHES.mark(
-                watch.id, EntryWatchStatus.INVALIDATED, reason="GEOMETRY_VERSION_MISMATCH"
-            )
-            return None
+        return None
 
     stop_plan = StopPlan(
         price=watch.planned_stop,
@@ -357,7 +355,11 @@ def _revalidate_after_claim(
             last_admission_record_id=record.id,
         )
         built = build_candidate_from_revalidation(
-            watch, base=candidate or _minimal_candidate(watch), admission=admission, quote=quote
+            watch,
+            base=candidate or _minimal_candidate(watch),
+            admission=admission,
+            quote=quote,
+            geometry=exec_geometry,
         )
         return WatchRevalidationResult(
             entry_decision=EntryDecision.BUY_NOW,
@@ -414,22 +416,6 @@ def _revalidate_after_claim(
     )
 
 
-def _executable_geometry_hash(
-    watch: EntryWatch,
-    *,
-    entry: float,
-    target: TargetPlan | None,
-) -> str:
-    tgt = float(target.price if target else watch.planned_target)
-    return compute_geometry_hash(
-        entry=entry,
-        stop=float(watch.planned_stop),
-        target=tgt,
-        exec_timeframe=watch.exec_timeframe,
-        strategy_version=watch.strategy_version,
-    )
-
-
 def _minimal_candidate(watch: EntryWatch) -> TradeCandidate:
     from core.enums import TradeAction
 
@@ -453,25 +439,21 @@ def build_candidate_from_revalidation(
     base: TradeCandidate,
     admission: TradeAdmissionResult,
     quote: Quote,
+    geometry: ExecutionGeometry | None = None,
 ) -> TradeCandidate | None:
     """Immutable candidate from fresh revalidation — never reuse stale geometry."""
     if admission.decision is not AdmissionDecision.BUY_ALLOWED or not admission.admitted:
         return None
     if admission.snapshot is None:
         return None
-    zone_low = float(watch.entry_zone_low) if watch.entry_zone_low else None
-    zone_high = float(watch.entry_zone_high) if watch.entry_zone_high else None
-    geometry = build_execution_geometry(
-        entry=quote.ask or watch.planned_entry,
-        stop=watch.planned_stop,
-        target=watch.planned_target,
-        quote=quote,
-        exec_timeframe=watch.exec_timeframe,
-        strategy_version=watch.strategy_version,
-        zone_low=zone_low,
-        zone_high=zone_high,
-        atr=admission.snapshot.atr_at_creation,
-    )
+
+    if geometry is None:
+        geometry = executable_geometry_for_watch(
+            watch, quote=quote, admission=admission, atr=admission.snapshot.atr_at_creation
+        )
+    elif not geometry_matches_admission_snapshot(geometry, admission.snapshot):
+        return None
+
     if not (geometry.stop < geometry.entry < geometry.target):
         return None
     snap = admission.snapshot

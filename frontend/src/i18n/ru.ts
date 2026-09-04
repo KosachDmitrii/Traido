@@ -457,6 +457,8 @@ export const ru: Record<MessageKey, string> = {
   "settings.trigger.flash.off.title": "Триггер ВЫКЛ",
   "settings.trigger.flash.off.detail": "Снова нужно нажимать «Купить» вручную.",
   "settings.trigger.flash.failed": "Не удалось переключить триггер",
+  "settings.trigger.flash.rejected.detail":
+    "Триггер нельзя включить в текущем окружении.",
 
   "settings.entry.title": "Условия входа",
   "settings.entry.lead": "Пять ступеней слева направо: от жёсткого отбора к более частым входам.",

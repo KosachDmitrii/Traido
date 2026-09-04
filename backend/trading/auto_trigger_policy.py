@@ -1,7 +1,7 @@
 """Desk auto-buy on TRIGGERED→ADMITTED path — operator toggle (paper confirmation desk).
 
-Auto-approve is forbidden while ``TRAIDO_TRADING_MODE=confirmation`` (the default).
-Human Buy is the only approval path until automatic trading mode is implemented.
+When enabled, ADMITTED watches that publish a BUY card are auto-approved through
+``ExecutionService`` — same gates as manual Buy. Paper broker env only; live refuses.
 """
 
 from __future__ import annotations
@@ -22,11 +22,12 @@ _LOCK = threading.Lock()
 _cached: bool | None = None
 
 
-def _confirmation_mode_blocks_auto_trigger() -> bool:
+def _auto_trigger_blocked() -> bool:
+    """Paper-only unattended approve — live broker env is refused."""
     from core.config import get_settings
-    from core.enums import TradingMode
+    from core.enums import BrokerEnvironment
 
-    return get_settings().trading_mode is TradingMode.CONFIRMATION
+    return get_settings().broker_env is BrokerEnvironment.LIVE
 
 
 def _redis_client() -> Any:
@@ -128,7 +129,7 @@ def _heal_redis_from_file(
 
 def _load_enabled() -> bool:
     """Prefer the newer of Redis vs file; ignore test snapshots over operator file."""
-    if _confirmation_mode_blocks_auto_trigger():
+    if _auto_trigger_blocked():
         return False
     redis_val, redis_ts, redis_actor = _read_redis()
     file_val, file_ts, file_actor = _read_file()
@@ -175,8 +176,8 @@ def get_auto_trigger_enabled() -> bool:
 
 def set_auto_trigger_enabled(value: bool, *, actor: str = "user") -> bool:
     global _cached
-    if value and _confirmation_mode_blocks_auto_trigger():
-        logger.warning("auto trigger: cannot enable while trading_mode=confirmation")
+    if value and _auto_trigger_blocked():
+        logger.warning("auto trigger: cannot enable while broker_env=live")
         with _LOCK:
             _cached = False
         return False
@@ -202,12 +203,12 @@ def reset_auto_trigger_cache() -> None:
 
 
 def policy_payload() -> dict[str, Any]:
-    blocked = _confirmation_mode_blocks_auto_trigger()
+    blocked = _auto_trigger_blocked()
     return {
         "enabled": get_auto_trigger_enabled(),
         "available": not blocked,
         "note": (
-            "Auto-approve is disabled in confirmation mode — use Buy on the card."
+            "Auto-approve is disabled on live broker — switch to paper or use Buy on the card."
             if blocked
             else (
                 "When on, ADMITTED watches that publish a BUY card are auto-approved "
@@ -225,7 +226,7 @@ async def maybe_auto_approve_opportunity(
     symbol: str,
 ) -> bool:
     """Return True when an approve decision was attempted and succeeded."""
-    if _confirmation_mode_blocks_auto_trigger():
+    if _auto_trigger_blocked():
         return False
     if not get_auto_trigger_enabled():
         return False

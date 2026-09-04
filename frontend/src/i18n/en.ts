@@ -451,6 +451,7 @@ export const en = {
   "settings.trigger.flash.off.title": "Trigger OFF",
   "settings.trigger.flash.off.detail": "Manual Buy confirmation required again.",
   "settings.trigger.flash.failed": "Trigger toggle failed",
+  "settings.trigger.flash.rejected.detail": "Auto-trigger could not be enabled in the current environment.",
 
   "settings.entry.title": "Entry conditions",
   "settings.entry.lead": "Five steps left to right: stricter selection toward more frequent entries.",

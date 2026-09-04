@@ -1,7 +1,7 @@
 """Background EntryWatch loop — WAIT trigger → fresh re-check → maybe publish.
 
-Never places a broker order. BUY_NOW after revalidation only publishes a desk
-opportunity through the existing Risk path; the human still confirms.
+Never places a broker order directly. BUY_NOW after revalidation publishes a desk
+opportunity through the existing Risk path; optional auto-trigger approves it.
 """
 
 from __future__ import annotations
@@ -395,6 +395,13 @@ async def _convert_admitted_watch(
                     "symbol": forced.symbol,
                 },
             )
+            from trading.auto_trigger_policy import maybe_auto_approve_opportunity
+
+            await maybe_auto_approve_opportunity(
+                published.opportunity.id,
+                audit=audit,
+                symbol=forced.symbol,
+            )
         else:
             ENTRY_WATCHES.mark(current.id, EntryWatchStatus.ADMITTED, reason="PUBLISH_DEFERRED")
             stats["still_waiting"] += 1
@@ -425,7 +432,7 @@ def _admission_from_record(watch: EntryWatch) -> TradeAdmissionResult:
         warnings=list(rec.warnings),
         reason_codes=list(rec.reason_codes),
         admission_version=rec.admission_version,
-        snapshot=watch.admission_snapshot,
+        snapshot=rec.admission_snapshot or watch.admission_snapshot,
     )
 
 
