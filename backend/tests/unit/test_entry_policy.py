@@ -1,4 +1,4 @@
-"""Operator entry aggressiveness must widen BUY without disarming hard vetoes."""
+"""Buy-confirmation slider relaxes final BUY confirms; candidate policy stays fixed."""
 
 from __future__ import annotations
 
@@ -18,21 +18,22 @@ from trading.entry_quality import decide_entry
 from trading.entry_timing import detect_chasing, evaluate_timing, zone_from_facts
 
 
-def test_zero_matches_shipped_f3_floors() -> None:
+def test_zero_uses_medium_candidate_and_strong_confirmation() -> None:
     th = thresholds_for(0)
+    mid = thresholds_for(50)
     assert th.aggressiveness == 0
-    assert th.ema_ext_pct == pytest.approx(2.5)
-    assert th.vwap_ext_pct == pytest.approx(1.0)
-    assert th.min_setup_quality == 60
-    assert th.min_entry_quality == 55
-    assert th.require_uptrend is True
-    assert th.rsi_overbought == pytest.approx(70.0)
-    assert th.max_spread_bps == pytest.approx(30.0)
-    assert th.zone_gap_frac == pytest.approx(0.0)
-    assert th.allow_soft_chase_buy is False
-    assert th.wait_ttl_minutes == 390
-    assert th.flag_impulse_weak is True
-    assert th.pullback_deep_no_trade is True
+    assert th.buy_confirmation_strictness == 0
+    assert th.ema_ext_pct == pytest.approx(mid.ema_ext_pct)
+    assert th.vwap_ext_pct == pytest.approx(mid.vwap_ext_pct)
+    assert th.min_setup_quality == 55
+    assert th.min_entry_quality == 50
+    assert th.require_uptrend is False
+    assert th.allow_range is True
+    assert th.rsi_overbought == pytest.approx(74.0)
+    assert th.quote_max_age_sec == pytest.approx(30.0)
+    assert th.min_effective_rr == pytest.approx(2.0)
+    assert th.require_momentum_flip is True
+    assert th.require_vwap_hold is True
 
 
 def test_levels_snap_within_production_ceiling() -> None:
@@ -47,13 +48,12 @@ def test_levels_snap_within_production_ceiling() -> None:
 
 def test_production_max_does_not_reach_forbidden_floors() -> None:
     th = thresholds_for(PRODUCTION_MAX_AGGRESSIVENESS)
-    # Softest production step — still far below old experimental extremes.
-    assert th.vwap_ext_pct <= 5.0
-    assert th.ema_ext_pct <= 9.5
-    assert th.atr_ext_max <= 3.2
-    assert th.max_spread_bps <= 42.0
-    assert th.min_setup_quality >= 48
-    assert th.min_entry_quality >= 44
+    mid = thresholds_for(50)
+    assert th.vwap_ext_pct == pytest.approx(mid.vwap_ext_pct)
+    assert th.min_setup_quality == 55
+    assert th.min_entry_quality == 50
+    assert th.min_effective_rr == pytest.approx(1.45)
+    assert th.structural_arrival_hard is True
 
 
 def test_medium_matches_historical_production_soft_end() -> None:
@@ -68,7 +68,7 @@ def test_medium_matches_historical_production_soft_end() -> None:
     assert th.pullback_deep_no_trade is False
 
 
-def test_five_rung_gradation_tables() -> None:
+def test_five_rung_confirmation_tables() -> None:
     strong = thresholds_for(0)
     weak = thresholds_for(100)
     assert strong.min_effective_rr == pytest.approx(2.0)
@@ -85,40 +85,30 @@ def test_five_rung_gradation_tables() -> None:
     assert weak.allow_sell_off_arrival is True
     assert weak.min_sell_off_arrival_quality == 8
     assert strong.structural_arrival_hard is True
-    assert weak.structural_arrival_hard is False
-    assert strong.quote_max_age_sec == pytest.approx(15.0)
-    assert weak.quote_max_age_sec == pytest.approx(90.0)
+    assert weak.structural_arrival_hard is True
+    assert strong.quote_max_age_sec == pytest.approx(weak.quote_max_age_sec)
 
 
-def test_weak_extends_past_medium() -> None:
+def test_weak_relaxes_confirmation_not_candidate_geometry() -> None:
     mid = thresholds_for(50)
     weak = thresholds_for(100)
     assert weak.aggressiveness == 100
-    assert weak.vwap_ext_pct > mid.vwap_ext_pct
-    assert weak.wait_ttl_minutes == 150
-    assert weak.zone_gap_frac == pytest.approx(0.82)
-    assert weak.zone_atr_buffer == pytest.approx(0.45)
-    assert weak.zone_atr_undercut == pytest.approx(0.55)
-    assert weak.zone_max_width_atr == pytest.approx(2.5)
-    assert weak.zone_gap_frac > mid.zone_gap_frac
+    assert weak.vwap_ext_pct == pytest.approx(mid.vwap_ext_pct)
+    assert weak.wait_ttl_minutes == mid.wait_ttl_minutes
+    assert weak.zone_gap_frac == pytest.approx(mid.zone_gap_frac)
     assert weak.require_momentum_flip is False
     assert weak.momentum_min_pct < mid.momentum_min_pct
     assert weak.min_zone_arrival_quality <= mid.min_zone_arrival_quality
+    assert weak.min_effective_rr < mid.min_effective_rr
 
 
-def test_weak_zone_is_closer_and_width_capped() -> None:
-    """Variant A: touchable pullback band — not an 8-ATR canyon under VWAP."""
+def test_zone_geometry_is_invariant_across_slider() -> None:
     facts = evaluate_timing(_snap(close=110.0, sma20=100.0, atr=2.0, vwap=100.0))
+    set_entry_aggressiveness(0, actor="test")
+    zone0 = zone_from_facts(facts)
     set_entry_aggressiveness(PRODUCTION_MAX_AGGRESSIVENESS, actor="test")
-    low, high = zone_from_facts(facts)
-    lo, hi = float(low), float(high)
-    atr = 2.0
-    # High should cover most of the extension toward price (gap_frac 0.82).
-    assert hi >= 100.0 + 0.45 * atr + 0.82 * (110.0 - 100.0) - 1e-6
-    assert hi <= 110.0
-    assert (hi - lo) / atr <= 2.5 + 1e-6
-    # Still a pullback plan: high stays at/under last.
-    assert hi < 110.0 or hi == pytest.approx(110.0)
+    zone100 = zone_from_facts(facts)
+    assert zone0 == zone100
 
 
 def test_hard_veto_survives_aggressiveness() -> None:
@@ -141,16 +131,13 @@ def test_hard_veto_survives_aggressiveness() -> None:
     assert any(c in hard or c not in SOFT_CHASE_CODES for c in chase) or len(chase) >= 0
 
 
-def test_wait_ttl_from_policy() -> None:
-    set_entry_aggressiveness(0, actor="test")
-    assert thresholds_for(0).wait_ttl_minutes == 390
-    set_entry_aggressiveness(50, actor="test")
+def test_wait_ttl_from_candidate_policy() -> None:
+    assert thresholds_for(0).wait_ttl_minutes == 180
     assert thresholds_for(50).wait_ttl_minutes == 180
-    set_entry_aggressiveness(PRODUCTION_MAX_AGGRESSIVENESS, actor="test")
-    assert thresholds_for(PRODUCTION_MAX_AGGRESSIVENESS).wait_ttl_minutes == 150
+    assert thresholds_for(PRODUCTION_MAX_AGGRESSIVENESS).wait_ttl_minutes == 180
 
 
-def test_aggressive_policy_allows_extended_buy() -> None:
+def test_decide_entry_zone_is_invariant_across_slider() -> None:
     facts = evaluate_timing(
         _snap(close=105.0, sma20=100.0, atr=2.0, vwap=100.0, resistance=[130.0]),
         signal_price=104.0,
@@ -162,25 +149,26 @@ def test_aggressive_policy_allows_extended_buy() -> None:
     strict = decide_entry(InstrumentThesis.BULLISH, facts, technical_score=88)
     set_entry_aggressiveness(PRODUCTION_MAX_AGGRESSIVENESS, actor="test")
     loose = decide_entry(InstrumentThesis.BULLISH, facts, technical_score=88)
-    assert float(loose.entry_zone_high) >= float(strict.entry_zone_high)
+    assert float(loose.entry_zone_high) == float(strict.entry_zone_high)
+    assert strict.entry_decision is loose.entry_decision
 
 
-def test_zone_moves_toward_price_with_aggressiveness() -> None:
+def test_zone_does_not_move_with_confirmation_slider() -> None:
     facts = evaluate_timing(_snap(close=110.0, sma20=100.0, atr=2.0, vwap=100.0))
     set_entry_aggressiveness(0, actor="test")
     _, high0 = zone_from_facts(facts)
     set_entry_aggressiveness(PRODUCTION_MAX_AGGRESSIVENESS, actor="test")
     _, high1 = zone_from_facts(facts)
-    assert float(high1) >= float(high0)
+    assert float(high1) == float(high0)
 
 
-def test_detect_chasing_respects_thresholds() -> None:
+def test_detect_chasing_uses_fixed_candidate_floors() -> None:
     facts = evaluate_timing(_snap(close=105.0, sma20=100.0, atr=1.0, vwap=100.0))
     set_entry_aggressiveness(0, actor="test")
-    assert "PRICE_TOO_EXTENDED_FROM_EMA" in detect_chasing(facts)
+    codes0 = detect_chasing(facts)
     set_entry_aggressiveness(PRODUCTION_MAX_AGGRESSIVENESS, actor="test")
-    # Production max still may flag large extensions; ensure call succeeds.
-    assert isinstance(detect_chasing(facts), list)
+    codes100 = detect_chasing(facts)
+    assert codes0 == codes100
 
 
 def test_redis_survives_cache_and_missing_file(tmp_path, monkeypatch) -> None:

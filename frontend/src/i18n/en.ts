@@ -466,23 +466,23 @@ export const en = {
   "settings.trigger.flash.rejected.detail": "Auto-trigger could not be enabled in the current environment.",
 
   "settings.entry.title": "Entry conditions",
-  "settings.entry.lead": "Five steps left to right: stricter selection toward more frequent entries.",
+  "settings.entry.lead": "Five steps left to right: stricter final BUY confirmation. Candidate and WAIT quality stay fixed.",
   "settings.entry.what":
-    "Each step changes scanner floors (trend, RSI, SMA), entry zone width, post-trigger wait checks, and minimum R:R.",
+    "Each step only changes final BUY confirmation (momentum, volume, VWAP, arrival, effective R:R). Scanner floors, zone geometry, and WAIT admission stay on the Medium candidate policy.",
   "settings.entry.keeps":
-    "Risk, liquidity, RTH, earnings and news are unchanged — only analysis and BUY-card admission floors move.",
+    "Risk, liquidity, RTH, earnings, news, data freshness, and candidate quality floors are unchanged at every step.",
   "settings.entry.hint":
-    "Each pick starts a scan. If one is already running, it is stopped and a new pass uses the latest level.",
+    "Each pick starts a scan. If one is already running, it is stopped and a new pass uses the latest confirmation level.",
   "settings.entry.step.0":
-    "Strong · R:R ≥2.0 · arrival ≥60 · no sell-off · structural hard · quote ≤15s · VWAP + volume",
+    "Strong · confirmation R:R ≥2.0 · momentum flip · VWAP + volume required",
   "settings.entry.step.25":
-    "Firmer · R:R ≥1.9 · arrival ≥56 · no sell-off · structural hard · quote ≤20s · VWAP + volume",
+    "Firmer · confirmation R:R ≥1.9 · momentum ≥0 · VWAP + volume required",
   "settings.entry.step.50":
-    "Medium · R:R ≥1.75 · arrival ≥50 · no sell-off · structural hard · quote ≤30s · VWAP + volume",
+    "Medium · confirmation R:R ≥1.75 · slightly flat momentum · volume preferred · VWAP unless structure holds",
   "settings.entry.step.75":
-    "Softer · R:R ≥1.6 · arrival ≥44 · sell-off ≥22 · structural soft · quote ≤45s · no VWAP/volume",
+    "Softer · confirmation R:R ≥1.6 · small negative momentum if structure intact · VWAP/volume soft",
   "settings.entry.step.100":
-    "Weak · R:R ≥1.45 · arrival ≥35 · sell-off ≥8 · structural soft · quote ≤90s · wide zone",
+    "Weak · confirmation R:R ≥1.45 · momentum optional unless materially negative · VWAP/volume soft",
   "settings.entry.strong": "Strong",
   "settings.entry.firmer": "Firmer",
   "settings.entry.medium": "Medium",

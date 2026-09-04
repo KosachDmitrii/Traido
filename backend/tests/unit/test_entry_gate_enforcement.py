@@ -91,16 +91,18 @@ class _Bars:
         # Anchored to the requested window, as a real feed is. Returning a fixed
         # date regardless of `end` made every series permanently stale, which
         # only became visible once a freshness gate started reading it.
+        from tests.support import confirmation_ready_close
+
         base = end - timedelta(days=59)
         return [
             Bar(
                 symbol=symbol,
                 timeframe=Timeframe.D1,
                 ts=base + timedelta(days=i),
-                open=100.0,
-                high=101.0,
-                low=99.0,
-                close=100.0,
+                open=confirmation_ready_close(i, 60, 100.0),
+                high=confirmation_ready_close(i, 60, 100.0) * 1.01,
+                low=confirmation_ready_close(i, 60, 100.0) * 0.99,
+                close=confirmation_ready_close(i, 60, 100.0),
                 volume=self.volume,
                 source="synthetic",
             )

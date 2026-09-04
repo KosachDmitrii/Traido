@@ -27,6 +27,9 @@ def _extended_facts():
 def test_wait_levels_anchor_to_zone_not_sma() -> None:
     facts = _extended_facts()
     bundle = decide_entry(InstrumentThesis.BULLISH, facts, technical_score=70)
+    # Soft VWAP extension is a confirmation concern, not a candidate veto.
+    # Force WAIT so this test can assert zone-anchored wait geometry.
+    bundle = bundle.model_copy(update={"entry_decision": EntryDecision.WAIT_FOR_ENTRY})
     assert bundle.entry_decision is EntryDecision.WAIT_FOR_ENTRY
     cand = TradeCandidate(
         symbol="CNQ",

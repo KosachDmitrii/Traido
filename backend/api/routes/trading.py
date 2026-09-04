@@ -41,8 +41,17 @@ class KillSwitchBody(BaseModel):
 
 
 class EntryPolicyBody(BaseModel):
-    aggressiveness: int = Field(
-        ge=0, le=100, description="0=strict pullback, 100=buy nearer market"
+    aggressiveness: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="Legacy alias for buy_confirmation_strictness",
+    )
+    buy_confirmation_strictness: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+        description="0=strong BUY confirms, 100=weak BUY confirms",
     )
 
 
@@ -197,20 +206,30 @@ async def get_entry_policy() -> dict:
 
 @router.put("/entry-policy")
 async def put_entry_policy(body: EntryPolicyBody) -> dict:
-    """Operator knob: how far above SMA/VWAP a setup may still BUY.
+    """Operator knob: how strict final BUY confirmation is.
 
     Saves first, then aborts any in-flight cycle and starts a fresh one so the
-    pass always uses the level just chosen. Risk/liquidity/RTH/earnings/news
-    gates are unchanged.
+    pass always uses the level just chosen. Candidate/WAIT policy, risk,
+    liquidity, RTH, earnings and news gates are unchanged.
     """
     from trading.entry_policy import policy_payload, set_entry_aggressiveness
 
-    set_entry_aggressiveness(body.aggressiveness, actor="user")
+    level = (
+        body.buy_confirmation_strictness
+        if body.buy_confirmation_strictness is not None
+        else body.aggressiveness
+    )
+    if level is None:
+        raise HTTPException(status_code=422, detail="buy_confirmation_strictness_required")
+    set_entry_aggressiveness(level, actor="user")
     audit = create_audit()
     await audit.append(
         "EntryPolicyUpdated",
         "user",
-        {"aggressiveness": body.aggressiveness},
+        {
+            "aggressiveness": level,
+            "buy_confirmation_strictness": level,
+        },
     )
     rescan = request_rescan(reason="entry_policy")
     DESK_BUS.bump_desk()

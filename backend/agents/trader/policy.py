@@ -1,6 +1,7 @@
 """Five desk steps (0/25/50/75/100) → Structure / Setup floors.
 
-Derived from ``EntryThresholds`` — one aggressiveness slider, one policy table.
+Derived from ``EntryThresholds`` — candidate gates stay Medium; the slider
+only changes buy-confirmation knobs.
 """
 
 from __future__ import annotations

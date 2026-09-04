@@ -35,4 +35,4 @@ def test_strong_aggressiveness_keeps_weak_setup_penalty(monkeypatch) -> None:
         min_rr_floor=th.min_effective_rr,
         weak_setup_rr_floor=th.weak_setup_min_rr,
     )
-    assert req == 2.30
+    assert req == 2.50

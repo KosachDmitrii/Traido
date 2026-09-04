@@ -18,7 +18,7 @@ from trading.entry_policy import reset_entry_policy_cache, set_entry_aggressiven
 
 @pytest.fixture(autouse=True)
 def _strict_trader_policy(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin Structure/Setup to the strong end unless a test overrides."""
+    """Pin the confirmation slider; candidate gates stay Medium regardless."""
     from trading import entry_policy
 
     path = tmp_path / "entry_policy.json"
@@ -65,19 +65,14 @@ def test_structure_rejects_downtrend() -> None:
     assert "STRUCTURE_REJECT" in step.reasons
 
 
-def test_structure_rejects_range_when_strict() -> None:
-    bundle = TraderBundle(symbol="AAPL")
-    bundle.features[Timeframe.D1] = _snap(structure="range", ema_ok=True)
-    step = run_structure(bundle)
-    assert step.ok is False
-
-
-def test_structure_rejects_range_when_firmer() -> None:
-    set_entry_aggressiveness(25, actor="test")
-    bundle = TraderBundle(symbol="AAPL")
-    bundle.features[Timeframe.D1] = _snap(structure="range", ema_ok=True)
-    step = run_structure(bundle)
-    assert step.ok is False
+def test_structure_allows_range_at_every_slider_step() -> None:
+    """Candidate policy is Medium — range is allowed regardless of the slider."""
+    for level in (0, 25, 50, 75, 100):
+        set_entry_aggressiveness(level, actor="test")
+        bundle = TraderBundle(symbol="AAPL")
+        bundle.features[Timeframe.D1] = _snap(structure="range", ema_ok=True)
+        step = run_structure(bundle)
+        assert step.ok is True, (level, step.reasons)
 
 
 def test_structure_allows_range_when_medium() -> None:
@@ -88,21 +83,22 @@ def test_structure_allows_range_when_medium() -> None:
     assert step.ok is True, step.reasons
 
 
-def test_structure_allows_range_without_ema_when_softer() -> None:
+def test_structure_still_requires_ema_stack() -> None:
     set_entry_aggressiveness(75, actor="test")
     bundle = TraderBundle(symbol="AAPL")
     bundle.features[Timeframe.D1] = _snap(structure="range", ema_ok=False)
     step = run_structure(bundle)
-    assert step.ok is True, step.reasons
+    assert step.ok is False
+    assert "STRUCTURE_REJECT" in step.reasons
 
 
-def test_five_desk_steps_have_distinct_rsi_caps() -> None:
+def test_five_desk_steps_share_candidate_rsi_cap() -> None:
     from agents.trader.policy import trader_gates_for
     from trading.entry_policy import thresholds_for
 
     caps = [trader_gates_for(thresholds_for(a)).rsi_overbought for a in (0, 25, 50, 75, 100)]
-    assert caps == sorted(caps)
-    assert len(set(caps)) == 5
+    assert len(set(caps)) == 1
+    assert caps[0] == pytest.approx(74.0)
 
 
 def test_structure_passes_uptrend_stack() -> None:
@@ -122,12 +118,19 @@ def test_setup_rejects_chase() -> None:
     assert "SETUP_CHASE" in step.reasons
 
 
-def test_setup_rejects_rsi_72_when_strict() -> None:
+def test_setup_rejects_rsi_above_candidate_cap() -> None:
     bundle = TraderBundle(symbol="AAPL")
-    bundle.features[Timeframe.D1] = _snap(close=100.5, sma20=100.0, rsi=72.0)
+    bundle.features[Timeframe.D1] = _snap(close=100.5, sma20=100.0, rsi=75.0)
     step = run_setup(bundle)
     assert step.ok is False
     assert "SETUP_RSI_HIGH" in step.reasons
+
+
+def test_setup_allows_rsi_72_on_candidate_policy() -> None:
+    bundle = TraderBundle(symbol="AAPL")
+    bundle.features[Timeframe.D1] = _snap(close=100.5, sma20=100.0, rsi=72.0)
+    step = run_setup(bundle)
+    assert step.ok is True, step.reasons
 
 
 def test_setup_allows_rsi_72_when_softer() -> None:

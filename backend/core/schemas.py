@@ -592,6 +592,8 @@ class TradeAdmissionResult(StrictModel):
     reason_codes: list[str] = Field(default_factory=list)
     admission_version: str = "admission@1.0.0"
     snapshot: AdmissionSnapshot | None = None
+    buy_ready: bool = False
+    confirmation_relaxed: bool = False
 
 
 class EntryDecisionBundle(StrictModel):

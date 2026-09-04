@@ -67,10 +67,12 @@ def _bundle(
     timing = facts or EntryTimingFacts(
         current_price=price,
         atr=atr,
-        distance_from_vwap_pct=-2.0,
-        distance_from_fast_ema_pct=3.0,
+        distance_from_vwap_pct=-0.10,
+        distance_from_fast_ema_pct=0.5,
+        short_term_momentum_pct=0.20,
+        pullback_vol_ratio=0.90,
         stop_distance_atr=(price - stop) / atr if atr else None,
-        nearest_support=stop + 5.0,
+        nearest_support=stop,
     )
     return EntryDecisionBundle(
         thesis=InstrumentThesis.BULLISH,
@@ -265,8 +267,10 @@ def test_healthy_arrival_may_buy_allowed() -> None:
     facts = EntryTimingFacts(
         current_price=112.5,
         atr=2.0,
-        distance_from_vwap_pct=-2.0,
-        distance_from_fast_ema_pct=3.0,
+        distance_from_vwap_pct=-0.10,
+        distance_from_fast_ema_pct=0.5,
+        short_term_momentum_pct=0.20,
+        pullback_vol_ratio=0.90,
         stop_distance_atr=(112.5 - 108.0) / 2.0,
         nearest_support=108.0,
     )

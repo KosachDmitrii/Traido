@@ -94,7 +94,7 @@ def _entry_policy_payload() -> dict:
 
         return policy_payload()
     except Exception:  # noqa: BLE001
-        return {"aggressiveness": 0, "label": "strict"}
+        return {"aggressiveness": 0, "buy_confirmation_strictness": 0, "label": "strict"}
 
 
 def _broker_backend_desk_payload() -> dict:

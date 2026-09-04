@@ -75,10 +75,11 @@ def unpaced_market_data(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 @pytest.fixture(autouse=True)
 def strict_entry_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Pin entry aggressiveness to 0 so F3 unit tests see the shipped floors.
+    """Pin buy-confirmation strictness to Strong (0) for a deterministic suite.
 
-    The operator slider persists under data/; without this, a desk session that
-    raised aggressiveness would make the suite assert against a different policy.
+    Candidate discovery stays on the fixed Medium policy. The slider only
+    changes final BUY confirmation; without this pin, a desk session that
+    moved the slider would make confirmation assertions drift.
     """
     from trading import entry_policy
 

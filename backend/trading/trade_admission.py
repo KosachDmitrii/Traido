@@ -22,11 +22,15 @@ from core.schemas import (
     TradeCandidate,
 )
 from trading import admission_relaxation
-from trading.admission_relaxation import (
-    emit_relaxation_observation,
-    evaluate_setup_compensation,
-)
+from trading.admission_relaxation import emit_relaxation_observation
 from trading.arrival_admission import evaluate_arrival_gate
+from trading.buy_confirmation import (
+    BUY_READY_CANDIDATE,
+    NOT_BUY_READY,
+    buy_confirmation_for,
+    evaluate_buy_confirmation,
+    evaluate_buy_ready,
+)
 from trading.chase_facts import HARD_CHASE_LIMIT, compute_chase_facts
 from trading.data_integrity import check_data_integrity
 from trading.decision_precedence import resolve_admission_decision
@@ -34,7 +38,6 @@ from trading.effective_rr import (
     compute_effective_rr,
     planned_long_rr,
     price_within_zone_cushion,
-    required_admission_rr,
 )
 from trading.entry_policy import get_entry_thresholds
 from trading.execution_geometry import resolve_capital_atr
@@ -241,6 +244,9 @@ def evaluate_trade_admission(
     compensation_applied = False
     reached_admission = False
     hard_risk_block = False
+    buy_ready_flag = False
+    confirmation_failed = False
+    confirmation_relaxed = False
 
     def finish(
         result: TradeAdmissionResult,
@@ -262,6 +268,9 @@ def evaluate_trade_admission(
             regime_allowed=regime_allowed,
             hard_risk_block=hard_risk_block,
             reached_admission=reached_admission if reached is None else reached,
+            buy_ready=buy_ready_flag,
+            confirmation_failed=confirmation_failed,
+            confirmation_relaxed=confirmation_relaxed,
         )
         return result
 
@@ -434,18 +443,7 @@ def evaluate_trade_admission(
             cushion_atr=ZONE_ABOVE_BUFFER_ATR,
         )
         effective_rr_val = rr_res.effective_rr
-        req_rr = required_admission_rr(
-            setup_quality=setup_q,
-            entry_quality=entry_q,
-            chase_score=chase.score,
-            structure_valid=structure.valid,
-            warnings=warnings,
-            min_rr_floor=th.min_effective_rr,
-            weak_setup_rr_floor=th.weak_setup_min_rr,
-        )
-        if effective_rr_val < req_rr:
-            vetoes.append("INSUFFICIENT_EFFECTIVE_RR")
-            reason_codes.append(f"INSUFFICIENT_EFFECTIVE_RR:{effective_rr_val:.2f}<{req_rr:.2f}")
+        # Effective R:R vs the slider is applied in the confirmation layer.
 
     bid = float(quote.bid or 0)
     ask = float(quote.ask or 0)
@@ -484,9 +482,6 @@ def evaluate_trade_admission(
 
     vetoes = list(dict.fromkeys(vetoes))
     hard = vetoes_from_codes(vetoes + reason_codes)
-
-    min_setup = th.min_setup_quality
-    min_entry = th.min_entry_quality
 
     if hard:
         hard_risk_block = True
@@ -529,53 +524,28 @@ def evaluate_trade_admission(
             )
         )
 
-    if setup_q < min_setup:
-        comp = evaluate_setup_compensation(
-            paper=admission_relaxation.is_paper_broker(),
-            setup_score=setup_q,
-            setup_floor=min_setup,
-            entry_score=entry_q,
-            entry_floor=min_entry,
-            price_in_entry_zone=in_cushion,
-            rr=planned_rr,
-            regime_allowed=regime_allowed,
-            required_market_data_fresh=True,
-            hard_risk_block=False,
-            broker_or_data_block=False,
-        )
-        compensation_eligible = comp.eligible
-        compensation_applied = comp.applied
-        if comp.applied:
-            reason_codes.append("SETUP_COMPENSATED")
-        else:
-            reason_codes.append("SETUP_BELOW_FLOOR")
-            if entry_q < min_entry:
-                reason_codes.append("ENTRY_BELOW_FLOOR")
-            if comp.deny_reason and comp.deny_reason not in reason_codes:
-                reason_codes.append(comp.deny_reason)
-            return finish(
-                _result(
-                    AdmissionDecision.WAIT,
-                    st,
-                    setup_q,
-                    entry_q,
-                    chase.score,
-                    structure,
-                    data.status,
-                    vetoes,
-                    warnings,
-                    reason_codes,
-                    effective_rr=effective_rr_val,
-                    stop_valid=stop_valid,
-                    target_valid=target_valid,
-                )
-            )
-
-    if entry_q < min_entry:
-        reason_codes.append("ENTRY_BELOW_FLOOR")
+    ready = evaluate_buy_ready(
+        candidate_exists=True,
+        structurally_valid=not structure.hard_damage,
+        price_in_entry_zone=in_cushion and allowed,
+        stop_valid=stop_valid,
+        target_valid=target_valid,
+        planned_rr=planned_rr,
+        data_fresh=True,
+        regime_allowed=regime_allowed,
+        hard_veto=False,
+        setup_quality=setup_q,
+        entry_quality=entry_q,
+        thesis_bullish=bundle.thesis is InstrumentThesis.BULLISH,
+    )
+    reason_codes.extend(ready.reason_codes)
+    if not ready.ready:
+        if NOT_BUY_READY not in reason_codes:
+            reason_codes.append(NOT_BUY_READY)
+        blocked = ready.blocked_decision or AdmissionDecision.WAIT
         return finish(
             _result(
-                AdmissionDecision.WAIT,
+                blocked,
                 st,
                 setup_q,
                 entry_q,
@@ -591,34 +561,45 @@ def evaluate_trade_admission(
             )
         )
 
-    if (
+    buy_ready_flag = True
+    if BUY_READY_CANDIDATE not in reason_codes:
+        reason_codes.append(BUY_READY_CANDIDATE)
+
+    policy = buy_confirmation_for(th.buy_confirmation_strictness)
+    confirm = evaluate_buy_confirmation(
+        policy=policy,
+        setup_quality=setup_q,
+        entry_quality=entry_q,
+        planned_rr=planned_rr,
+        effective_rr=effective_rr_val,
+        momentum_pct=facts.short_term_momentum_pct,
+        pullback_vol_ratio=facts.pullback_vol_ratio,
+        price=float(facts.current_price),
+        distance_from_vwap_pct=facts.distance_from_vwap_pct,
+        anchor_price=facts.anchor_price,
+        structure_valid=structure.valid,
+        paper=admission_relaxation.is_paper_broker(),
+    )
+    reason_codes.extend(confirm.reason_codes)
+    warnings.extend(confirm.warnings)
+    compensation_applied = "SETUP_COMPENSATED" in confirm.reason_codes
+    compensation_eligible = compensation_applied
+    confirmation_relaxed = confirm.relaxed
+
+    arrival_soft_block = (
         zone_arrival_required(st)
         and zone_arrival is not None
         and arrival_gate is not None
         and arrival_gate.blocked
         and not arrival_gate.hard_veto
-    ):
+    )
+    if arrival_soft_block:
         reason_codes.append("WAITING_CONFIRMATION")
-        return finish(
-            _result(
-                AdmissionDecision.WAIT,
-                st,
-                setup_q,
-                entry_q,
-                chase.score,
-                structure,
-                data.status,
-                vetoes,
-                warnings,
-                reason_codes,
-                effective_rr=effective_rr_val,
-                stop_valid=stop_valid,
-                target_valid=target_valid,
-            )
-        )
 
-    if not allowed:
-        reason_codes.append("WAITING_CONFIRMATION")
+    if not confirm.passed or arrival_soft_block:
+        confirmation_failed = True
+        if "WAITING_CONFIRMATION" not in reason_codes:
+            reason_codes.append("WAITING_CONFIRMATION")
         return finish(
             _result(
                 AdmissionDecision.WAIT,
@@ -634,6 +615,8 @@ def evaluate_trade_admission(
                 effective_rr=effective_rr_val,
                 stop_valid=stop_valid,
                 target_valid=target_valid,
+                buy_ready=True,
+                confirmation_relaxed=confirm.relaxed,
             )
         )
 
@@ -673,6 +656,8 @@ def evaluate_trade_admission(
             reason_codes=[*reason_codes, "BUY_ALLOWED"],
             admission_version=ADMISSION_VERSION,
             snapshot=snapshot,
+            buy_ready=True,
+            confirmation_relaxed=confirm.relaxed,
         )
     )
 
@@ -692,6 +677,8 @@ def _result(
     effective_rr: float | None = None,
     stop_valid: bool = True,
     target_valid: bool = True,
+    buy_ready: bool = False,
+    confirmation_relaxed: bool = False,
 ) -> TradeAdmissionResult:
     return TradeAdmissionResult(
         decision=decision,
@@ -709,4 +696,6 @@ def _result(
         warnings=warnings,
         reason_codes=reason_codes,
         admission_version=ADMISSION_VERSION,
+        buy_ready=buy_ready,
+        confirmation_relaxed=confirmation_relaxed,
     )

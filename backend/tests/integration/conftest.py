@@ -214,18 +214,21 @@ class ScriptedMarketData:
         else:
             stale = timedelta(0)
             step = timedelta(hours=1)
+        from tests.support import confirmation_ready_close
+
         bars: list[Bar] = []
         for i in range(self.bar_count):
             ts = now - stale - step * (self.bar_count - 1 - i)
+            px = confirmation_ready_close(i, self.bar_count, self.price)
             bars.append(
                 Bar(
                     symbol=symbol.upper(),
                     timeframe=timeframe,
                     ts=ts,
-                    open=self.price,
-                    high=self.price * 1.01,
-                    low=self.price * 0.99,
-                    close=self.price,
+                    open=px,
+                    high=px * 1.01,
+                    low=px * 0.99,
+                    close=px,
                     volume=self.volume,
                     source="scripted",
                 )

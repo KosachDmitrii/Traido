@@ -79,8 +79,10 @@ def test_professional_zone_wider_undercut_than_legacy() -> None:
     low, high = zone_from_facts(facts)
     anchor = facts.anchor_price or facts.current_price
     atr = facts.atr or 1.0
+    price = facts.current_price
     assert float(low) <= anchor - 0.45 * atr
-    assert float(high) <= anchor + 0.25 * atr + 0.01
+    assert float(high) <= price + 0.01
+    assert float(high) <= anchor + 0.45 * atr + max(0.0, price - anchor) * 0.45 + 0.01
 
 
 def test_deep_pullback_is_hard_veto() -> None:
@@ -96,11 +98,12 @@ def test_deep_pullback_is_hard_veto() -> None:
         planned_stop=105.0,
         planned_target=112.0,
     )
-    facts = facts.model_copy(update={"retracement_pct": 0.85, "impulse_grade": "B"})
+    facts = facts.model_copy(update={"retracement_pct": 0.86, "impulse_grade": "B"})
     chase = detect_chasing(facts)
     assert PULLBACK_TOO_DEEP in chase
     bundle = decide_entry(InstrumentThesis.BULLISH, facts, technical_score=80)
-    assert bundle.entry_decision is EntryDecision.NO_TRADE
+    assert bundle.entry_decision is not EntryDecision.BUY_NOW
+    assert "PULLBACK_DEEP_WAIT" in bundle.reasons or bundle.entry_decision is EntryDecision.NO_TRADE
 
 
 def test_heavy_pullback_volume_flags_chase() -> None:

@@ -88,9 +88,10 @@ def test_thresholds_monotonic_softening(level: int) -> None:
         assert th.min_entry_quality == strong.min_entry_quality
     if level == 100:
         assert th.min_entry_quality == weak.min_entry_quality
-    assert weak.min_entry_quality <= strong.min_entry_quality
-    assert weak.quote_max_age_sec >= strong.quote_max_age_sec
-    assert weak.max_spread_bps >= strong.max_spread_bps
+    assert weak.min_entry_quality == strong.min_entry_quality
+    assert weak.quote_max_age_sec == strong.quote_max_age_sec
+    assert weak.max_spread_bps == strong.max_spread_bps
+    assert weak.min_effective_rr <= strong.min_effective_rr
 
 
 def test_fast_pullback_floor_by_level(level: int) -> None:
@@ -150,8 +151,9 @@ def test_breakpoints_at_50_and_75() -> None:
     th74 = thresholds_for(75)
     th100 = thresholds_for(100)
     assert th49.allow_soft_chase_buy is True
-    assert thresholds_for(25).allow_soft_chase_buy is False
+    assert thresholds_for(25).allow_soft_chase_buy is True
     assert th74.require_vwap_hold is False
     assert th74.allow_sell_off_arrival is True
     assert th100.require_momentum_flip is False
-    assert thresholds_for(75).require_momentum_flip is True
+    assert thresholds_for(75).require_momentum_flip is False
+    assert thresholds_for(0).require_momentum_flip is True

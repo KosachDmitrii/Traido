@@ -323,8 +323,11 @@ export type SessionState = {
 
 export type EntryPolicy = {
   aggressiveness: number;
+  buy_confirmation_strictness?: number;
   label?: string;
   thresholds?: Record<string, number | boolean>;
+  candidate_policy?: Record<string, number | string>;
+  buy_confirmation?: Record<string, number | string>;
   note?: string;
   rescan?: { aborted?: boolean; requested?: boolean; cycle?: number; running?: boolean };
 };

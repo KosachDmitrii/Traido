@@ -1,9 +1,9 @@
-"""Paper-only admission quality floors and controlled setup compensation.
+"""Paper setup compensation and the split admission funnel.
 
-Single source of truth for the paper relaxation table. LIVE keeps the
-historical floors in ``entry_policy.thresholds_for``. Compensation never
-mints BUY_ALLOWED — it only lets a borderline setup continue the existing
-admission pipeline.
+Candidate floors are fixed (``buy_confirmation``). Compensation is a final
+BUY-confirmation relaxation: a valid in-zone candidate may miss the desired
+setup score by at most three points when R:R is strong. It never admits a
+weak setup into WAIT or the scanner.
 """
 
 from __future__ import annotations
@@ -17,6 +17,13 @@ from typing import Any
 from core.enums import AdmissionDecision, BrokerEnvironment
 from core.metrics import METRICS
 from core.schemas import TradeAdmissionResult
+from trading.buy_confirmation import (
+    BASE_RR_FLOOR as _BASE_RR,
+)
+from trading.buy_confirmation import (
+    CANDIDATE_ENTRY_FLOOR,
+    CANDIDATE_SETUP_FLOOR,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +34,17 @@ MAX_SETUP_DEFICIT = 3
 COMPENSATION_MIN_RR = 2.0
 
 FUNNEL_GATES: tuple[str, ...] = (
+    "scanner_candidates",
+    "candidate_rejected",
+    "wait_created",
+    "entered_zone",
+    "buy_ready_candidate",
+    "buy_confirmation_failed",
+    "buy_confirmation_relaxed",
+    "buy_allowed",
+    "order_created",
+    "order_filled",
+    # Legacy aliases — still incremented so existing dashboards stay populated.
     "candidates_seen",
     "in_entry_zone",
     "setup_below_floor",
@@ -37,7 +55,6 @@ FUNNEL_GATES: tuple[str, ...] = (
     "risk_rejected",
     "data_blocked",
     "reached_admission",
-    "buy_allowed",
     "orders_created",
     "orders_filled",
 )
@@ -50,13 +67,11 @@ class PaperQualityFloors:
     weak_setup_min_rr: float
 
 
-# Canonical paper quality floors — do not copy these numbers elsewhere.
+# Fixed candidate floors — slider no longer lowers these. Confirmation
+# tolerance lives in ``buy_confirmation.BUY_CONFIRMATION_LEVELS``.
 PAPER_QUALITY_FLOORS: dict[int, PaperQualityFloors] = {
-    0: PaperQualityFloors(58, 53, 2.30),
-    25: PaperQualityFloors(56, 51, 2.10),
-    50: PaperQualityFloors(53, 48, 1.90),
-    75: PaperQualityFloors(50, 46, 1.70),
-    100: PaperQualityFloors(47, 44, 1.45),
+    level: PaperQualityFloors(CANDIDATE_SETUP_FLOOR, CANDIDATE_ENTRY_FLOOR, _BASE_RR)
+    for level in (0, 25, 50, 75, 100)
 }
 
 _PAPER_STEPS: tuple[int, ...] = tuple(PAPER_QUALITY_FLOORS)
@@ -187,6 +202,12 @@ def final_reason_code(result: TradeAdmissionResult) -> str:
         return "DATA_BLOCKED"
     rest = [code for code in codes if code != "SETUP_COMPENSATED"]
     for preferred in (
+        "MOMENTUM_CONFIRMATION_MISSING",
+        "VOLUME_CONFIRMATION_MISSING",
+        "VWAP_CONFIRMATION_MISSING",
+        "SETUP_CONFIRMATION_BELOW_FLOOR",
+        "ENTRY_CONFIRMATION_BELOW_FLOOR",
+        "EFFECTIVE_RR_TOO_LOW",
         "WAITING_CONFIRMATION",
         "SETUP_BELOW_FLOOR",
         "ENTRY_BELOW_FLOOR",
@@ -217,6 +238,9 @@ def emit_relaxation_observation(
     regime_allowed: bool = True,
     hard_risk_block: bool = False,
     reached_admission: bool = False,
+    buy_ready: bool = False,
+    confirmation_failed: bool = False,
+    confirmation_relaxed: bool = False,
 ) -> None:
     setup_deficit = float(setup_floor) - float(setup_score)
     payload: dict[str, Any] = {
@@ -271,3 +295,11 @@ def emit_relaxation_observation(
         record_funnel("reached_admission")
     if result.decision is AdmissionDecision.BUY_ALLOWED:
         record_funnel("buy_allowed")
+    if price_in_entry_zone:
+        record_funnel("entered_zone")
+    if buy_ready:
+        record_funnel("buy_ready_candidate")
+    if confirmation_failed:
+        record_funnel("buy_confirmation_failed")
+    if confirmation_relaxed or compensation_applied:
+        record_funnel("buy_confirmation_relaxed")

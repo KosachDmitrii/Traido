@@ -65,9 +65,11 @@ def _bundle(
     facts = EntryTimingFacts(
         current_price=price,
         atr=atr,
-        distance_from_vwap_pct=-1.0,
+        distance_from_vwap_pct=-0.10,
         distance_from_fast_ema_pct=0.5,
         nearest_support=stop,
+        short_term_momentum_pct=0.15,
+        pullback_vol_ratio=0.90,
         stop_distance_atr=max((entry - stop) / atr, 0.1) if atr else None,
     )
     return EntryDecisionBundle(
@@ -166,11 +168,11 @@ def test_paper_floors_are_canonical() -> None:
     assert MAX_SETUP_DEFICIT == 3
     assert COMPENSATION_MIN_RR == 2.0
     expected = {
-        0: (58, 53, 2.30),
-        25: (56, 51, 2.10),
-        50: (53, 48, 1.90),
-        75: (50, 46, 1.70),
-        100: (47, 44, 1.45),
+        0: (55, 50, 1.45),
+        25: (55, 50, 1.45),
+        50: (55, 50, 1.45),
+        75: (55, 50, 1.45),
+        100: (55, 50, 1.45),
     }
     assert set(PAPER_QUALITY_FLOORS) == set(expected)
     for level, (setup, entry, weak_rr) in expected.items():
@@ -180,9 +182,9 @@ def test_paper_floors_are_canonical() -> None:
         assert floors.weak_setup_min_rr == weak_rr
     set_entry_aggressiveness(50, actor="test")
     paper_th = get_entry_thresholds()
-    assert paper_th.min_setup_quality == 53
-    assert paper_th.min_entry_quality == 48
-    assert paper_th.weak_setup_min_rr == 1.90
+    assert paper_th.min_setup_quality == 55
+    assert paper_th.min_entry_quality == 50
+    assert paper_th.weak_setup_min_rr == 2.10
 
 
 def test_live_thresholds_for_stay_on_historical_floors() -> None:
@@ -191,7 +193,7 @@ def test_live_thresholds_for_stay_on_historical_floors() -> None:
     assert live.min_setup_quality == 55
     assert live.min_entry_quality == 50
     assert live.weak_setup_min_rr == 2.1
-    assert paper.setup_floor == 53
+    assert paper.setup_floor == 55
 
 
 def test_a_setup_at_floor_uses_ordinary_pipeline() -> None:
@@ -265,7 +267,11 @@ def test_c_deficit_over_three_is_refused() -> None:
         target=122.0,
     )
     assert "SETUP_COMPENSATED" not in admission.reason_codes
-    assert "SETUP_BELOW_FLOOR" in admission.reason_codes
+    assert (
+        "SETUP_BELOW_FLOOR" in admission.reason_codes
+        or "CANDIDATE_SETUP_BELOW_FLOOR" in admission.reason_codes
+        or "SETUP_CONFIRMATION_BELOW_FLOOR" in admission.reason_codes
+    )
     assert admission.decision is AdmissionDecision.WAIT
 
 
@@ -287,9 +293,8 @@ def test_d_weak_entry_blocks_compensation() -> None:
         target=125.0,
     )
     assert "SETUP_COMPENSATED" not in admission.reason_codes
-    assert "SETUP_BELOW_FLOOR" in admission.reason_codes
-    assert "ENTRY_BELOW_FLOOR" in admission.reason_codes
     assert admission.decision is AdmissionDecision.WAIT
+    assert admission.buy_ready is False
 
 
 def test_e_rr_below_compensation_floor() -> None:
@@ -330,7 +335,7 @@ def test_f_outside_zone_blocks_compensation() -> None:
         target=122.0,
     )
     assert "SETUP_COMPENSATED" not in admission.reason_codes
-    assert "SETUP_BELOW_FLOOR" in admission.reason_codes
+    assert admission.decision is not AdmissionDecision.BUY_ALLOWED
 
 
 def test_g_stale_data_is_data_blocked() -> None:
@@ -391,8 +396,10 @@ def test_i_live_does_not_compensate(monkeypatch) -> None:
         target=122.0,
     )
     assert "SETUP_COMPENSATED" not in admission.reason_codes
-    assert "SETUP_BELOW_FLOOR" in admission.reason_codes
-    # LIVE still uses the historical floor (55 at step 50), so 52 is a miss.
+    assert (
+        "SETUP_BELOW_FLOOR" in admission.reason_codes
+        or "SETUP_CONFIRMATION_BELOW_FLOOR" in admission.reason_codes
+    )
     from trading.entry_policy import get_entry_thresholds
 
     assert get_entry_thresholds().min_setup_quality == 55

@@ -50,12 +50,13 @@ def test_zone_reclaim_requires_mid_on_strong_step() -> None:
     assert zone_reclaim_met(watch, zone_mid(watch), th)
 
 
-def test_zone_reclaim_off_on_weak_step() -> None:
+def test_zone_reclaim_stays_on_across_slider() -> None:
     set_entry_aggressiveness(100, actor="test")
     watch = _watch(lo=99.0, hi=101.0)
     th = get_entry_thresholds()
-    assert th.zone_require_reclaim is False
-    assert zone_reclaim_met(watch, 99.1, th)
+    assert th.zone_require_reclaim is True
+    assert not zone_reclaim_met(watch, 99.1, th)
+    assert zone_reclaim_met(watch, zone_mid(watch), th)
 
 
 def test_structure_lost_below_zone() -> None:

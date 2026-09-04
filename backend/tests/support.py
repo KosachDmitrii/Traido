@@ -89,9 +89,7 @@ class LiquidMarketData:
         bars: list[Bar] = []
         for i in range(60):
             ts = now - step * (59 - i)
-            # Mild pullback into self.price so entry geometry / chase gates agree
-            # with the synthetic quote stamped at self.price.
-            px = self.price * (1.0 + 0.002 * (59 - i) / 59.0)
+            px = confirmation_ready_close(i, 60, self.price)
             bars.append(
                 Bar(
                     symbol=symbol,
@@ -109,6 +107,21 @@ class LiquidMarketData:
 
     async def get_last_price(self, symbol: str) -> float:
         return self.price
+
+
+def confirmation_ready_close(index: int, count: int, price: float) -> float:
+    """Pullback, then a reclaim long enough that ``roc_10`` is strictly positive.
+
+    Strong BUY confirmation requires a momentum flip (``momentum > 0``). A
+    flat tape or a bounce shorter than the ROC window stays at 0 / slightly
+    negative and never reaches the gates the lifecycle tests are about.
+    """
+    flip_start = max(count - 14, 0)
+    if index < flip_start:
+        span = max(flip_start, 1)
+        return price * (1.0 + 0.004 * (flip_start - index) / span)
+    t = (index - flip_start) / max(count - 1 - flip_start, 1)
+    return price * (0.996 + 0.004 * t)
 
 
 def liquid_market_data(**kwargs: float) -> LiquidMarketData:
@@ -253,7 +266,14 @@ def feature_snap(symbol: str = "AAPL", close: float = 100.0, atr: float = 2.0) -
         symbol=symbol,
         timeframe=Timeframe.H1,
         computed_at=datetime.now(UTC),
-        indicators={"close": close, "atr_14": atr, "sma_20": close - 1, "vwap": close - 0.5},
+        indicators={
+            "close": close,
+            "atr_14": atr,
+            "sma_20": close - 1,
+            "vwap": close - 0.2,
+            "roc_10": 0.4,
+            "pullback_vol_ratio": 0.9,
+        },
         candlestick_patterns={},
         chart_patterns={},
         support=[Decimal(str(close - atr * 2))],

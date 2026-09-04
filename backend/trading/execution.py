@@ -933,6 +933,7 @@ class ExecutionService:
         from trading.admission_relaxation import record_funnel
 
         record_funnel("orders_filled")
+        record_funnel("order_filled")
 
         filled_qty = round_equity_qty(entry_fill.filled_qty or qty)
         entry_px = round_equity_price(fill_price(entry_fill))

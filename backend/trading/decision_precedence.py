@@ -89,6 +89,13 @@ def has_transient_wait_signal(
         "ENTRY_BELOW_FLOOR",
         "RR_BELOW_COMPENSATION_FLOOR",
         "WAITING_CONFIRMATION",
+        "MOMENTUM_CONFIRMATION_MISSING",
+        "VOLUME_CONFIRMATION_MISSING",
+        "VWAP_CONFIRMATION_MISSING",
+        "SETUP_CONFIRMATION_BELOW_FLOOR",
+        "ENTRY_CONFIRMATION_BELOW_FLOOR",
+        "EFFECTIVE_RR_TOO_LOW",
+        "NOT_BUY_READY",
     }
     if hard & transient:
         return True

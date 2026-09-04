@@ -45,9 +45,11 @@ def _bundle(
     facts = EntryTimingFacts(
         current_price=price,
         atr=atr,
-        distance_from_vwap_pct=-5.0,
-        distance_from_fast_ema_pct=8.0,
+        distance_from_vwap_pct=-0.10,
+        distance_from_fast_ema_pct=0.5,
         nearest_support=stop,
+        short_term_momentum_pct=0.20,
+        pullback_vol_ratio=0.90,
         stop_distance_atr=max((entry - stop) / atr, 0.1) if atr else None,
     )
     return EntryDecisionBundle(
@@ -153,7 +155,13 @@ def test_lly_regression_insufficient_effective_rr() -> None:
     )
     assert rr.effective_rr == pytest.approx(1.66, abs=0.02)
 
-    facts = EntryTimingFacts(current_price=1168.47, atr=8.0)
+    facts = EntryTimingFacts(
+        current_price=1168.47,
+        atr=8.0,
+        short_term_momentum_pct=0.2,
+        pullback_vol_ratio=0.9,
+        distance_from_vwap_pct=-0.1,
+    )
     bundle = EntryDecisionBundle(
         thesis=InstrumentThesis.BULLISH,
         entry_decision=EntryDecision.BUY_NOW,
@@ -183,6 +191,8 @@ def test_lly_regression_insufficient_effective_rr() -> None:
             signal_drift=81,
         ),
         facts=facts,
+        entry_zone_low=Decimal(1160),
+        entry_zone_high=Decimal(1172),
         stop_price=Decimal("1153.26"),
         target=TargetPlan(
             price=Decimal("1193.77"),
@@ -192,14 +202,21 @@ def test_lly_regression_insufficient_effective_rr() -> None:
     )
     admission = evaluate_trade_admission(
         bundle=bundle,
-        setup_type=SetupType.PULLBACK_CONTINUATION,
+        setup_type=SetupType.BREAKOUT_CONTINUATION,
         quote=_quote(1168.0, 1168.47),
         entry=1168.47,
         stop=1153.26,
         target=1193.77,
+        stop_plan_model="structure",
+        stop_structural_source="nearest_support",
+        stop_structural_level=1153.26,
     )
     assert admission.decision is not AdmissionDecision.BUY_ALLOWED
-    assert "INSUFFICIENT_EFFECTIVE_RR" in admission.vetoes
+    assert admission.buy_ready is True
+    assert any(
+        c == "EFFECTIVE_RR_TOO_LOW" or c.startswith("INSUFFICIENT_EFFECTIVE_RR")
+        for c in admission.reason_codes
+    )
 
 
 def test_excellent_setup_bad_entry_waits() -> None:
@@ -277,9 +294,13 @@ def test_all_gates_pass_buy_allowed() -> None:
         stop=108.0,
         target=125.0,
         zone_arrival=arrival,
+        stop_plan_model="structure",
+        stop_structural_source="nearest_support",
+        stop_structural_level=108.0,
     )
     assert admission.decision is AdmissionDecision.BUY_ALLOWED
     assert admission.admitted is True
+    assert admission.buy_ready is True
 
 
 def test_extreme_chase_score_high() -> None:

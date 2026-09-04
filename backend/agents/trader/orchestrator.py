@@ -194,6 +194,9 @@ async def run_trader_desk(
         score=step.score,
     )
     if not step.ok:
+        from trading.admission_relaxation import record_funnel
+
+        record_funnel("candidate_rejected")
         return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_candidate")
 
     # 3 Structure
@@ -208,6 +211,9 @@ async def run_trader_desk(
         filtered_out=not step.ok,
     )
     if not step.ok:
+        from trading.admission_relaxation import record_funnel
+
+        record_funnel("candidate_rejected")
         return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_candidate")
 
     # 4 Setup
@@ -222,7 +228,14 @@ async def run_trader_desk(
         filtered_out=not step.ok,
     )
     if not step.ok:
+        from trading.admission_relaxation import record_funnel
+
+        record_funnel("candidate_rejected")
         return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_candidate")
+
+    from trading.admission_relaxation import record_funnel
+
+    record_funnel("scanner_candidates")
 
     # 5 Entry
     _mark(TraderStep.ENTRY, status="working", detail="Entry timing", symbol=symbol)

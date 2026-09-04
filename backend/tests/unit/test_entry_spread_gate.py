@@ -51,7 +51,8 @@ def test_desk_and_admission_share_same_gate_at_weak_level() -> None:
     now = RTH_INSTANT.astimezone(UTC)
     th = get_entry_thresholds()
     gate = evaluate_entry_spread(q, now=now, tape_last=100.0, thresholds=th, feed="iex")
-    assert gate.max_bps == pytest.approx(70.0)
+    # Candidate policy is Medium (35 SIP → 58.3 IEX); the slider does not widen it.
+    assert gate.max_bps == pytest.approx(58.3)
     assert gate.acceptable is True
 
 

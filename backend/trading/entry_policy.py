@@ -1,9 +1,10 @@
-"""Operator entry aggressiveness — single desk control for entry timing.
+"""Operator buy-confirmation strictness — final BUY soft confirms only.
 
-Default 0 preserves the frozen F3 chase floors (pullback near SMA20/VWAP).
-Raising it loosens chase, widens/nudges the zone toward price, lengthens or
-shortens WAIT TTL, and relaxes wait-trigger checks. It does not touch the risk
-engine, liquidity, RTH, earnings or news gates.
+The persisted slider (legacy name: ``aggressiveness``) is
+``buy_confirmation_strictness``. It does not widen scanner discovery, setup
+generation, zone geometry, or WAIT admission. Those use a fixed Medium
+candidate policy. The slider only relaxes momentum / volume / VWAP / arrival
+and a few setup/entry points after ``BUY_READY_CANDIDATE``.
 
 Persisted like the kill switch: Redis when configured (survives Railway
 redeploys), plus a file under data/ so a Redis outage still keeps the last
@@ -43,8 +44,9 @@ EXPERIMENTAL_ENTRY_LEVELS: tuple[int, ...] = ()
 EXPERIMENTAL_ENTRY_LEVEL_LABELS: dict[int, str] = {}
 PRODUCTION_MAX_AGGRESSIVENESS = 100
 EXPERIMENTAL_MAX_AGGRESSIVENESS = 100
-# Historical production soft end (old max=50). Levels above this extend further.
+# Historical production soft end (old max=50). Candidate policy is pinned here.
 _MEDIUM_AGGRESSIVENESS = 50
+CANDIDATE_POLICY_LEVEL = 50
 
 # Soft chase: extension / drift. Hard chase still forces WAIT/NO_TRADE even at max.
 SOFT_CHASE_CODES = frozenset(
@@ -110,7 +112,7 @@ class EntryThresholds:
     pullback_deep_no_trade: bool
     """Max spread (bps) on WAIT revalidation."""
     max_spread_bps: float
-    """TradeAdmission soft floors — aggressiveness may lower these, not hard vetoes."""
+    """Hard candidate floors — fixed, not relaxed by the slider."""
     min_setup_quality: int
     min_entry_quality: int
     """Zone arrival gate for pullback-style setups (Phase 2.8)."""
@@ -162,8 +164,15 @@ class EntryThresholds:
     near_sma_frac: float
     allow_below_sma: bool
 
+    @property
+    def buy_confirmation_strictness(self) -> int:
+        """Canonical name; ``aggressiveness`` is the persisted legacy alias."""
+        return self.aggressiveness
+
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        payload["buy_confirmation_strictness"] = self.aggressiveness
+        return payload
 
 
 # Explicit five-rung desk steps — operator-visible knobs, not interpolated surprises.
@@ -408,71 +417,80 @@ def _band(a: int, v0: float, v50: float, v100: float) -> float:
 
 
 def thresholds_for(aggressiveness: int) -> EntryThresholds:
-    """Map aggressiveness onto chase floors across the five production steps.
+    """Merge fixed Medium candidate policy with slider confirmation knobs.
 
-    a=0 matches main/historical F3 strong floors — do not soften the default.
-    a=50 is the medium desk step; a=75 / a=100 soften further (Weak zone
-    geometry is touchable) without the old experimental extremes.
+    Candidate fields (zone, trader gates, chase, quote age, WAIT TTL, quality
+    floors) always come from Medium. Confirmation fields (momentum, VWAP,
+    volume, arrival, effective R:R) follow ``buy_confirmation_strictness``.
     """
+    from trading.buy_confirmation import (
+        CANDIDATE_ENTRY_FLOOR,
+        CANDIDATE_SETUP_FLOOR,
+        buy_confirmation_for,
+    )
+
     a = clamp_aggressiveness(aggressiveness)
+    cand = CANDIDATE_POLICY_LEVEL
+    conf = buy_confirmation_for(a)
     return EntryThresholds(
         aggressiveness=a,
-        vwap_ext_pct=_band(a, 1.0, 3.5, 5.0),
-        ema_ext_pct=_band(a, 2.5, 7.0, 9.5),
-        atr_ext_max=_band(a, 1.5, 2.5, 3.2),
-        impulse_atr_max=_band(a, 2.0, 3.0, 3.7),
-        drift_high_pct=_band(a, 0.40, 1.0, 1.35),
-        zone_gap_frac=_band(a, 0.0, 0.45, 0.82),
-        zone_atr_undercut=float(_step_value(_STEP_ZONE_K_UNDER, a)),
-        zone_atr_buffer=float(_step_value(_STEP_ZONE_K_OVER, a)),
-        zone_max_width_atr=_band(a, 3.5, 3.0, 2.5),
-        allow_soft_chase_buy=a >= _MEDIUM_AGGRESSIVENESS,
-        wait_ttl_minutes=round(_band(a, 390, 180, 150)),
-        retrace_deep_pct=_band(a, 0.786, 0.85, 0.90),
-        retrace_shallow_pct=_band(a, 0.20, 0.12, 0.09),
-        retrace_shallow_vwap_pct=_band(a, 0.30, 0.55, 0.68),
-        pullback_vol_max=_band(a, 1.0, 1.15, 1.30),
-        pullback_index_max=round(_band(a, 3, 4, 5)),
-        flag_impulse_weak=a < _MEDIUM_AGGRESSIVENESS,
-        vwap_hold_min_pct=_band(a, -0.35, -0.55, -0.70),
-        vwap_anchor_hold_frac=_band(a, 0.996, 0.992, 0.988),
-        pullback_vol_digest_max=_band(a, 1.05, 1.15, 1.28),
-        resistance_close_pct=_band(a, 0.40, 0.30, 0.22),
-        reward_consumed_frac=_band(a, 0.50, 0.60, 0.68),
-        atr_extension_min_quality=round(_band(a, 70, 60, 52)),
-        chase_wait_quality_buffer=round(_band(a, 15, 10, 6)),
-        pullback_deep_no_trade=a < _MEDIUM_AGGRESSIVENESS,
-        max_spread_bps=_band(a, 30.0, 35.0, 42.0),
-        min_setup_quality=int(_step_value(_STEP_MIN_SETUP_QUALITY, a)),
-        min_entry_quality=int(_step_value(_STEP_MIN_ENTRY_QUALITY, a)),
-        min_zone_arrival_quality=int(_step_value(_STEP_MIN_ZONE_ARRIVAL, a)),
-        allow_fast_pullback=a >= _MEDIUM_AGGRESSIVENESS,
-        # Strong: must already turn up. Weak: allow flat/slightly negative tape.
-        momentum_min_pct=_band(a, 0.0, -0.02, -0.15),
-        require_momentum_flip=a < 100,
-        min_effective_rr=float(_step_value(_STEP_MIN_EFFECTIVE_RR, a)),
-        weak_setup_min_rr=float(_step_value(_STEP_WEAK_SETUP_MIN_RR, a)),
-        require_vwap_hold=bool(_step_value(_STEP_REQUIRE_VWAP_HOLD, a)),
-        require_vol_digest=bool(_step_value(_STEP_REQUIRE_VOL_DIGEST, a)),
-        allow_sell_off_arrival=bool(_step_value(_STEP_ALLOW_SELL_OFF, a)),
-        min_sell_off_arrival_quality=int(_step_value(_STEP_MIN_SELL_OFF_ARRIVAL, a)),
-        min_fast_pullback_arrival_quality=int(_step_value(_STEP_MIN_FAST_PULLBACK_ARRIVAL, a)),
-        structural_arrival_hard=bool(_step_value(_STEP_STRUCTURAL_ARRIVAL_HARD, a)),
-        quote_max_age_sec=float(_step_value(_STEP_QUOTE_MAX_AGE_SEC, a)),
-        zone_min_width_atr=float(_step_value(_STEP_ZONE_MIN_WIDTH_ATR, a)),
-        zone_min_width_pct=float(_step_value(_STEP_ZONE_MIN_WIDTH_PCT, a)),
-        fib_buffer_frac=float(_step_value(_STEP_FIB_BUFFER, a)),
-        zone_require_reclaim=bool(_step_value(_STEP_ZONE_REQUIRE_RECLAIM, a)),
-        zone_max_touch_count=int(_step_value(_STEP_ZONE_MAX_TOUCHES, a)),
-        zone_invalidate_below_atr=float(_step_value(_STEP_ZONE_INVALIDATE_BELOW_ATR, a)),
-        zone_stop_atr=float(_step_value(_STEP_ZONE_STOP_ATR, a)),
-        require_uptrend=bool(_step_value(_STEP_REQUIRE_UPTREND, a)),
-        allow_range=bool(_step_value(_STEP_ALLOW_RANGE, a)),
-        require_ema_stack=bool(_step_value(_STEP_REQUIRE_EMA_STACK, a)),
-        rsi_overbought=float(_step_value(_STEP_RSI_OVERBOUGHT, a)),
-        chase_ext_frac=float(_step_value(_STEP_CHASE_EXT_FRAC, a)),
-        near_sma_frac=float(_step_value(_STEP_NEAR_SMA_FRAC, a)),
-        allow_below_sma=bool(_step_value(_STEP_ALLOW_BELOW_SMA, a)),
+        # ── Candidate policy (always Medium) ────────────────────────────────
+        vwap_ext_pct=_band(cand, 1.0, 3.5, 5.0),
+        ema_ext_pct=_band(cand, 2.5, 7.0, 9.5),
+        atr_ext_max=_band(cand, 1.5, 2.5, 3.2),
+        impulse_atr_max=_band(cand, 2.0, 3.0, 3.7),
+        drift_high_pct=_band(cand, 0.40, 1.0, 1.35),
+        zone_gap_frac=_band(cand, 0.0, 0.45, 0.82),
+        zone_atr_undercut=float(_step_value(_STEP_ZONE_K_UNDER, cand)),
+        zone_atr_buffer=float(_step_value(_STEP_ZONE_K_OVER, cand)),
+        zone_max_width_atr=_band(cand, 3.5, 3.0, 2.5),
+        allow_soft_chase_buy=True,
+        wait_ttl_minutes=round(_band(cand, 390, 180, 150)),
+        retrace_deep_pct=_band(cand, 0.786, 0.85, 0.90),
+        retrace_shallow_pct=_band(cand, 0.20, 0.12, 0.09),
+        retrace_shallow_vwap_pct=_band(cand, 0.30, 0.55, 0.68),
+        pullback_vol_max=_band(cand, 1.0, 1.15, 1.30),
+        pullback_index_max=round(_band(cand, 3, 4, 5)),
+        flag_impulse_weak=False,
+        resistance_close_pct=_band(cand, 0.40, 0.30, 0.22),
+        reward_consumed_frac=_band(cand, 0.50, 0.60, 0.68),
+        atr_extension_min_quality=round(_band(cand, 70, 60, 52)),
+        chase_wait_quality_buffer=round(_band(cand, 15, 10, 6)),
+        pullback_deep_no_trade=False,
+        max_spread_bps=_band(cand, 30.0, 35.0, 42.0),
+        min_setup_quality=CANDIDATE_SETUP_FLOOR,
+        min_entry_quality=CANDIDATE_ENTRY_FLOOR,
+        quote_max_age_sec=float(_step_value(_STEP_QUOTE_MAX_AGE_SEC, cand)),
+        zone_min_width_atr=float(_step_value(_STEP_ZONE_MIN_WIDTH_ATR, cand)),
+        zone_min_width_pct=float(_step_value(_STEP_ZONE_MIN_WIDTH_PCT, cand)),
+        fib_buffer_frac=float(_step_value(_STEP_FIB_BUFFER, cand)),
+        zone_require_reclaim=bool(_step_value(_STEP_ZONE_REQUIRE_RECLAIM, cand)),
+        zone_max_touch_count=int(_step_value(_STEP_ZONE_MAX_TOUCHES, cand)),
+        zone_invalidate_below_atr=float(_step_value(_STEP_ZONE_INVALIDATE_BELOW_ATR, cand)),
+        zone_stop_atr=float(_step_value(_STEP_ZONE_STOP_ATR, cand)),
+        require_uptrend=bool(_step_value(_STEP_REQUIRE_UPTREND, cand)),
+        allow_range=bool(_step_value(_STEP_ALLOW_RANGE, cand)),
+        require_ema_stack=bool(_step_value(_STEP_REQUIRE_EMA_STACK, cand)),
+        rsi_overbought=float(_step_value(_STEP_RSI_OVERBOUGHT, cand)),
+        chase_ext_frac=float(_step_value(_STEP_CHASE_EXT_FRAC, cand)),
+        near_sma_frac=float(_step_value(_STEP_NEAR_SMA_FRAC, cand)),
+        allow_below_sma=bool(_step_value(_STEP_ALLOW_BELOW_SMA, cand)),
+        structural_arrival_hard=True,
+        # ── Buy confirmation (slider) ───────────────────────────────────────
+        vwap_hold_min_pct=conf.vwap_hold_min_pct,
+        vwap_anchor_hold_frac=conf.vwap_anchor_hold_frac,
+        pullback_vol_digest_max=conf.pullback_vol_digest_max,
+        min_zone_arrival_quality=conf.min_zone_arrival_quality,
+        allow_fast_pullback=conf.allow_fast_pullback,
+        momentum_min_pct=conf.momentum_min_pct,
+        require_momentum_flip=conf.require_momentum_flip,
+        min_effective_rr=conf.min_effective_rr,
+        weak_setup_min_rr=conf.weak_setup_min_rr,
+        require_vwap_hold=conf.require_vwap_hold,
+        require_vol_digest=conf.require_vol_digest,
+        allow_sell_off_arrival=conf.allow_sell_off_arrival,
+        min_sell_off_arrival_quality=conf.min_sell_off_arrival_quality,
+        min_fast_pullback_arrival_quality=conf.min_fast_pullback_arrival_quality,
     )
 
 
@@ -648,20 +666,28 @@ def _with_feed_spread(th: EntryThresholds) -> EntryThresholds:
 
 
 def get_entry_thresholds() -> EntryThresholds:
-    from dataclasses import replace
+    """Candidate fields are Medium-fixed; confirmation follows the slider."""
+    return _with_feed_spread(thresholds_for(get_entry_aggressiveness()))
 
-    from trading.admission_relaxation import is_paper_broker, paper_quality_floors
 
-    th = _with_feed_spread(thresholds_for(get_entry_aggressiveness()))
-    if not is_paper_broker():
-        return th
-    floors = paper_quality_floors(th.aggressiveness)
-    return replace(
-        th,
-        min_setup_quality=floors.setup_floor,
-        min_entry_quality=floors.entry_floor,
-        weak_setup_min_rr=floors.weak_setup_min_rr,
-    )
+def get_buy_confirmation_strictness() -> int:
+    """Canonical name for the persisted slider (legacy: aggressiveness)."""
+    return get_entry_aggressiveness()
+
+
+def get_candidate_thresholds() -> EntryThresholds:
+    """Fixed Medium candidate policy — independent of the confirmation slider."""
+    return _with_feed_spread(thresholds_for(CANDIDATE_POLICY_LEVEL))
+
+
+def set_buy_confirmation_strictness(
+    value: float,
+    *,
+    actor: str = "user",
+    experimental: bool = False,
+) -> EntryThresholds:
+    """Persist the confirmation slider. Legacy alias: ``set_entry_aggressiveness``."""
+    return set_entry_aggressiveness(value, actor=actor, experimental=experimental)
 
 
 def set_entry_aggressiveness(
@@ -697,15 +723,42 @@ def reset_entry_policy_cache() -> None:
 
 
 def policy_payload() -> dict[str, Any]:
+    from trading.buy_confirmation import (
+        BASE_RR_FLOOR,
+        CANDIDATE_ENTRY_FLOOR,
+        CANDIDATE_SETUP_FLOOR,
+        buy_confirmation_for,
+    )
+
     th = get_entry_thresholds()
+    conf = buy_confirmation_for(th.aggressiveness)
     return {
         "aggressiveness": th.aggressiveness,
+        "buy_confirmation_strictness": th.buy_confirmation_strictness,
         "label": _label(th.aggressiveness),
         "thresholds": th.as_dict(),
+        "candidate_policy": {
+            "level": CANDIDATE_POLICY_LEVEL,
+            "setup_floor": CANDIDATE_SETUP_FLOOR,
+            "entry_floor": CANDIDATE_ENTRY_FLOOR,
+            "base_rr_floor": BASE_RR_FLOOR,
+            "note": "Fixed Medium candidate policy — independent of the slider.",
+        },
+        "buy_confirmation": {
+            "strictness": conf.strictness,
+            "label": conf.label,
+            "setup_tolerance": conf.setup_tolerance,
+            "entry_tolerance": conf.entry_tolerance,
+            "min_effective_rr": conf.min_effective_rr,
+            "momentum_mode": conf.momentum_mode.value,
+            "volume_mode": conf.volume_mode.value,
+            "vwap_mode": conf.vwap_mode.value,
+        },
         "soft_chase_codes": sorted(SOFT_CHASE_CODES),
         "note": (
-            "Single control for entry timing and trader-desk Structure/Setup "
-            "floors (HTF trend, RSI, chase distance). "
+            "Slider is buy_confirmation_strictness (legacy: aggressiveness). "
+            "It relaxes final BUY soft confirms only. Scanner, WAIT, zone "
+            "geometry, and candidate floors stay on the fixed Medium policy. "
             "Risk, liquidity, RTH, earnings and news gates are unchanged."
         ),
     }

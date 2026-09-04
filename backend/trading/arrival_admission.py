@@ -35,7 +35,7 @@ def _effective_min_arrival(arrival: ZoneArrivalFacts, th: EntryThresholds) -> in
 
 
 def evaluate_arrival_gate(arrival: ZoneArrivalFacts, th: EntryThresholds) -> ArrivalGateResult:
-    """Level-aware arrival gate — strong blocks sell-offs; weak allows cautiously."""
+    """Arrival confirmation — quality floors follow the slider; damage stays hard."""
     warnings: list[str] = []
 
     if arrival.crash_velocity:

@@ -404,6 +404,9 @@ async def run_symbol_pipeline(
                 return result.model_copy(update={"status": "no_trade", "opportunity": None})
 
             watch = ENTRY_WATCHES.create_from_bundle(candidate, bundle)
+            from trading.admission_relaxation import record_funnel
+
+            record_funnel("wait_created")
             from trading.admission_records import persist_admission
             from trading.shadow_outcomes import SHADOW_OUTCOMES
 

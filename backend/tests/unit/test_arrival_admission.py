@@ -56,21 +56,21 @@ def test_crash_always_hard_veto() -> None:
     assert gate.blocked is True
 
 
-def test_structural_soft_at_weak() -> None:
+def test_structural_damage_stays_hard_at_weak() -> None:
     th = thresholds_for(100)
     gate = evaluate_arrival_gate(_arrival(structural_damage=True, score=50.0), th)
-    assert gate.blocked is False
-    assert "STRUCTURAL_DAMAGE_SOFT" in gate.warnings
+    assert gate.blocked is True
+    assert gate.hard_veto is True
+    assert "STRUCTURAL_DAMAGE" in gate.reason_codes
 
 
-def test_weak_fast_pullback_at_28_passes() -> None:
+def test_weak_fast_pullback_at_28_passes_without_damage() -> None:
     th = thresholds_for(100)
     gate = evaluate_arrival_gate(
-        _arrival(arrival_type=ArrivalType.FAST_PULLBACK, score=28.0, structural_damage=True),
+        _arrival(arrival_type=ArrivalType.FAST_PULLBACK, score=28.0, structural_damage=False),
         th,
     )
     assert gate.blocked is False
-    assert "STRUCTURAL_DAMAGE_SOFT" in gate.warnings
 
 
 def test_weak_fast_pullback_below_floor_blocks() -> None:

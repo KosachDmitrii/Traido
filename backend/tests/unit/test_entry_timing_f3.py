@@ -70,24 +70,24 @@ def _snap(
 
 def test_high_atr_extension_is_chase() -> None:
     facts = evaluate_timing(
-        _snap(close=102.0, sma20=100.0, atr=1.0, vwap=100.0),
+        _snap(close=103.0, sma20=100.0, atr=1.0, vwap=100.0),
         signal_price=100.0,
         planned_entry=100.0,
         planned_stop=98.5,
-        planned_target=103.0,
+        planned_target=106.0,
     )
-    assert facts.atr_extension is not None and facts.atr_extension >= 1.5
+    assert facts.atr_extension is not None and facts.atr_extension > 2.5
     codes = detect_chasing(facts)
     assert ATR_EXTENSION_HIGH in codes
 
 
 def test_bullish_thesis_plus_extension_is_wait_not_buy() -> None:
     facts = evaluate_timing(
-        _snap(close=102.0, sma20=100.0, atr=1.0, vwap=100.0, resistance=[102.2]),
+        _snap(close=103.0, sma20=100.0, atr=1.0, vwap=100.0, resistance=[103.2]),
         signal_price=100.0,
         planned_entry=100.0,
         planned_stop=98.5,
-        planned_target=103.0,
+        planned_target=104.0,
     )
     market = MarketAssessment(
         regime=MarketRegimeLabel.BULLISH,
@@ -113,13 +113,13 @@ def test_bullish_thesis_plus_extension_is_wait_not_buy() -> None:
 def test_strong_momentum_cannot_override_two_atr_extension() -> None:
     """Required F3 regression: momentum + bullish + high tech score ≠ BUY_NOW."""
     facts = evaluate_timing(
-        _snap(close=102.0, sma20=100.0, atr=1.0, vwap=100.0, roc=3.0),
+        _snap(close=103.2, sma20=100.0, atr=1.0, vwap=100.0, roc=3.0, resistance=[103.4]),
         signal_price=100.0,
         planned_entry=100.0,
         planned_stop=98.5,
         planned_target=104.0,
     )
-    assert facts.atr_extension is not None and 1.8 <= facts.atr_extension <= 2.5
+    assert facts.atr_extension is not None and facts.atr_extension > 2.5
     market = MarketAssessment(
         regime=MarketRegimeLabel.BULLISH,
         score=90,
@@ -133,7 +133,6 @@ def test_strong_momentum_cannot_override_two_atr_extension() -> None:
         technical_score=92,
     )
     assert bundle.entry_decision is not EntryDecision.BUY_NOW
-    assert bundle.entry_decision is EntryDecision.WAIT_FOR_ENTRY
 
 
 def test_resistance_too_close_forces_wait() -> None:

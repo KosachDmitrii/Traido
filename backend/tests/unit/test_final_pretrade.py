@@ -17,7 +17,14 @@ def _snap(symbol: str = "NEM", close: float = 112.0, atr: float = 2.0) -> Featur
         symbol=symbol,
         timeframe=Timeframe.H1,
         computed_at=datetime.now(UTC),
-        indicators={"close": close, "atr_14": atr, "sma_20": close - 1, "vwap": close - 0.5},
+        indicators={
+            "close": close,
+            "atr_14": atr,
+            "sma_20": close - 1,
+            "vwap": close - 0.2,
+            "roc_10": 0.4,
+            "pullback_vol_ratio": 0.9,
+        },
         candlestick_patterns={},
         chart_patterns={},
         support=[Decimal(str(close - 4))],
@@ -118,7 +125,7 @@ def test_rr_dropped_blocks() -> None:
     snap = AdmissionSnapshot(
         price_at_creation=1168.47,
         atr_at_creation=8.0,
-        setup_type=SetupType.PULLBACK_CONTINUATION,
+        setup_type=SetupType.BREAKOUT_CONTINUATION,
         entry_zone_low=1160.0,
         entry_zone_high=1170.0,
         setup_quality_at_creation=89,
@@ -141,7 +148,7 @@ def test_rr_dropped_blocks() -> None:
         strategy_version="test@1",
         thesis=InstrumentThesis.BULLISH,
         entry_decision=EntryDecision.BUY_NOW,
-        setup_type=SetupType.PULLBACK_CONTINUATION,
+        setup_type=SetupType.BREAKOUT_CONTINUATION,
         setup_quality=89,
         entry_quality=81,
         entry_quality_breakdown={

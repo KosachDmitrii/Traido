@@ -333,8 +333,8 @@ def zone_from_facts(
 
     Desk convention: allow ~0.5 ATR undercut below VWAP, ~0.20 ATR above before
     chase. When impulse leg geometry is known, intersect with the 38–62% fib band.
-    Aggressiveness widens the upper band toward live price via zone_gap_frac.
-    Width is capped in ATR so Weak does not mint untouchable 8-ATR canyons.
+    Candidate policy is fixed (Medium); the confirmation slider does not
+    widen this band. Width is capped in ATR so the zone stays touchable.
     """
     from trading.entry_policy import get_entry_thresholds
 

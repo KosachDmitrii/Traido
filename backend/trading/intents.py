@@ -131,6 +131,7 @@ def _write(session: Session, intent: OrderIntent) -> None:
             from trading.admission_relaxation import record_funnel
 
             record_funnel("orders_created")
+            record_funnel("order_created")
     else:
         row.status = intent.status.value
         row.broker_order_id = intent.broker_order_id
@@ -359,6 +360,7 @@ class MemoryOrderIntentStore:
                 from trading.admission_relaxation import record_funnel
 
                 record_funnel("orders_created")
+                record_funnel("order_created")
             return intent, True
 
     def get(self, intent_id: UUID) -> OrderIntent | None:
