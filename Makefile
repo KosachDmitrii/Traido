@@ -22,4 +22,4 @@ frontend:
 
 install-hooks:
 	$(VENV)/pip install pre-commit
-	pre-commit install
+	$(VENV)/pre-commit install
