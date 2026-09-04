@@ -20,6 +20,9 @@ PAPER_PORTS: frozenset[int] = frozenset({7497, 4002})
 LIVE_PORTS: frozenset[int] = frozenset({7496, 4001})
 """TWS live (7496) and IB Gateway live (4001)."""
 
+_LOOPBACK_HOSTS: frozenset[str] = frozenset({"127.0.0.1", "localhost", "::1"})
+"""Hosts that only resolve inside the process container — never on Railway."""
+
 
 class IBKRConfigError(RuntimeError):
     """Configuration that could route real money somewhere unintended."""
@@ -43,6 +46,15 @@ class IBKRTransportConfig:
     max_reconnect_attempts: int = 3
 
     def __post_init__(self) -> None:
+        host = self.host.strip().lower()
+        if host in _LOOPBACK_HOSTS and _deployment_is_production():
+            raise IBKRConfigError(
+                f"TRAIDO_IBKR_HOST={self.host!r} points at loopback, but TRAIDO_ENV "
+                "is production. The backend container cannot reach a Gateway on its "
+                "own localhost — set TRAIDO_IBKR_HOST to a network-reachable host "
+                "(VPS, Tailscale IP, host.docker.internal in local Docker). "
+                "Use the same host locally and on Railway."
+            )
         if self.environment is BrokerEnvironment.PAPER and self.port in LIVE_PORTS:
             raise IBKRConfigError(
                 f"environment is PAPER but port {self.port} is a live IB port. "
@@ -92,3 +104,7 @@ class IBKRTransportConfig:
             account=os.getenv("TRAIDO_IBKR_ACCOUNT") or None,
             environment=environment,
         )
+
+
+def _deployment_is_production() -> bool:
+    return (os.getenv("TRAIDO_ENV") or "development").strip().lower() == "production"

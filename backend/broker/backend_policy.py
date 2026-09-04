@@ -228,6 +228,6 @@ def broker_backend_payload() -> dict[str, Any]:
         "environment": "paper",
         "note": (
             "Execution venue only — market data stays on Alpaca. "
-            "IBKR Paper needs a local Gateway/TWS session (port 4002)."
+            "IBKR Paper needs Gateway at TRAIDO_IBKR_HOST (Mac via Tailscale on Railway — see docs/deploy/ibkr-gateway.md)."
         ),
     }

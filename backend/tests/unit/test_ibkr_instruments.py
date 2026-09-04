@@ -146,6 +146,23 @@ def test_configuration_read_from_an_empty_environment_is_paper(
     assert IBKRTransportConfig.from_env().is_paper
 
 
+def test_production_refuses_loopback_gateway_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRAIDO_ENV", "production")
+    monkeypatch.setenv("TRAIDO_IBKR_HOST", "127.0.0.1")
+
+    with pytest.raises(IBKRConfigError, match="loopback"):
+        IBKRTransportConfig.from_env()
+
+
+def test_production_accepts_network_gateway_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TRAIDO_ENV", "production")
+    monkeypatch.setenv("TRAIDO_IBKR_HOST", "100.64.0.5")
+
+    config = IBKRTransportConfig.from_env()
+
+    assert config.host == "100.64.0.5"
+
+
 def test_the_startup_line_names_the_environment_and_leaks_nothing() -> None:
     line = IBKRTransportConfig(account="DU1234567").describe()
 

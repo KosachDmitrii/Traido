@@ -31,7 +31,7 @@ COPY configs ./configs
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip \
     && /opt/venv/bin/pip install "psycopg[binary]>=3.2" \
-    && /opt/venv/bin/pip install .
+    && /opt/venv/bin/pip install ".[ibkr]"
 
 
 FROM python:3.12-slim AS runtime
@@ -42,7 +42,8 @@ ENV PATH="/opt/venv/bin:$PATH" \
     TRAIDO_ENV=production
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl -fsSL https://tailscale.com/install.sh | sh \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 traido
 
@@ -51,17 +52,14 @@ COPY --from=builder /opt/venv /opt/venv
 WORKDIR /app
 COPY --chown=traido:traido . .
 
-# The desk writes the kill-switch flag and the local journal here.
 RUN mkdir -p /app/data && chown -R traido:traido /app/data \
-    && chmod +x /app/scripts/railway-start.sh
+    && chmod +x /app/scripts/railway-start.sh /app/scripts/docker-entrypoint.sh
 
-USER traido
 EXPOSE 8000
 
-# Readiness, not liveness: the container is only "healthy" once its
-# dependencies answer. Start period covers migrations on first boot.
-# Railway uses deploy.healthcheckPath from railway.toml instead.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD curl -fsS "http://localhost:${PORT:-8000}/health/ready" || exit 1
 
 CMD ["./scripts/railway-start.sh"]

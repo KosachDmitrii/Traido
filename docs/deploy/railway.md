@@ -52,6 +52,15 @@ Managed **PostgreSQL** and **Redis** live in the same Railway project.
 | `ALPACA_API_KEY` | *(your Alpaca paper key)* |
 | `ALPACA_API_SECRET` | *(your Alpaca paper secret)* |
 | `FINNHUB_API_KEY` | *(required for entries unless disabled in config)* |
+| `TRAIDO_BROKER` | `ibkr` *(or `alpaca` until Gateway is up)* |
+| `TRAIDO_IBKR_ENV` | `paper` |
+| `TRAIDO_IBKR_HOST` | Mac Tailscale IP `100.x.x.x` — **not** `127.0.0.1` |
+| `TRAIDO_IBKR_PORT` | `4002` |
+| `TRAIDO_IBKR_CLIENT_ID` | `1` |
+| `TRAIDO_IBKR_ACCOUNT` | *(paper account id)* |
+| `TAILSCALE_AUTHKEY` | *(one-time key — joins backend to your Tailnet)* |
+
+IBKR + Tailscale: [ibkr-gateway.md](./ibkr-gateway.md).
 
 Replace `Postgres` / `Redis` / `frontend` with your actual service names if different.
 
@@ -114,3 +123,6 @@ Same images as Railway (`backend/Dockerfile`, `frontend/Dockerfile`).
 | Frontend calls wrong API | Redeploy frontend after fixing `VITE_API_BASE_URL` |
 | Schema errors | Check backend deploy logs for `alembic upgrade head` |
 | Entries always refused | Set `FINNHUB_API_KEY` or disable earnings check in `configs/v1_paper.json` |
+| IBKR: `ib_async is not installed` | Redeploy backend (Dockerfile installs `[ibkr]`) |
+| IBKR: loopback / `127.0.0.1` | Set `TRAIDO_IBKR_HOST` to VPS/Tailscale IP — see [ibkr-gateway.md](./ibkr-gateway.md) |
+| IBKR: `BrokerUnreachable` | Gateway down, firewall, or wrong host/port |
