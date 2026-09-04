@@ -29,6 +29,7 @@ def score_entry_quality(
     *,
     market: MarketAssessment | None = None,
     technical_score: int | None = None,
+    spread_bps: float | None = None,
 ) -> EntryQualityBreakdown:
     """Entry timing quality — whether the current price is a good entry."""
     if facts.distance_from_fast_ema_pct is None:
@@ -148,6 +149,19 @@ def score_entry_quality(
     if technical_score is not None:
         price_loc = _clamp(round(0.85 * price_loc + 0.15 * technical_score))
 
+    if spread_bps is None:
+        liq = 50
+    elif spread_bps <= 15:
+        liq = 92
+    elif spread_bps <= 30:
+        liq = 78
+    elif spread_bps <= 45:
+        liq = 55
+    elif spread_bps <= 70:
+        liq = 35
+    else:
+        liq = 12
+
     # Legacy breakdown fields retained for API compat; setup uses SetupQualityBreakdown.
     impulse_q = 50
     retrace_q = pullback
@@ -167,6 +181,7 @@ def score_entry_quality(
         signal_drift=_clamp(drift),
         impulse_quality=_clamp(impulse_q),
         retracement_quality=_clamp(retrace_q),
+        liquidity_spread=_clamp(liq),
     )
 
 

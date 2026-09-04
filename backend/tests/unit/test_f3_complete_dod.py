@@ -96,7 +96,8 @@ def test_list_actionable_includes_triggered() -> None:
     watch = ENTRY_WATCHES.create_from_bundle(cand, bundle)
     from trading.entry_watch_eval import observe_price
 
-    triggered = observe_price(watch, float(bundle.entry_zone_low))
+    zone_mid = (float(bundle.entry_zone_low) + float(bundle.entry_zone_high)) / 2.0
+    triggered = observe_price(watch, zone_mid, atr=1.0)
     assert triggered.status is EntryWatchStatus.TRIGGERED
     actionable = ENTRY_WATCHES.list_actionable()
     assert any(w.id == triggered.id for w in actionable)

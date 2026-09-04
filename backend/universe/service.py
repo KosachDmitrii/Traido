@@ -57,6 +57,10 @@ class UniverseSnapshot:
     `rejected` is kept rather than discarded because the funnel has to explain
     where every name went, and "800 of 1500 were structurally eligible" is only
     half an answer without the reasons for the other 700.
+
+    `capped_out` is Stage-0-eligible names cut by `max_size` after screening.
+    Without it the funnel cannot balance: the universe total still includes
+    them, but they never enter market filter / deep analysis.
     """
 
     tier: UniverseTier
@@ -65,6 +69,7 @@ class UniverseSnapshot:
     eligible: list[Instrument] = field(default_factory=list)
     rejected_count: int = 0
     rejection_reasons: dict[str, int] = field(default_factory=dict)
+    capped_out: int = 0
 
     @property
     def symbols(self) -> list[str]:
@@ -242,11 +247,13 @@ class UniverseService:
         merged = _merge_tier(provider_instruments, curated, tier=tier, max_size=0)
         outcome: EligibilityOutcome = screen_universe(merged, self._policy)
         curated_keys = frozenset(i.key for i in curated)
+        screened = outcome.eligible
         eligible = _cap_eligible(
-            outcome.eligible,
+            screened,
             curated_keys=curated_keys,
             max_size=max_size,
         )
+        capped_out = max(0, len(screened) - len(eligible))
 
         snapshot = UniverseSnapshot(
             tier=tier,
@@ -255,6 +262,7 @@ class UniverseService:
             eligible=eligible,
             rejected_count=len(outcome.rejected),
             rejection_reasons=outcome.reason_counts,
+            capped_out=capped_out,
         )
         self._cache.put(
             tier.value,

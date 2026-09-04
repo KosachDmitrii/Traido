@@ -79,6 +79,15 @@ def _market_data_quota_payload() -> dict:
         return {}
 
 
+def _auto_trigger_payload() -> dict:
+    try:
+        from trading.auto_trigger_policy import policy_payload
+
+        return policy_payload()
+    except Exception:  # noqa: BLE001
+        return {"enabled": False}
+
+
 def _entry_policy_payload() -> dict:
     try:
         from trading.entry_policy import policy_payload
@@ -86,6 +95,18 @@ def _entry_policy_payload() -> dict:
         return policy_payload()
     except Exception:  # noqa: BLE001
         return {"aggressiveness": 0, "label": "strict"}
+
+
+def _broker_backend_desk_payload() -> dict:
+    try:
+        from broker.backend_policy import broker_backend_payload
+        from broker.switch_guard import broker_switch_blocked_reason
+
+        payload = broker_backend_payload()
+        payload["switch_blocked_reason"] = broker_switch_blocked_reason()
+        return payload
+    except Exception:  # noqa: BLE001
+        return {"backend": "alpaca", "environment": "paper"}
 
 
 _STREAM_MAX_SEC = 120.0
@@ -130,6 +151,21 @@ class ExitDecisionBody(BaseModel):
     decision: UserDecision = Field(description="sell or hold")
 
 
+def _watch_funnel_payload(entry_watches: list[dict]) -> dict:
+    """WAIT → TRIGGERED → ADMITTED funnel counts for the session strip."""
+    triggered = frozenset({"triggered", "revalidating"})
+    admitted = frozenset({"admitted", "converting", "converted"})
+    return {
+        "waiting": sum(1 for w in entry_watches if (w.get("status") or "").lower() == "waiting"),
+        "triggered": sum(1 for w in entry_watches if (w.get("status") or "").lower() in triggered),
+        "admitted": sum(1 for w in entry_watches if (w.get("status") or "").lower() in admitted),
+        "in_zone": sum(
+            1 for w in entry_watches if w.get("ui_state") in {"IN_ZONE", "TRIGGERED"}
+        ),
+        "blocked_in_zone": sum(1 for w in entry_watches if w.get("buy_blocked")),
+    }
+
+
 def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     settings = get_settings()
     buys = (
@@ -152,9 +188,12 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
         }
         for r in ledger
     ]
+    entry_watches = [desk_payload(w) for w in ENTRY_WATCHES.list_for_desk()]
     return {
         "mode": settings.trading_mode.value,
         "entry_policy": _entry_policy_payload(),
+        "auto_trigger": _auto_trigger_payload(),
+        "broker_backend": _broker_backend_desk_payload(),
         "scanner": {
             "enabled": STATUS.enabled,
             "running": STATUS.running,
@@ -178,7 +217,8 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
             "market_data_quota": _market_data_quota_payload(),
         },
         "buy_opportunities": buys,
-        "entry_watches": [desk_payload(w) for w in ENTRY_WATCHES.list_for_desk()],
+        "entry_watches": entry_watches,
+        "watch_funnel": _watch_funnel_payload(entry_watches),
         "sell_opportunities": [s.model_dump(mode="json") for s in sells],
         "positions": positions_out,
         "review": review.to_dict(),
@@ -280,11 +320,24 @@ def _etag_for(payload: dict) -> str:
             for s in payload.get("sell_opportunities") or []
         ],
         "pos": [(p.get("symbol"), p.get("qty")) for p in payload.get("positions") or []],
+        "watches": [
+            (
+                w.get("id"),
+                w.get("symbol"),
+                w.get("status"),
+                w.get("last_price"),
+                w.get("last_observed_at"),
+                w.get("ui_state"),
+                w.get("buy_blocked"),
+            )
+            for w in payload.get("entry_watches") or []
+        ],
         "trades": (payload.get("review") or {}).get("trade_count"),
         # Operator entry strictness must bust the ETag: leaving it out meant a
         # Settings save + refresh kept a 304 of the previous desk payload and
         # the segmented control snapped back to Сильно.
         "entry_policy": (payload.get("entry_policy") or {}).get("aggressiveness"),
+        "broker_backend": (payload.get("broker_backend") or {}).get("backend"),
         # Includes the clock, so this busts once a minute on an otherwise idle
         # desk. That is the price of a header clock that does not freeze behind
         # a 304, and one extra payload per minute is not a cost worth avoiding.

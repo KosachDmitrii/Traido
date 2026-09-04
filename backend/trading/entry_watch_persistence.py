@@ -7,6 +7,7 @@ from threading import Lock
 from uuid import UUID
 
 from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.enums import EntryWatchStatus
@@ -69,6 +70,17 @@ def _apply_row_columns(row: EntryWatchRow, watch: EntryWatch) -> None:
         row.geometry_hash = watch.geometry_hash
 
 
+def _mark_row_expired(row: EntryWatchRow, *, reason: str) -> None:
+    row.status = EntryWatchStatus.EXPIRED.value
+    payload = dict(row.payload or {})
+    payload["status"] = EntryWatchStatus.EXPIRED.value
+    reasons = list(payload.get("reasons") or [])
+    if reason not in reasons:
+        reasons.append(reason)
+    payload["reasons"] = reasons
+    row.payload = payload
+
+
 def persist_watch(watch: EntryWatch, *, engine: Engine | None = None) -> None:
     if not _enabled:
         return
@@ -87,7 +99,85 @@ def persist_watch(watch: EntryWatch, *, engine: Engine | None = None) -> None:
                 )
                 session.add(row)
             _apply_row_columns(row, watch)
+            try:
+                session.commit()
+                return
+            except IntegrityError:
+                session.rollback()
+
+            if watch.status not in _ACTIONABLE:
+                raise
+
+            cleared = (
+                session.query(EntryWatchRow)
+                .filter(
+                    EntryWatchRow.symbol == watch.symbol,
+                    EntryWatchRow.id != watch.id,
+                    EntryWatchRow.status.in_([s.value for s in _ACTIONABLE]),
+                )
+                .all()
+            )
+            if not cleared:
+                # Re-raise original class of failure by attempting commit path again.
+                row = session.get(EntryWatchRow, watch.id)
+                if row is None:
+                    row = EntryWatchRow(
+                        id=watch.id,
+                        symbol=watch.symbol,
+                        status=watch.status.value,
+                        created_at=watch.created_at,
+                        valid_until=watch.valid_until,
+                        payload=watch.model_dump(mode="json"),
+                    )
+                    session.add(row)
+                _apply_row_columns(row, watch)
+                session.commit()
+                return
+
+            for old in cleared:
+                _mark_row_expired(old, reason="SUPERSEDED_UNIQUE_ACTIVE")
             session.commit()
+
+            row = session.get(EntryWatchRow, watch.id)
+            if row is None:
+                row = EntryWatchRow(
+                    id=watch.id,
+                    symbol=watch.symbol,
+                    status=watch.status.value,
+                    created_at=watch.created_at,
+                    valid_until=watch.valid_until,
+                    payload=watch.model_dump(mode="json"),
+                )
+                session.add(row)
+            _apply_row_columns(row, watch)
+            session.commit()
+
+
+def expire_stale_active_watches(*, engine: Engine | None = None) -> int:
+    """Mark past-TTL WAITING rows expired in SQLite (heals UNIQUE desync)."""
+    if not _enabled:
+        return 0
+    from datetime import UTC, datetime
+
+    now = datetime.now(UTC)
+    with _lock:
+        SessionLocal = _sf(engine)
+        with SessionLocal() as session:
+            rows = (
+                session.query(EntryWatchRow)
+                .filter(
+                    EntryWatchRow.status == EntryWatchStatus.WAITING.value,
+                    EntryWatchRow.valid_until <= now,
+                )
+                .all()
+            )
+            for row in rows:
+                _mark_row_expired(row, reason="WAIT_EXPIRED")
+            session.commit()
+            n = len(rows)
+    if n:
+        logger.info("entry watch persistence: expired %d past-TTL waiting rows", n)
+    return n
 
 
 def hydrate_entry_watches(
@@ -96,6 +186,7 @@ def hydrate_entry_watches(
     """Load actionable watches from DB into the in-memory store on startup."""
     if not _enabled:
         return 0
+    expire_stale_active_watches(engine=engine)
     target = store or ENTRY_WATCHES
     SessionLocal = _sf(engine)
     loaded = 0

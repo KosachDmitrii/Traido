@@ -13,7 +13,7 @@
     "real_estate"
   ],
   "include_etfs": ["broad", "sector"],
-  "timeframes": ["1d", "1h"],
+  "timeframes": ["1d", "4h", "1h", "15m"],
   "scan_interval_seconds": 300,
   "max_open_buy_opportunities": 5,
   "max_symbols_per_cycle": 60,

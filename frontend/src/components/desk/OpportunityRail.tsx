@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import type { BuyOpportunity, BuyViability, DeskResponse, EntryWatchCard, TradeAdmissionExplain } from "@/lib/api";
-import { decideBuy, decideSell, fetchAdmissionExplain } from "@/lib/api";
+import { useMemo, useState } from "react";
+import type { BuyOpportunity, BuyViability, DeskResponse, EntryWatchCard } from "@/lib/api";
+import { decideBuy, decideSell } from "@/lib/api";
 import { useT } from "@/i18n/I18nProvider";
 import type { MessageKey } from "@/i18n";
 import {
@@ -14,6 +14,17 @@ import {
   type FlashMessage,
 } from "@/lib/messages";
 import type { FlashSlot } from "@/lib/toasts";
+import {
+  watchApproaching,
+  watchAboveStrictZone,
+  watchBelowStrictZone,
+  watchDistanceTie,
+  watchInOrNearZone,
+  watchInTriggerBand,
+  watchPipelineSortRank,
+  watchShowsTriggerBand,
+  waitPrice,
+} from "@/lib/watchGeometry";
 import { Button } from "@/ui";
 
 function formatOppQty(opp: BuyOpportunity): string {
@@ -48,184 +59,230 @@ function fmtPx(value: string | number | null | undefined): string {
   return n.toFixed(3);
 }
 
-function waitPrice(w: EntryWatchCard): number {
-  const raw = w.last_price ?? w.current_price_at_creation;
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : 0;
+const WAIT_TRIGGER_CODES = new Set([
+  "PRICE_ENTERS_ZONE",
+  "ZONE_RECLAIM",
+  "VWAP_HOLDS",
+  "MOMENTUM_TURNS_POSITIVE",
+  "PULLBACK_VOL_DIGESTING",
+  "MARKET_ALIGNMENT_VALID",
+]);
+
+/** Stale geometry at cushion fill — not live quote gates like spread. */
+const CUSHION_SUPPRESSED_HINTS = new Set([
+  "EXTREME_CHASE",
+  "INVALID_STOP",
+  "TARGET_UNREALISTIC",
+  "ATR_ONLY_STOP",
+]);
+
+const SPREAD_HINT_CODES = new Set([
+  "SPREAD_ACCEPTABLE",
+  "SPREAD_TOO_WIDE",
+  "EXTREME_SPREAD",
+]);
+
+function filterResolvedSpreadHints(w: EntryWatchCard, hint: string | null): string | null {
+  if (!hint || w.spread_acceptable !== true) return hint;
+  const codes = hint
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .filter((c) => !SPREAD_HINT_CODES.has(c.split(":")[0] ?? c));
+  return codes.length > 0 ? codes.join(", ") : null;
+}
+
+function filterHintForCushion(w: EntryWatchCard, hint: string | null): string | null {
+  if (!hint || !watchInTriggerBand(w)) return hint;
+  const codes = hint
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean)
+    .filter((c) => !CUSHION_SUPPRESSED_HINTS.has(c.split(":")[0] ?? c));
+  return codes.length > 0 ? codes.join(", ") : null;
+}
+
+function watchRevalidationHint(w: EntryWatchCard): string | null {
+  const price = waitPrice(w);
+  const trigHi = Number(w.entry_zone_trigger_high ?? w.entry_zone_high);
+  const trigLo = Number(w.entry_zone_trigger_low ?? w.entry_zone_low);
+  if (Number.isFinite(trigHi) && price > trigHi) return null;
+  if (Number.isFinite(trigLo) && price < trigLo) return null;
+
+  const machine = (w.status || "").toLowerCase();
+  if (machine === "waiting" && !watchInTriggerBand(w)) {
+    return null;
+  }
+  if (w.desk_revalidation_hint) {
+    const codes = w.desk_revalidation_hint.split(",").map((c) => c.trim());
+    const actionable = codes.filter((c) => !WAIT_TRIGGER_CODES.has(c.split(":")[0] ?? c));
+    if (actionable.length === 0) return null;
+    return filterResolvedSpreadHints(w, filterHintForCushion(w, actionable.join(", ")));
+  }
+  for (let i = (w.reasons?.length ?? 0) - 1; i >= 0; i--) {
+    const raw = w.reasons?.[i];
+    if (!raw) continue;
+    if (raw.startsWith("TRIGGERED_CONDITIONS_PENDING:")) {
+      const codes = (raw.split(":", 2)[1] ?? "")
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      const actionable = codes.filter((c) => !WAIT_TRIGGER_CODES.has(c.split(":")[0] ?? c));
+      if (actionable.length === 0) return null;
+      return filterResolvedSpreadHints(w, filterHintForCushion(w, actionable.join(", ")));
+    }
+    if (raw.includes(",")) {
+      const codes = raw
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean);
+      const actionable = codes.filter((c) => !WAIT_TRIGGER_CODES.has(c.split(":")[0] ?? c));
+      if (actionable.length > 0) {
+        return filterResolvedSpreadHints(w, filterHintForCushion(w, actionable.join(", ")));
+      }
+    }
+    if (
+      raw.startsWith("INSUFFICIENT_EFFECTIVE_RR:") ||
+      raw === "EXTREME_CHASE" ||
+      raw === "INVALID_STOP" ||
+      raw === "TARGET_UNREALISTIC" ||
+      raw === "EXTREME_SPREAD" ||
+      raw === "SPREAD_TOO_WIDE" ||
+      raw === "ZONE_ARRIVAL_MISSING" ||
+      raw === "INSUFFICIENT_BARS" ||
+      raw === "STALE_DATA" ||
+      raw === "STALE_BARS" ||
+      raw === "MARKET_DATA_UNHEALTHY" ||
+      raw === "DATA_BLOCKED" ||
+      raw === "SETUP_QUALITY_BELOW_THRESHOLD" ||
+      raw === "ENTRY_QUALITY_BELOW_THRESHOLD"
+    ) {
+      return filterResolvedSpreadHints(w, filterHintForCushion(w, raw));
+    }
+  }
+  return null;
+}
+
+function deskBlockReasonLabel(
+  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
+  reason: string | null | undefined,
+  w?: EntryWatchCard,
+  entriesAllowed?: boolean,
+): string | null {
+  if (!reason) return null;
+  const first = reason.split(",")[0]?.trim() ?? reason;
+  const colon = first.indexOf(":");
+  const code = colon >= 0 ? first.slice(0, colon) : first;
+  const detail = colon >= 0 ? first.slice(colon + 1) : undefined;
+  if (code === "DATA_BLOCKED") {
+    const next = reason
+      .split(",")
+      .map((c) => c.trim())
+      .find((c) => c && c !== "DATA_BLOCKED");
+    if (next) return deskBlockReasonLabel(t, next, w, entriesAllowed);
+    return t("rail.wait.block.DATA_BLOCKED");
+  }
+  if (
+    (code === "STALE_DATA" ||
+      code === "STALE_BARS" ||
+      code === "MARKET_DATA_UNHEALTHY" ||
+      code === "QUOTE_TIMESTAMP_INVALID" ||
+      code === "BAR_TIMESTAMP_MISSING") &&
+    entriesAllowed === false
+  ) {
+    return t("rail.wait.block.STALE_DATA_AFTER_HOURS");
+  }
+  if (
+    (code === "SPREAD_ACCEPTABLE" || code === "EXTREME_SPREAD" || code === "SPREAD_TOO_WIDE") &&
+    w?.spread_acceptable === true
+  ) {
+    return null;
+  }
+  if (
+    (code === "SPREAD_ACCEPTABLE" || code === "EXTREME_SPREAD") &&
+    w?.live_spread_bps != null &&
+    w?.max_spread_bps != null
+  ) {
+    return t("rail.wait.block.SPREAD_DETAIL", {
+      bps: w.live_spread_bps,
+      max: w.max_spread_bps,
+    });
+  }
+  const key = `rail.wait.block.${code}` as MessageKey;
+  const translated = t(key);
+  if (translated !== key) {
+    return detail && translated.includes("{detail}")
+      ? translated.replace("{detail}", detail)
+      : translated;
+  }
+  return reason;
+}
+
+function waitBadgeKey(w: EntryWatchCard): MessageKey {
+  const machine = (w.status || "").toLowerCase();
+  if (machine === "triggered") return "rail.wait.badge.triggered";
+  if (machine === "revalidating") return "rail.wait.badge.revalidating";
+  if (machine === "admitted") return "rail.wait.badge.admitted";
+  if (machine === "converting") return "rail.wait.badge.converting";
+  return "rail.wait.badge";
 }
 
 function waitStatusKey(w: EntryWatchCard): MessageKey {
   const machine = (w.status || "").toLowerCase();
-  if (machine === "revalidating") return "rail.wait.machine.revalidating";
-  if (machine === "admitted") return "rail.wait.machine.admitted";
-  if (machine === "converting") return "rail.wait.machine.converting";
-  if (machine === "converted") return "rail.wait.machine.converted";
   const price = waitPrice(w);
   const zoneLo = Number(w.entry_zone_low);
   const zoneHi = Number(w.entry_zone_high);
   const target = Number(w.planned_target);
+
+  // Same geometry as SessionDecisionStrip (backend ui_state + ATR distance).
+  if (watchInOrNearZone(w)) {
+    const aboveCushion = watchAboveStrictZone(w);
+    const belowCushion = watchBelowStrictZone(w);
+    if (w.buy_blocked) {
+      if (aboveCushion) return "rail.wait.status.aboveZoneCushionBlocked";
+      if (belowCushion) return "rail.wait.status.belowZoneCushionBlocked";
+      return "rail.wait.status.inZoneBlocked";
+    }
+    if (machine === "revalidating") {
+      if (aboveCushion) return "rail.wait.status.aboveZoneCushion";
+      if (belowCushion) return "rail.wait.status.belowZoneCushion";
+      return "rail.wait.machine.revalidating";
+    }
+    if (machine === "triggered") return "rail.wait.machine.triggered";
+    if (machine === "admitted") return "rail.wait.machine.admitted";
+    if (machine === "converting") return "rail.wait.machine.converting";
+    if (machine === "converted") return "rail.wait.machine.converted";
+    if (aboveCushion) return "rail.wait.status.aboveZoneCushion";
+    if (belowCushion) return "rail.wait.status.belowZoneCushion";
+    return "rail.wait.status.inZone";
+  }
+
+  if (machine === "revalidating") return "rail.wait.machine.revalidating";
+  if (machine === "triggered") return "rail.wait.machine.triggered";
+  if (machine === "admitted") return "rail.wait.machine.admitted";
+  if (machine === "converting") return "rail.wait.machine.converting";
+  if (machine === "converted") return "rail.wait.machine.converted";
+
+  if (Number.isFinite(zoneHi) && price > zoneHi) {
+    if (watchInTriggerBand(w)) return "rail.wait.status.aboveZoneCushion";
+    return "rail.wait.status.aboveZone";
+  }
+  if (Number.isFinite(zoneLo) && price < zoneLo) {
+    if (watchInTriggerBand(w)) return "rail.wait.status.belowZoneCushion";
+    return "rail.wait.status.belowZone";
+  }
+
+  if (watchApproaching(w)) return "rail.wait.status.approaching";
+
   if (Number.isFinite(target) && price >= target) return "rail.wait.status.passed";
-  if (Number.isFinite(zoneLo) && Number.isFinite(zoneHi) && price >= zoneLo && price <= zoneHi) {
-    return "rail.wait.status.inZone";
-  }
-  if (Number.isFinite(zoneHi) && price > zoneHi) return "rail.wait.status.aboveZone";
   return "rail.wait.status.belowZone";
-}
-
-function waitTtlMinutes(w: EntryWatchCard): number | null {
-  if (!w.valid_until) return null;
-  const ms = new Date(w.valid_until).getTime() - Date.now();
-  if (!Number.isFinite(ms)) return null;
-  return Math.max(0, Math.floor(ms / 60000));
-}
-
-function likelihoodKey(w: EntryWatchCard): MessageKey | null {
-  const c = w.entry_likelihood?.classification;
-  if (c === "HIGH") return "rail.wait.likelihood.high";
-  if (c === "MODERATE") return "rail.wait.likelihood.moderate";
-  if (c === "LOW") return "rail.wait.likelihood.low";
-  return null;
-}
-
-function uiStatusKey(w: EntryWatchCard): MessageKey {
-  const ui = w.ui_state ?? w.status_label;
-  if (ui === "APPROACHING") return "rail.wait.status.approaching";
-  if (ui === "IN_ZONE" || ui === "TRIGGERED") {
-    if (w.buy_blocked) return "rail.wait.status.inZoneBlocked";
-    return "rail.wait.status.inZone";
-  }
-  return waitStatusKey(w);
-}
-
-function arrivalTypeKey(type: string | null | undefined): MessageKey | null {
-  if (!type) return null;
-  const map: Record<string, MessageKey> = {
-    HEALTHY_PULLBACK: "rail.wait.arrival.healthy",
-    NORMAL_PULLBACK: "rail.wait.arrival.normal",
-    FAST_PULLBACK: "rail.wait.arrival.fast",
-    SELL_OFF: "rail.wait.arrival.sellOff",
-    CRASH: "rail.wait.arrival.crash",
-    GAP_DOWN: "rail.wait.arrival.gapDown",
-  };
-  return map[type] ?? null;
-}
-
-function waitGapPct(w: EntryWatchCard): string | null {
-  const price = waitPrice(w);
-  const zoneHi = Number(w.entry_zone_high);
-  if (!Number.isFinite(zoneHi) || zoneHi <= 0 || price <= zoneHi) return null;
-  return ((price - zoneHi) / zoneHi * 100).toFixed(1);
-}
-
-function explainFieldClass(status: string): string {
-  if (status === "pass") return "rail-wait-explain__field--pass";
-  if (status === "warn") return "rail-wait-explain__field--warn";
-  if (status === "fail") return "rail-wait-explain__field--fail";
-  return "rail-wait-explain__field--info";
-}
-
-type WaitExplainPanelProps = {
-  watchId: string;
-  open: boolean;
-  onClose: () => void;
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string;
-};
-
-function WaitExplainPanel({ watchId, open, onClose, t }: WaitExplainPanelProps) {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [explain, setExplain] = useState<TradeAdmissionExplain | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    fetchAdmissionExplain(watchId)
-      .then((data) => {
-        if (!cancelled) setExplain(data);
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setExplain(null);
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [open, watchId]);
-
-  if (!open) return null;
-
-  return (
-    <div className="rail-wait-explain">
-      {loading ? (
-        <p className="rail-wait-explain__loading">{t("rail.wait.explainLoading")}</p>
-      ) : error ? (
-        <p className="rail-wait-explain__error">
-          {t("rail.wait.explainError")}
-          {error ? `: ${error}` : null}
-        </p>
-      ) : explain ? (
-        <>
-          <p className="rail-wait-explain__headline">{explain.headline}</p>
-          <dl className="rail-wait-explain__fields">
-            {explain.fields.map((f) => (
-              <div key={f.label} className={`rail-wait-explain__field ${explainFieldClass(f.status)}`}>
-                <dt>{f.label}</dt>
-                <dd>{f.value}</dd>
-              </div>
-            ))}
-          </dl>
-          {explain.reason_codes.length > 0 ? (
-            <ul className="rail-wait-explain__codes">
-              {explain.reason_codes.slice(0, 6).map((code) => (
-                <li key={code}>{code.replace(/_/g, " ").toLowerCase()}</li>
-              ))}
-            </ul>
-          ) : null}
-        </>
-      ) : (
-        <p className="rail-wait-explain__loading">{t("rail.wait.explainNoRecord")}</p>
-      )}
-      <div className="rail-wait-explain__actions">
-        <Button variant="ghost" onClick={onClose}>
-          {t("rail.wait.explainClose")}
-        </Button>
-      </div>
-    </div>
-  );
 }
 
 type Props = {
   desk: DeskResponse | null;
-  scannerLine: string;
   onFlash: (message: FlashMessage, replacing?: FlashSlot) => FlashSlot;
   onRefresh: () => Promise<void>;
 };
-
-/** How long the card has been standing, in the operator's words.
- *
- * The prices on a card are a photograph of the moment it was written, and a
- * card can stand for an hour. Without this the desk showed an entry of 68.2895
- * with no hint of whether the scanner had just found it or forgotten it. */
-function ageLabel(
-  createdAt: string | undefined,
-  now: number,
-  t: (key: MessageKey, vars?: Record<string, string | number>) => string,
-): string | null {
-  if (!createdAt) return null;
-  const ms = now - new Date(createdAt).getTime();
-  if (!Number.isFinite(ms) || ms < 0) return null;
-  const min = Math.floor(ms / 60000);
-  if (min < 1) return t("rail.age.justNow");
-  if (min < 60) return t("rail.age.minutes", { n: min });
-  return t("rail.age.hours", { n: Math.floor(min / 60) });
-}
 
 /** Desk copy for the live-book reading. The card stays; the button changes.
  *
@@ -279,22 +336,48 @@ function buyEnabled(
   return viabilityView(opp.viability, t).buyable;
 }
 
-export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props) {
+type RailProposal =
+  | { kind: "buy"; opp: BuyOpportunity }
+  | { kind: "wait"; watch: EntryWatchCard };
+
+function sortRailProposals(
+  buys: BuyOpportunity[],
+  waits: EntryWatchCard[],
+  entriesAllowed: boolean,
+  t: (key: MessageKey) => string,
+): RailProposal[] {
+  const buyTie = (opp: BuyOpportunity) =>
+    entriesAllowed && viabilityView(opp.viability, t).buyable ? 0 : 1;
+
+  return [
+    ...buys.map((opp) => ({
+      proposal: { kind: "buy" as const, opp },
+      rank: 0,
+      tie: buyTie(opp),
+    })),
+    ...waits.map((watch) => ({
+      proposal: { kind: "wait" as const, watch },
+      rank: watchPipelineSortRank(watch),
+      tie: watchDistanceTie(watch),
+    })),
+  ]
+    .sort((a, b) => a.rank - b.rank || a.tie - b.tie)
+    .map(({ proposal }) => proposal);
+}
+
+export function OpportunityRail({ desk, onFlash, onRefresh }: Props) {
   const t = useT();
   const entriesAllowed = desk?.session?.entries_allowed !== false;
-  // Actionable BUY cards float above waits/locked proposals so the operator
-  // sees what can clear the book right now, not a stack of WAIT plans.
-  const buys = [...(desk?.buy_opportunities ?? [])].sort((a, b) => {
-    const aOk = entriesAllowed && viabilityView(a.viability, t).buyable ? 0 : 1;
-    const bOk = entriesAllowed && viabilityView(b.viability, t).buyable ? 0 : 1;
-    return aOk - bOk;
-  });
+  const buys = desk?.buy_opportunities ?? [];
   const waits = desk?.entry_watches ?? [];
+  const proposals = useMemo(
+    () => sortRailProposals(buys, waits, entriesAllowed, t),
+    [buys, waits, entriesAllowed, t],
+  );
   const sells = desk?.sell_opportunities ?? [];
   const [busyId, setBusyId] = useState<string | null>(null);
   /** Operator qty per card; defaults to Risk max until edited. */
   const [qtyById, setQtyById] = useState<Record<string, number>>({});
-  const [explainWatchId, setExplainWatchId] = useState<string | null>(null);
 
   function qtyFor(opp: BuyOpportunity): number | null {
     const max = riskMaxQty(opp);
@@ -361,25 +444,12 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
     }
   }
 
-  // Ticks on its own because the desk poll answers 304 when nothing changed,
-  // and a card nobody has touched is precisely the one whose age matters. Left
-  // to the payload, the label would freeze at the age it was first drawn with.
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const tick = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(tick);
-  }, []);
-
   return (
     <aside className="rail">
       <h2>{t("rail.title")}</h2>
       <p className="stage-note">{t("rail.subtitle")}</p>
 
-      <div className="stage-note" style={{ marginBottom: 12 }}>
-        {scannerLine}
-      </div>
-
-      {!buys.length && !waits.length && !sells.length ? (
+      {!proposals.length && !sells.length ? (
         <div className="block surface">
           <div className="title">{t("rail.empty.title")}</div>
           <div
@@ -391,10 +461,11 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
         </div>
       ) : null}
 
-      {buys.map((opp) => {
+      {proposals.map((item) => {
+        if (item.kind === "buy") {
+          const opp = item.opp;
         const c = opp.candidate;
         const busy = busyId === opp.id;
-        const age = ageLabel(opp.created_at, now, t);
         const viability = viabilityView(opp.viability, t);
         const canBuy = buyEnabled(opp, desk, busyId, t);
         const maxQty = riskMaxQty(opp);
@@ -413,24 +484,11 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
                   <div className="title">{c.symbol}</div>
                   {c.name ? <div className="rail-opp__name">{c.name}</div> : null}
                 </div>
-                {age ? <span className="rail-opp__age">{age}</span> : null}
-              </div>
-              <div className="rail-opp__sub">
-                {(c.thesis || "bullish").toUpperCase()}
-                {" · "}
-                {t("rail.buy.quality", { q: c.entry_quality ?? "—" })}
-                {" · "}
-                {t("rail.buy.conf", { conf: ((c.confidence || 0) * 100).toFixed(0) })}
-                {" · "}
-                {t("rail.buy.rr", { rr: c.risk_reward })}
+                {c.risk_reward != null ? (
+                  <span className="rail-opp__age">{t("rail.buy.rr", { rr: c.risk_reward })}</span>
+                ) : null}
               </div>
             </header>
-
-            {opp.legacy || !opp.creation_admission_record_id || !c.admission_version ? (
-              <p className="opp-card__status opp-viability opp-viability--blocked">
-                {t("rail.legacy.admissionRequired")}
-              </p>
-            ) : null}
 
             <dl className="opp-card__levels">
               <div>
@@ -443,12 +501,7 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
               </div>
               <div>
                 <dt>{t("opp.levels.tgt")}</dt>
-                <dd className="mono">
-                  {fmtPx(c.target)}
-                  {c.target_reachability ? (
-                    <span className="rail-opp__reach"> {c.target_reachability}</span>
-                  ) : null}
-                </dd>
+                <dd className="mono">{fmtPx(c.target)}</dd>
               </div>
               <div>
                 <dt>{t("opp.levels.qty")}</dt>
@@ -509,29 +562,17 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
             </footer>
           </div>
         );
-      })}
+        }
 
-      {waits.map((w) => {
-        const age = ageLabel(w.created_at, now, t);
-        const gap = waitGapPct(w);
-        const statusKey = uiStatusKey(w);
-        const rr = w.planned_risk_reward;
-        const setupQ = w.setup_quality ?? w.setup_quality_at_creation;
-        const entryQ = w.entry_quality ?? w.entry_quality_at_creation;
-        const likKey = likelihoodKey(w);
-        const ttl = waitTtlMinutes(w);
-        const distAtr = w.distance_to_zone_atr ?? w.entry_likelihood?.distance_atr;
-        const arrivalKey = arrivalTypeKey(w.zone_arrival_type);
-        const inZoneUi =
-          w.ui_state === "IN_ZONE" ||
-          w.ui_state === "TRIGGERED" ||
-          statusKey === "rail.wait.status.inZone" ||
-          statusKey === "rail.wait.status.inZoneBlocked";
+        const w = item.watch;
+        const statusKey = waitStatusKey(w);
+        const inZone = watchInOrNearZone(w);
+        const approaching = watchApproaching(w);
         return (
           <div
             className={`block accent block--waiting rail-opp rail-wait${
-              w.buy_blocked ? " rail-wait--blocked" : ""
-            }${w.ui_state === "APPROACHING" ? " rail-wait--approaching" : ""}`}
+              inZone ? " rail-wait--in-zone" : approaching ? " rail-wait--approaching" : ""
+            }${w.buy_blocked ? " rail-wait--blocked" : ""}`}
             key={w.id}
           >
             <header className="rail-opp__head">
@@ -540,36 +581,26 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
                   <div className="title">{w.symbol}</div>
                   {w.name ? <div className="rail-opp__name">{w.name}</div> : null}
                 </div>
-                {age ? <span className="rail-opp__age">{age}</span> : null}
-              </div>
-              <div className="rail-opp__sub">
-                {(w.thesis || "bullish").toUpperCase()}
-                {" · WAIT"}
-                {setupQ != null ? (
-                  <>
-                    {" · "}
-                    {t("rail.wait.setupQuality", { q: setupQ })}
-                  </>
-                ) : null}
-                {entryQ != null ? (
-                  <>
-                    {" · "}
-                    {t("rail.wait.entryQuality", { q: entryQ })}
-                  </>
-                ) : null}
-                {rr != null ? (
-                  <>
-                    {" · "}
-                    {t("rail.buy.rr", { rr })}
-                  </>
-                ) : null}
+                <span className="rail-opp__age">{t(waitBadgeKey(w))}</span>
               </div>
             </header>
 
             <dl className="opp-card__levels">
               <div>
                 <dt>{t("rail.wait.nowLabel")}</dt>
-                <dd className="mono">{fmtPx(w.last_price ?? w.current_price_at_creation)}</dd>
+                <dd className="mono rail-wait__now">
+                  {fmtPx(w.last_price ?? w.current_price_at_creation)}
+                  {w.price_tick === "up" ? (
+                    <span className="pos-pnl pos-pnl--up rail-wait__tick" aria-hidden>
+                      <span className="pos-pnl__arrow">↑</span>
+                    </span>
+                  ) : null}
+                  {w.price_tick === "down" ? (
+                    <span className="pos-pnl pos-pnl--down rail-wait__tick" aria-hidden>
+                      <span className="pos-pnl__arrow">↓</span>
+                    </span>
+                  ) : null}
+                </dd>
               </div>
               <div>
                 <dt>{t("opp.levels.entry")}</dt>
@@ -585,26 +616,18 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
               </div>
             </dl>
 
-            <p className="rail-wait__zone">
+            <p className="rail-wait__zone mono">
               {t("rail.wait.zone", {
                 lo: fmtPx(w.entry_zone_low),
                 hi: fmtPx(w.entry_zone_high),
               })}
-              {gap ? ` · ${t("rail.wait.gap", { pct: gap })}` : null}
-              {distAtr != null && distAtr > 0
-                ? ` · ${t("rail.wait.distanceAtr", { atr: distAtr.toFixed(1) })}`
-                : null}
             </p>
-
-            {likKey && !inZoneUi ? (
-              <p className="rail-wait__likelihood">
-                {t("rail.wait.likelihoodLabel")}: <strong>{t(likKey)}</strong>
-                {ttl != null ? (
-                  <span className="rail-wait__ttl">
-                    {" · "}
-                    {t("rail.wait.ttl", { min: ttl })}
-                  </span>
-                ) : null}
+            {watchShowsTriggerBand(w) ? (
+              <p className="rail-wait__zone rail-wait__zone--trigger mono">
+                {t("rail.wait.zoneTrigger", {
+                  lo: fmtPx(w.entry_zone_trigger_low),
+                  hi: fmtPx(w.entry_zone_trigger_high),
+                })}
               </p>
             ) : null}
 
@@ -615,52 +638,27 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
             >
               {t(statusKey)}
             </p>
-
-            {inZoneUi && w.zone_arrival_quality != null ? (
-              <p className="rail-wait__arrival">
-                {t("rail.wait.arrivalQuality", { q: w.zone_arrival_quality })}
-                {arrivalKey ? ` · ${t(arrivalKey)}` : null}
+            {w.buy_blocked && w.desk_block_reason ? (
+              <p className="rail-wait__block-reason">
+                {deskBlockReasonLabel(t, w.desk_block_reason, w, entriesAllowed)}
               </p>
             ) : null}
-
-            {w.buy_blocked && (w.arrival_reason_codes?.length ?? 0) > 0 ? (
-              <ul className="rail-wait__reasons">
-                {(w.arrival_reason_codes ?? []).slice(0, 4).map((code) => (
-                  <li key={code}>{code.replace(/_/g, " ").toLowerCase()}</li>
-                ))}
-              </ul>
-            ) : null}
-
-            {!inZoneUi ? (
-              <p className="rail-wait__note">
-                {t("rail.wait.conditions", {
-                  c: (w.required_conditions || []).slice(0, 3).join(", "),
-                })}
+            {!w.buy_blocked && watchRevalidationHint(w) ? (
+              <p className="rail-wait__block-reason">
+                {deskBlockReasonLabel(t, watchRevalidationHint(w), w, entriesAllowed)}
               </p>
-            ) : w.buy_blocked ? (
-              <p className="rail-wait__note">{t("rail.wait.inZoneBlockedNote")}</p>
-            ) : (
-              <p className="rail-wait__note">{t("rail.wait.inZonePendingNote")}</p>
-            )}
-            <p className="rail-wait__note rail-wait__note--meta">{t("rail.wait.planNote")}</p>
-
-            <footer className="rail-wait__footer">
-              <Button
-                variant="light"
-                onClick={() =>
-                  setExplainWatchId((prev) => (prev === w.id ? null : w.id))
-                }
-              >
-                {t("rail.wait.explain")}
-              </Button>
-            </footer>
-
-            <WaitExplainPanel
-              watchId={w.id}
-              open={explainWatchId === w.id}
-              onClose={() => setExplainWatchId(null)}
-              t={t}
-            />
+            ) : null}
+            {w.buy_blocked && !w.desk_block_reason && w.zone_arrival_quality != null ? (
+              <p className="rail-wait__block-reason">
+                {t("rail.wait.inZoneBlockedNote")} · {w.zone_arrival_quality}/100
+                {w.zone_arrival_type ? ` · ${w.zone_arrival_type}` : ""}
+              </p>
+            ) : null}
+            {!w.buy_blocked && inZone && (w.status || "").toLowerCase() === "waiting" ? (
+              <p className="rail-wait__block-reason rail-wait__block-reason--muted">
+                {t("rail.wait.inZonePendingNote")}
+              </p>
+            ) : null}
           </div>
         );
       })}
@@ -680,8 +678,6 @@ export function OpportunityRail({ desk, scannerLine, onFlash, onRefresh }: Props
                 n: p.current,
                 p: p.pnl_pct.toFixed(1),
               })}
-              <br />
-              {(p.reasons || []).join(" · ")}
             </div>
             <div className="actions">
               <Button

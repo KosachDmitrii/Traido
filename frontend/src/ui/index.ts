@@ -1,4 +1,5 @@
 export { Button } from "./Button";
+export { LoadingDots } from "./LoadingDots";
 export { Input } from "./Input";
 export { SelectField, type SelectOption } from "./SelectField";
 export { SegmentedControl, type SegmentOption } from "./SegmentedControl";

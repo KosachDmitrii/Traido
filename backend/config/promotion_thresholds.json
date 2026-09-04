@@ -1,0 +1,12 @@
+{
+  "min_backtest_trades": 20,
+  "min_backtest_return_pct": 0.0,
+  "min_oos_trades": 20,
+  "min_oos_return_pct": 0.0,
+  "min_profit_factor": 1.2,
+  "min_walk_forward_efficiency": 0.4,
+  "min_paper_trades": 20,
+  "min_paper_expectancy_usd": 0.0,
+  "min_paper_profit_factor": 1.0,
+  "min_regimes_with_trades": 1
+}

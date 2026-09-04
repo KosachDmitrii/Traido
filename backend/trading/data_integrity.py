@@ -9,6 +9,8 @@ from core.schemas import Bar, DataIntegrityResult, Quote
 
 # Bid/ask quotes older than this are not safe for capital-path admission.
 QUOTE_MAX_AGE_SEC = 15.0
+# Vendor clocks may lead ours by a second — do not DATA_BLOCK on sub-second future skew.
+QUOTE_FUTURE_TOLERANCE_SEC = 3.0
 MIN_BARS_FOR_FEATURES = 30
 # H1 bars older than one full session relative to evaluation are stale.
 BARS_MAX_AGE_SEC = 6 * 3600.0
@@ -65,7 +67,7 @@ def check_data_integrity(
             reasons.append("STALE_DATA")
         else:
             age = (evaluated_at - ts).total_seconds()
-            if age < 0:
+            if age < -QUOTE_FUTURE_TOLERANCE_SEC:
                 quote_fresh = False
                 timestamps_aligned = False
                 reasons.append("QUOTE_TIMESTAMP_FUTURE")

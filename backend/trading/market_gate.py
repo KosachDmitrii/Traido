@@ -8,7 +8,7 @@ from pydantic import Field
 
 from core.enums import DataHealthStatus, MarketRegimeLabel
 from core.schemas import MarketAssessment, StrictModel, TradeCandidate
-from trading.pipeline import UNTRADABLE_REGIMES, regime_allows_long
+from trading.pipeline import UNTRADABLE_REGIMES
 
 MARKET_GATE_VERSION = "market_gate@1"
 REGIME_TTL_SECONDS = 300
@@ -129,7 +129,8 @@ def evaluate_market_gate(
         )
 
     label = market.regime.value
-    allowed = regime_allows_long(market)
+    # Macro tradability only — sector is enforced separately when require_sector.
+    allowed = market.regime not in UNTRADABLE_REGIMES
     if allowed is None:
         return _blocked(
             label=label,

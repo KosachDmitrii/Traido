@@ -184,6 +184,7 @@ async def _run_stages(
     funnel.universe_total = snapshot.total
     funnel.structurally_eligible = len(snapshot.eligible)
     funnel.stage0_rejected = snapshot.rejected_count
+    funnel.eligible_capped = int(getattr(snapshot, "capped_out", 0) or 0)
     funnel.stage0_reasons = dict(snapshot.rejection_reasons)
     result.universe_symbols = snapshot.symbols
 
@@ -367,13 +368,18 @@ def _record_deep_outcome(
             funnel.deep_analysis_no_candidate += 1
         return
 
-    funnel.deep_analysis_passed += 1
+    # Had a candidate through deep analysis. Terminal disposition is exactly one
+    # of risk_rejected / risk_passed (later published|outranked|capacity) /
+    # no_candidate (WAIT / NO_TRADE / etc.). Do not also bump `passed` on the
+    # WAIT path — that made started=20 look like 35 outcomes.
     if status == "risk_rejected":
+        funnel.deep_analysis_passed += 1
         funnel.risk_rejected += 1
         for reason in getattr(outcome.risk, "reasons", []) or []:
             funnel.rejection_reasons[reason] = funnel.rejection_reasons.get(reason, 0) + 1
         return
     if status == "risk_passed":
+        funnel.deep_analysis_passed += 1
         funnel.risk_passed += 1
         passed.append(outcome)
         return
@@ -428,7 +434,12 @@ async def _rank_and_publish(
             continue
 
         try:
-            await publish_opportunity(entry, entry.risk, settings=settings)
+            await publish_opportunity(
+                entry,
+                entry.risk,
+                settings=settings,
+                admission=entry.trade_admission,
+            )
         except Exception as exc:  # noqa: BLE001
             funnel.deep_analysis_failed += 1
             BOARD.log("scanner", f"{symbol} publish failed: {exc!r}", symbol=symbol, level="error")

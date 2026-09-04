@@ -39,16 +39,12 @@ def test_the_active_window_outlasts_the_desk_poll_interval() -> None:
 
 
 def test_a_stage_that_finishes_instantly_is_still_reported_as_active() -> None:
-    """The technical agent scores and returns without ever awaiting anything.
-
-    Between `working` and `done` there is no suspension point at all, so no poll
-    can observe the intermediate status. It did run, and the desk has to say so.
-    """
+    """Structure scores and returns without awaiting — desk must still see it."""
     board = AgentActivityBoard()
-    board.set_agent("technical", status="working", detail="Scoring structure", symbol="AAPL")
-    board.set_agent("technical", status="done", detail="bearish", symbol="AAPL", score=24)
+    board.set_agent("structure", status="working", detail="D1 structure", symbol="AAPL")
+    board.set_agent("structure", status="done", detail="bearish", symbol="AAPL", score=24)
 
-    tech = _agent(board, "technical")
+    tech = _agent(board, "structure")
     assert tech["status"] == "done"
     assert tech["active"] is True, "an agent that just ran reads as idle to the desk"
 
@@ -64,12 +60,12 @@ def test_activity_decays_once_the_pass_moves_on(monkeypatch: pytest.MonkeyPatch)
     clock = [1_000.0]
     monkeypatch.setattr("core.activity.time.monotonic", lambda: clock[0])
 
-    board.set_agent("news", status="working", detail="Reading headlines", symbol="AAPL")
-    board.set_agent("news", status="done", detail="neutral", symbol="AAPL", score=50)
-    assert _agent(board, "news")["active"] is True
+    board.set_agent("checklist", status="working", detail="Quote + news", symbol="AAPL")
+    board.set_agent("checklist", status="done", detail="ready", symbol="AAPL", score=50)
+    assert _agent(board, "checklist")["active"] is True
 
     clock[0] += ACTIVE_WINDOW_SEC + 0.1
-    assert _agent(board, "news")["active"] is False
+    assert _agent(board, "checklist")["active"] is False
 
 
 def test_a_non_working_status_does_not_extend_activity(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,8 +75,8 @@ def test_a_non_working_status_does_not_extend_activity(monkeypatch: pytest.Monke
     clock = [1_000.0]
     monkeypatch.setattr("core.activity.time.monotonic", lambda: clock[0])
 
-    board.set_agent("market", status="working", detail="Regime check")
+    board.set_agent("context", status="working", detail="SPY regime")
     clock[0] += ACTIVE_WINDOW_SEC + 0.1
-    board.set_agent("market", status="done", detail="neutral", score=50)
+    board.set_agent("context", status="done", detail="risk_on", score=50)
 
-    assert _agent(board, "market")["active"] is False
+    assert _agent(board, "context")["active"] is False

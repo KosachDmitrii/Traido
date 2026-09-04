@@ -141,6 +141,58 @@ def test_a_paused_cycle_is_distinguishable_from_an_empty_one() -> None:
     assert funnel.as_dict()["paused_on_full_queue"] is True
 
 
+def test_eligible_cap_is_a_terminal_bucket() -> None:
+    """Names cut by universe_max_size after Stage 0 must not look 'lost'."""
+    funnel = ScanFunnel()
+    funnel.universe_total = 100
+    funnel.structurally_eligible = 20
+    funnel.stage0_rejected = 10
+    funnel.eligible_capped = 70
+    funnel.market_filter_rejected = 15
+    funnel.quant_outranked = 3
+    funnel.deep_analysis_no_candidate = 2
+
+    assert funnel.reconciles()
+    assert funnel.unaccounted() == 0
+    assert funnel.as_dict()["eligible_capped"] == 70
+
+
+def test_wait_outcome_is_not_also_deep_passed() -> None:
+    from uuid import uuid4
+
+    from agents.scanner.cycle import _record_deep_outcome
+    from core.schemas import PipelineResult, TradeCandidate
+    from core.enums import TradeAction
+    from decimal import Decimal
+
+    funnel = ScanFunnel()
+    funnel.universe_total = 1
+    cand = TradeCandidate(
+        symbol="WAIT",
+        action=TradeAction.BUY,
+        confidence=0.5,
+        entry=Decimal(10),
+        stop=Decimal(9),
+        target=Decimal(12),
+        risk_reward=2.0,
+        reasons=["x"],
+        strategy_version="t@1",
+    )
+    _record_deep_outcome(
+        PipelineResult(
+            pipeline_run_id=uuid4(),
+            symbol="WAIT",
+            status="wait_for_entry",
+            candidate=cand,
+        ),
+        funnel,
+        [],
+    )
+    assert funnel.deep_analysis_passed == 0
+    assert funnel.deep_analysis_no_candidate == 1
+    assert funnel.reconciles()
+
+
 def test_the_dict_carries_the_verdict_not_just_the_counters() -> None:
     data = _balanced_funnel().as_dict()
 

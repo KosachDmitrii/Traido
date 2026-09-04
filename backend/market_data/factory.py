@@ -7,9 +7,13 @@ from core.ports import MarketDataPort
 
 
 def resolve_alpaca_data_feed(settings: Settings) -> str:
-    """Default IEX (free Alpaca data). Set ALPACA_DATA_FEED=sip when subscribed."""
+    """Resolve market-data feed: explicit env, else paper→IEX, live→SIP."""
     if settings.alpaca_data_feed:
         return settings.alpaca_data_feed.strip().lower()
+    from core.enums import BrokerEnvironment
+
+    if settings.broker_env is BrokerEnvironment.LIVE:
+        return "sip"
     return "iex"
 
 

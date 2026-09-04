@@ -19,6 +19,7 @@ function usePageMeta(): PageMeta {
   const agents = desk?.activity?.agents ?? [];
   const working = agents.filter(isAgentLive).length;
   const buys = desk?.buy_opportunities?.length ?? 0;
+  const waits = desk?.entry_watches?.length ?? 0;
   const sells = desk?.sell_opportunities?.length ?? 0;
   const positions = desk?.positions?.length ?? 0;
   const orders = desk?.open_orders?.length ?? 0;
@@ -102,6 +103,15 @@ function usePageMeta(): PageMeta {
           { label: t("strip.evaluation.oos"), accent: true },
         ],
       };
+    case "/strategies":
+      return {
+        title: t("strip.strategies.title"),
+        sub: t("strip.strategies.sub"),
+        chips: [
+          { label: t("strip.strategies.versions"), accent: true },
+          { label: t("strip.strategies.production") },
+        ],
+      };
     case "/logs": {
       const funnel = scanner?.funnel;
       return {
@@ -147,7 +157,7 @@ function usePageMeta(): PageMeta {
     default:
       return {
         title: t("strip.default.title"),
-        sub: scannerLine,
+        sub: t("strip.default.sub", { waits, buys, sells }),
         chips: [{ label: t("strip.default.paper"), accent: true }],
       };
   }

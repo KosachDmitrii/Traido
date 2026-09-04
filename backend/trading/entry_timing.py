@@ -61,7 +61,7 @@ def evaluate_timing(
     ema_fast = _ind(exec_snap, "sma_20")  # live "fast" proxy used by confluence
     ema_slow = _ind(exec_snap, "ema_50")
     rvol = _ind(exec_snap, "relative_volume")
-    roc = _ind(exec_snap, "roc_10") or _ind(exec_snap, "momentum_10")
+    roc = _ind(exec_snap, "roc_10") or _ind(exec_snap, "roc_21") or _ind(exec_snap, "momentum_10")
 
     def _pct_dist(level: float | None) -> float | None:
         if not isinstance(level, (int, float)) or level == 0:
@@ -106,7 +106,7 @@ def evaluate_timing(
         drift = (price - signal_price) / signal_price * 100.0
 
     remaining_reward = None
-    if planned_target is not None and planned_target > price or planned_target is not None:
+    if planned_target is not None and planned_target > price:
         remaining_reward = (planned_target - price) / price * 100.0
 
     # Normal adverse excursion proxy: ~0.5 ATR as a fraction of price.
@@ -334,6 +334,7 @@ def zone_from_facts(
     Desk convention: allow ~0.5 ATR undercut below VWAP, ~0.20 ATR above before
     chase. When impulse leg geometry is known, intersect with the 38–62% fib band.
     Aggressiveness widens the upper band toward live price via zone_gap_frac.
+    Width is capped in ATR so Weak does not mint untouchable 8-ATR canyons.
     """
     from trading.entry_policy import get_entry_thresholds
 
@@ -341,17 +342,22 @@ def zone_from_facts(
     gap_frac = float(getattr(th, "zone_gap_frac", 0.0))
     undercut = float(getattr(th, "zone_atr_undercut", ZONE_ATR_UNDERCUT))
     buffer = float(getattr(th, "zone_atr_buffer", ZONE_ATR_BUFFER))
+    max_width_atr = float(getattr(th, "zone_max_width_atr", 0.0) or 0.0)
+    min_width_atr = float(getattr(th, "zone_min_width_atr", 0.4))
+    min_width_pct = float(getattr(th, "zone_min_width_pct", 0.0015))
+    fib_buffer_frac = float(getattr(th, "fib_buffer_frac", 0.03))
 
     price = facts.current_price
     atr = facts.atr or (price * 0.01)
     anchor = _resolve_anchor(facts)
+    min_width = max(min_width_atr * atr, min_width_pct * price)
 
     vwap_low = anchor - undercut * atr
     toward_price = max(0.0, price - anchor) * gap_frac
     vwap_high = anchor + buffer * atr + toward_price
 
-    low = Decimal(str(round(vwap_low, 4)))
-    high = Decimal(str(round(min(price, vwap_high), 4)))
+    low = vwap_low
+    high = min(price, vwap_high)
 
     impulse_high = facts.impulse_high
     impulse_low = facts.impulse_low
@@ -362,18 +368,30 @@ def zone_from_facts(
         and (impulse_high - impulse_low) >= atr * 0.3
     ):
         impulse_range = impulse_high - impulse_low
-        fib_low = impulse_high - FIB_RETRACE_HIGH * impulse_range
-        fib_high = impulse_high - FIB_RETRACE_LOW * impulse_range
+        fib_pad = fib_buffer_frac * impulse_range
+        fib_low = impulse_high - FIB_RETRACE_HIGH * impulse_range - fib_pad
+        fib_high = impulse_high - FIB_RETRACE_LOW * impulse_range + fib_pad
         overlap_low = max(vwap_low, fib_low)
         overlap_high = min(vwap_high, fib_high, price)
-        if overlap_low < overlap_high:
-            low = Decimal(str(round(overlap_low, 4)))
-            high = Decimal(str(round(overlap_high, 4)))
+        if overlap_high - overlap_low >= min_width * 0.5:
+            low = overlap_low
+            high = overlap_high
+
+    if high - low < min_width:
+        low = high - min_width
 
     if low >= high:
-        high = Decimal(str(round(float(low) + max(atr * 0.1, price * 0.001), 4)))
-        low = Decimal(str(round(low, 4)))
-    else:
-        low = Decimal(str(round(low, 4)))
-        high = Decimal(str(round(high, 4)))
-    return low, high
+        high = low + max(min_width, atr * 0.1, price * 0.001)
+
+    # Prefer keeping the upper edge (nearer price); lift the floor if too wide.
+    if max_width_atr > 0 and atr > 0:
+        width = high - low
+        limit = max_width_atr * atr
+        if width > limit:
+            low = high - limit
+            if high - low < min_width:
+                low = high - min_width
+
+    low_d = Decimal(str(round(low, 4)))
+    high_d = Decimal(str(round(high, 4)))
+    return low_d, high_d

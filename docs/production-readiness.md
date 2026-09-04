@@ -134,10 +134,12 @@ forgotten.
   for scan duration, gate outcomes, order latency, fill latency, unknown
   intents or reconciliation age. Operating this desk means reading the audit
   log and the dashboard, and nothing will page anybody.
-- **Strategy versioning as an entity.** `STRATEGY_VERSION` is a string constant
-  in source. There is no registry, no parameter hash, no `approved_at`, and no
-  promotion pipeline — so "which version placed this trade" is answerable, but
-  "what exactly was that version" is answerable only by reading git.
+- **Strategy versioning as an entity.** Stage 8 registry + promotion gate:
+  immutable `strategy_versions`, formal thresholds in
+  `config/promotion_thresholds.json`, human approve → production. Desk stamps
+  `trader_desk@1.2.0` on paper and live candidates alike; Evaluation defaults
+  to the same key (optional `?strategy=stub` for the EMA research stub).
+  Live/autopilot still refuse in V1 and additionally require PRODUCTION.
 - **Corporate actions and halts.** No handling of splits, symbol changes,
   delistings, dividends or a halted market anywhere in the runtime. A split
   overnight moves a stop to a price that is no longer meaningful.
@@ -177,8 +179,9 @@ In order. The first two are what separate "paper-ready" from "proven".
    a known split until stops are adjusted, in the same spirit as the earnings
    gate.
 4. **Metrics and a paging path**, so the failure matrix has an audience.
-5. **Strategy registry and a promotion gate**, so a change of parameters is an
-   event with a record rather than a commit.
+5. ~~**Strategy registry and a promotion gate**~~ **Done (Stage 8)** —
+   `strategy_versions` + `/api/v1/strategies` + formal thresholds. Live still
+   blocked in V1 until Stage 12; PRODUCTION is an additional gate.
 
 Reconciliation age, protection status and broker connection state should move
 into `/health/ready` as part of item 2 — they are the states an orchestrator

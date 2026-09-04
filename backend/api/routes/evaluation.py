@@ -44,6 +44,10 @@ async def evaluation(
     symbol: str,
     timeframe: Timeframe = Timeframe.D1,
     refresh: bool = Query(default=False, description="Bypass the cache and recompute"),
+    strategy: str = Query(
+        default="desk",
+        description="desk = trader_desk (same as paper/live stamp); stub = ema research",
+    ),
 ) -> dict:
     settings = get_settings()
     try:
@@ -53,6 +57,7 @@ async def evaluation(
             timeframe=timeframe,
             benchmark=default_universe().benchmark,
             use_cache=not refresh,
+            strategy=strategy,
         )
     except MarketDataUnavailable as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
@@ -70,6 +75,7 @@ async def evaluation(
 async def evaluation_batch(
     symbols: str = Query(description="Comma-separated symbols"),
     timeframe: Timeframe = Timeframe.D1,
+    strategy: str = Query(default="desk"),
 ) -> dict:
     requested = [s.strip().upper() for s in symbols.split(",") if s.strip()][:MAX_BATCH]
     if not requested:
@@ -81,7 +87,13 @@ async def evaluation_batch(
 
     outcomes = await asyncio.gather(
         *(
-            evaluate_symbol(sym, market_data=market_data, timeframe=timeframe, benchmark=benchmark)
+            evaluate_symbol(
+                sym,
+                market_data=market_data,
+                timeframe=timeframe,
+                benchmark=benchmark,
+                strategy=strategy,
+            )
             for sym in requested
         ),
         return_exceptions=True,

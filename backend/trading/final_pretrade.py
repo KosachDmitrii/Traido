@@ -43,6 +43,7 @@ from trading.trade_admission import (
     entry_allowed_for_setup_type,
     evaluate_from_admission_input,
 )
+from trading.zone_arrival import ZoneArrivalFacts, zone_arrival_required
 
 # Approval drift from last admission/revalidation anchor — not from signal price.
 MAX_APPROVAL_DRIFT_PCT = 1.5
@@ -144,6 +145,7 @@ def final_pretrade_validation(
     quote: Quote,
     snapshot: AdmissionSnapshot | None = None,
     bars_count: int | None = None,
+    bars: list | None = None,
     last_bar_ts: datetime | None = None,
     now: datetime | None = None,
     exec_snap: FeatureSnapshot | None = None,
@@ -158,7 +160,8 @@ def final_pretrade_validation(
     geometry_hash: str | None = None,
     opportunity_id: UUID | None = None,
     decision_version: int = 0,
-) -> tuple[TradeAdmissionResult, AdmissionInput]:
+    tape_last: float | None = None,
+) -> tuple[TradeAdmissionResult, AdmissionInput, ZoneArrivalFacts | None]:
     """Re-run admission-side gates with live quote before Risk Engine.
 
     Builds an immutable AdmissionInput and evaluates only through
@@ -174,12 +177,14 @@ def final_pretrade_validation(
     if bars_count is None:
         raise PretradeRejection("BUY_REJECTED_STALE_DATA", "BARS_REQUIRED")
 
+    th = get_entry_thresholds()
     data = check_data_integrity(
         quote=quote,
         bars_count=bars_count,
         last_bar_ts=last_bar_ts,
         now=evaluated_at,
         require_bars=True,
+        quote_max_age_sec=th.quote_max_age_sec,
     )
     if data.status is DataHealthStatus.UNHEALTHY:
         raise PretradeRejection("BUY_REJECTED_STALE_DATA", ",".join(data.reason_codes))
@@ -197,11 +202,24 @@ def final_pretrade_validation(
     if bid <= 0 or ask < bid:
         raise PretradeRejection("BUY_REJECTED_SPREAD", "no_top_of_book")
 
+    from trading.entry_spread_gate import evaluate_entry_spread
+
+    spread_gate = evaluate_entry_spread(
+        quote,
+        now=evaluated_at,
+        tape_last=tape_last,
+        card_entry=float(candidate.entry),
+        thresholds=th,
+    )
+    if "LIVE_QUOTE_REQUIRED" in spread_gate.reason_codes:
+        raise PretradeRejection("BUY_REJECTED_STALE_DATA", "LIVE_QUOTE_REQUIRED")
+    if "QUOTE_STALE" in spread_gate.reason_codes:
+        raise PretradeRejection("BUY_REJECTED_STALE_DATA", "QUOTE_STALE")
+    if "SPREAD_TOO_WIDE" in spread_gate.reason_codes or "EXTREME_SPREAD" in spread_gate.reason_codes:
+        detail = f"spread_bps={spread_gate.bps:.1f}" if spread_gate.bps is not None else "SPREAD_TOO_WIDE"
+        raise PretradeRejection("BUY_REJECTED_SPREAD", detail)
+
     mid = (bid + ask) / 2
-    spread_bps = (ask - bid) / mid * 10000
-    max_spread = float(getattr(candidate, "max_spread_bps", 30) or 30)
-    if spread_bps > max_spread * 2:
-        raise PretradeRejection("BUY_REJECTED_SPREAD", f"spread_bps={spread_bps:.1f}")
 
     snap = snapshot
     if snap is None and candidate.admission_snapshot:
@@ -226,12 +244,12 @@ def final_pretrade_validation(
     )
     atr = snap.atr_at_creation if snap else None
 
-    allowed, zone_reasons = entry_allowed_for_setup_type(setup_type, mid, zone_low, zone_high, atr)
+    allowed, zone_reasons = entry_allowed_for_setup_type(setup_type, ask, zone_low, zone_high, atr)
     if not allowed:
         raise PretradeRejection("PRICE_OUTSIDE_ENTRY_POLICY", ",".join(zone_reasons))
 
     ref_price = snap.price_at_creation if snap else float(candidate.entry)
-    drift_pct = abs(mid - ref_price) / max(ref_price, 1e-9) * 100.0
+    drift_pct = abs(ask - ref_price) / max(ref_price, 1e-9) * 100.0
     if drift_pct > MAX_APPROVAL_DRIFT_PCT:
         raise PretradeRejection(
             "BUY_REJECTED_PRICE_MOVED",
@@ -297,6 +315,18 @@ def final_pretrade_validation(
         stop_price=candidate.stop,
         target=target_plan,
     )
+
+    zone_arrival = None
+    if bars and bars_count >= 5 and zone_arrival_required(setup_type):
+        from trading.pipeline import zone_arrival_for_admission
+
+        zone_arrival = zone_arrival_for_admission(
+            symbol=candidate.symbol,
+            candidate=candidate,
+            bundle=bundle,
+            bars=bars,
+        )
+
     stop_plan = StopPlan(
         price=candidate.stop,
         model=(snap.stop_model if snap and snap.stop_model else "structure"),
@@ -351,6 +381,8 @@ def final_pretrade_validation(
         entry=Decimal(str(round(ask, 4))),
         stop=candidate.stop,
         target=candidate.target,
+        zone_arrival=zone_arrival,
+        tape_last=tape_last,
     )
     if admission.snapshot is not None:
         admission = admission.model_copy(
@@ -365,4 +397,4 @@ def final_pretrade_validation(
                 )
             }
         )
-    return require_final_admission(admission), admission_input
+    return require_final_admission(admission), admission_input, zone_arrival

@@ -14,6 +14,7 @@ def evaluate_structural_integrity(
     facts: EntryTimingFacts,
     *,
     chase_reasons: list[str] | None = None,
+    deep_pullback_is_hard: bool = True,
 ) -> StructuralIntegrityFacts:
     codes = list(chase_reasons or [])
     reasons: list[str] = []
@@ -40,8 +41,10 @@ def evaluate_structural_integrity(
     if not swing_valid:
         reasons.append("NORMAL_RETRACE_EXCEEDS_STOP")
 
+    # On softer/weak entry policy, a deep pullback is WAIT material — not a
+    # structural hard kill that deletes the wait card before it is drawn.
     hard_damage = (
-        PULLBACK_TOO_DEEP in codes
+        (PULLBACK_TOO_DEEP in codes and deep_pullback_is_hard)
         or NORMAL_RETRACE_EXCEEDS_STOP in codes
         or (not support_valid and facts.nearest_support is not None)
     )

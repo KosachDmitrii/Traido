@@ -9,7 +9,7 @@ import { useDesk } from "@/context/DeskContext";
 import { TooltipProvider } from "@/ui";
 
 export function AppShell() {
-  const { desk, scannerLine, toasts, showFlash, dismissFlash, holdFlash, refreshAll } = useDesk();
+  const { desk, toasts, showFlash, dismissFlash, holdFlash, refreshAll } = useDesk();
   const isDesk = useLocation().pathname === "/";
   const { collapsed, onCollapsedChange } = useNavCollapsed();
 
@@ -25,17 +25,10 @@ export function AppShell() {
             <Outlet />
           </main>
           {isDesk ? (
-            <OpportunityRail
-              desk={desk}
-              scannerLine={scannerLine}
-              onFlash={showFlash}
-              onRefresh={refreshAll}
-            />
+            <OpportunityRail desk={desk} onFlash={showFlash} onRefresh={refreshAll} />
           ) : null}
         </div>
-        {isDesk ? (
-          <ToastStack toasts={toasts} onDismiss={dismissFlash} onHold={holdFlash} />
-        ) : null}
+        <ToastStack toasts={toasts} onDismiss={dismissFlash} onHold={holdFlash} />
       </div>
     </TooltipProvider>
   );

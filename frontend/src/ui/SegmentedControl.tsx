@@ -26,8 +26,10 @@ export function SegmentedControl({
     <ToggleGroup
       value={[value]}
       onValueChange={(next) => {
-        const picked = next[0];
-        if (picked) onChange(picked);
+        // Base UI can clear the group (empty array) on a second click — keep the
+        // current step so «Слабо» cannot silently fall back after a remount.
+        const picked = next[0] ?? value;
+        if (picked && picked !== value) onChange(picked);
       }}
       aria-label={ariaLabel}
       className={[styles.Panel, wide ? styles.PanelWide : "", className].filter(Boolean).join(" ")}

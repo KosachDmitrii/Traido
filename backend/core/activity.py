@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -9,6 +10,13 @@ from threading import Lock
 from typing import Any
 
 from core.redaction import redact_secrets
+
+logger = logging.getLogger(__name__)
+
+# Hot in-process ring buffer for the live desk poll — not the durable history.
+_ACTIVITY_RING_CAP = 500
+
+_audit_sink: Any | None = None
 
 ACTIVE_WINDOW_SEC = 6.0
 """How long after doing work an agent still counts as active in the current pass.
@@ -23,6 +31,12 @@ run, and the desk simply never looks at the right microsecond.
 This window must stay longer than the poll interval, or a stint can still fall
 entirely between two samples.
 """
+
+
+def bind_activity_audit(audit: Any) -> None:
+    """Wire durable audit persistence for every BOARD.log call."""
+    global _audit_sink
+    _audit_sink = audit
 
 
 @dataclass
@@ -52,10 +66,13 @@ class AgentActivityBoard:
         self._lock = Lock()
         self.agents: dict[str, AgentState] = {
             "scanner": AgentState("scanner", "Scanner"),
-            "technical": AgentState("technical", "Technical"),
-            "news": AgentState("news", "News"),
-            "market": AgentState("market", "Market"),
-            "strategy": AgentState("strategy", "Strategy"),
+            "context": AgentState("context", "Context"),
+            "universe": AgentState("universe", "Universe"),
+            "structure": AgentState("structure", "Structure"),
+            "setup": AgentState("setup", "Setup"),
+            "entry": AgentState("entry", "Entry"),
+            "risk_plan": AgentState("risk_plan", "Risk plan"),
+            "checklist": AgentState("checklist", "Checklist"),
             "risk": AgentState("risk", "Risk Engine"),
             "review": AgentState("review", "Review"),
             "position": AgentState("position", "Position"),
@@ -91,17 +108,28 @@ class AgentActivityBoard:
         symbol: str | None = None,
         level: str = "info",
     ) -> None:
+        safe_message = redact_secrets(message)
         with self._lock:
             self.events.append(
                 ActivityEvent(
                     ts=datetime.now(UTC).isoformat(),
                     agent=agent,
-                    message=redact_secrets(message),
+                    message=safe_message,
                     symbol=symbol,
                     level=level,
                 )
             )
-            self.events = self.events[-200:]
+            self.events = self.events[-_ACTIVITY_RING_CAP:]
+
+        sink = _audit_sink
+        if sink is not None:
+            from core.audit import ACTIVITY_LOG_EVENT
+
+            sink.append_sync(
+                ACTIVITY_LOG_EVENT,
+                agent,
+                {"message": safe_message, "symbol": symbol, "level": level},
+            )
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -131,7 +159,7 @@ class AgentActivityBoard:
                         "symbol": e.symbol,
                         "level": e.level,
                     }
-                    for e in list(self.events)[-200:]
+                    for e in list(self.events)[-_ACTIVITY_RING_CAP:]
                 ],
             }
 

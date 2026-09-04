@@ -197,13 +197,15 @@ Everything Stage 7 deliberately deferred, plus what real IB connectivity needs.
       session or credentials in this environment**
 
 ## Stage 8 — Strategy as a first-class object
-- [ ] Strategy registry with versioned, immutable strategy definitions
-- [ ] Promotion gate: proposal → backtest → out-of-sample → walk-forward →
+- [x] Strategy registry with versioned, immutable strategy definitions
+- [x] Promotion gate: proposal → backtest → out-of-sample → walk-forward →
       paper → human approval → production
-- [ ] Complete multi-timeframe confluence (1D/4H/1H/15m); config already
-      declares four timeframes while the scanner runs two
-- [ ] Price action: breakout, retest, gap detectors
-- [ ] Chart patterns beyond double top/bottom
+- [x] Complete multi-timeframe confluence (1D/4H/1H/15m) — universe loads
+      D1+H1+H4(agg)+M15; structure/setup use them; watchlist declares four
+- [x] Price action: breakout, retest, gap detectors (`quant/price_action.py`)
+- [x] Chart patterns beyond double top/bottom (triangles, flags, H&S)
+- [x] Evaluation defaults to desk strategy version (`trader_desk@1.2.0`);
+      paper and live share the same key; V1 still refuses live orders
 
 ## Stage 9 — Evidence layers
 - [ ] Fundamental agent + SEC EDGAR (10-K / 10-Q / 8-K)

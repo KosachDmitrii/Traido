@@ -150,10 +150,16 @@ class IBKRLiveTransport:
             raise IBKRNotConnected(f"ibkr session is {self.connection_state().value}")
         return self._ib
 
+    async def _ready(self) -> Any:
+        """Connect lazily on first use — reconcile/health never call connect() alone."""
+        if not self._is_live_session():
+            await self.connect()
+        return self._require_ready()
+
     # ── Contracts ────────────────────────────────────────────────────────────
 
     async def resolve_contract(self, symbol: str) -> list[dict[str, Any]]:
-        ib = self._require_ready()
+        ib = await self._ready()
         ib_async = _load_ib_async()
         details = await ib.reqContractDetailsAsync(ib_async.Stock(symbol.upper(), "SMART", "USD"))
         return [
@@ -171,7 +177,7 @@ class IBKRLiveTransport:
     # ── Orders ───────────────────────────────────────────────────────────────
 
     async def place_order(self, payload: dict[str, Any]) -> dict[str, Any]:
-        ib = self._require_ready()
+        ib = await self._ready()
         ib_async = _load_ib_async()
         contract = ib_async.Contract(
             conId=int(payload["conId"]),
@@ -201,7 +207,7 @@ class IBKRLiveTransport:
         return _trade_to_dict(trade)
 
     async def cancel_order(self, order_id: str) -> dict[str, Any]:
-        ib = self._require_ready()
+        ib = await self._ready()
         trade = _find_trade(ib, order_id)
         if trade is None:
             raise KeyError(f"ib has no order {order_id}")
@@ -210,21 +216,21 @@ class IBKRLiveTransport:
         return _trade_to_dict(trade)
 
     async def get_order(self, order_id: str) -> dict[str, Any]:
-        ib = self._require_ready()
+        ib = await self._ready()
         trade = _find_trade(ib, order_id)
         if trade is None:
             raise KeyError(f"ib has no order {order_id}")
         return _trade_to_dict(trade)
 
     async def open_orders(self) -> list[dict[str, Any]]:
-        ib = self._require_ready()
+        ib = await self._ready()
         return [_trade_to_dict(t) for t in ib.openTrades()]
 
     async def orders_by_ref(self, order_ref: str) -> list[dict[str, Any]]:
         """Open *and* completed orders. Recovery needs both: a filled order is
         not an open order, and the lost-reply case is exactly the one where it
         filled while we were not looking."""
-        ib = self._require_ready()
+        ib = await self._ready()
         await ib.reqCompletedOrdersAsync(apiOnly=True)
         seen: dict[str, dict[str, Any]] = {}
         for trade in [*ib.trades(), *ib.openTrades()]:
@@ -235,7 +241,7 @@ class IBKRLiveTransport:
         return list(seen.values())
 
     async def executions(self) -> list[dict[str, Any]]:
-        ib = self._require_ready()
+        ib = await self._ready()
         fills = await ib.reqExecutionsAsync()
         return [
             {
@@ -250,7 +256,7 @@ class IBKRLiveTransport:
         ]
 
     async def positions(self) -> list[dict[str, Any]]:
-        ib = self._require_ready()
+        ib = await self._ready()
         return [
             {
                 "symbol": p.contract.symbol,
@@ -262,7 +268,7 @@ class IBKRLiveTransport:
         ]
 
     async def account_summary(self) -> dict[str, Any]:
-        ib = self._require_ready()
+        ib = await self._ready()
         rows = await ib.accountSummaryAsync(self._config.account or "All")
         return {row.tag: row.value for row in rows}
 

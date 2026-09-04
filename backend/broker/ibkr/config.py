@@ -71,7 +71,17 @@ class IBKRTransportConfig:
 
         An unset or unrecognised environment resolves to PAPER. The safe value
         is the one you get by forgetting to set anything.
+
+        IBKR vars are not on ``Settings``; load ``.env`` so Gateway port/account
+        from the repo root reach ``os.environ`` (same file pydantic uses).
         """
+        if not os.getenv("TRAIDO_IBKR_PORT") and not os.getenv("TRAIDO_IBKR_ACCOUNT"):
+            from core.config import _ENV_FILE
+
+            if _ENV_FILE.is_file():
+                from dotenv import load_dotenv
+
+                load_dotenv(_ENV_FILE, override=False)
         raw_env = (os.getenv("TRAIDO_IBKR_ENV") or "paper").strip().lower()
         environment = BrokerEnvironment.LIVE if raw_env == "live" else BrokerEnvironment.PAPER
         default_port = 7497 if environment is BrokerEnvironment.PAPER else 7496

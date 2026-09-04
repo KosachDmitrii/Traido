@@ -83,7 +83,22 @@ def strict_entry_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iter
     from trading import entry_policy
 
     path = tmp_path / "entry_policy.json"
+    store: dict[str, dict[str, str]] = {}
+
+    class _FakeRedis:
+        def hget(self, key, field):
+            raw = store.get(key, {}).get(field)
+            return raw.encode() if raw is not None else None
+
+        def hset(self, key, mapping):
+            store[key] = {str(k): str(v) for k, v in mapping.items()}
+            return True
+
+        def ping(self):
+            return True
+
     monkeypatch.setattr(entry_policy, "POLICY_PATH", path)
+    monkeypatch.setattr(entry_policy, "_redis_client", lambda: _FakeRedis())
     entry_policy.reset_entry_policy_cache()
     entry_policy.set_entry_aggressiveness(0, actor="test")
     yield

@@ -23,6 +23,7 @@ from core.enums import Timeframe
 from core.ports import MarketDataPort
 from core.schemas import Bar
 from quant.backtesting.benchmark import buy_and_hold
+from quant.backtesting.desk_strategy import DeskConfluenceStrategy
 from quant.backtesting.engine import BacktestEngine
 from quant.backtesting.strategy import EmaTrendStub, Strategy
 from quant.backtesting.walk_forward import OutOfSampleReport, walk_forward
@@ -30,12 +31,22 @@ from quant.costs import DEFAULT_COST_MODEL, CostModel
 from quant.market_regime import segment_by_regime
 
 DEFAULT_LOOKBACK_DAYS = 1500
-DEFAULT_GRID: dict[str, list[Any]] = {
+# Research stub grid (ema_trend_stub).
+STUB_GRID: dict[str, list[Any]] = {
     "ema_fast": [20, 50],
     "ema_slow": [100, 200],
 }
+# Desk geometry knobs — small grid so walk-forward still has a choice.
+DESK_GRID: dict[str, list[Any]] = {
+    "rsi_cap": [68.0, 72.0],
+    "near_sma_frac": [0.02, 0.025],
+}
+# Backward-compatible alias used by older tests / callers.
+DEFAULT_GRID = STUB_GRID
 CACHE_TTL = timedelta(hours=12)
 MIN_BARS = 300
+
+StrategyKind = str  # "desk" | "stub"
 
 
 class MarketDataUnavailable(RuntimeError):
@@ -46,11 +57,35 @@ class MarketDataUnavailable(RuntimeError):
     """
 
 
-def default_factory(params: Mapping[str, Any]) -> Strategy:
+def desk_factory(params: Mapping[str, Any]) -> Strategy:
+    """Bar adapter for trader_desk — same version key the desk stamps on paper/live."""
+    return DeskConfluenceStrategy(
+        rsi_cap=float(params.get("rsi_cap", 72.0)),
+        near_sma_frac=float(params.get("near_sma_frac", 0.025)),
+        chase_ext_frac=float(params.get("chase_ext_frac", 0.04)),
+    )
+
+
+def stub_factory(params: Mapping[str, Any]) -> Strategy:
     return EmaTrendStub(
         ema_fast=int(params.get("ema_fast", 50)),
         ema_slow=int(params.get("ema_slow", 200)),
     )
+
+
+def default_factory(params: Mapping[str, Any]) -> Strategy:
+    """Default Evaluation path = desk strategy (Stage 8 identity with the desk)."""
+    return desk_factory(params)
+
+
+def resolve_strategy_kind(kind: StrategyKind | None) -> tuple[StrategyKind, Any, dict[str, list[Any]]]:
+    """Return (kind, factory, walk-forward grid)."""
+    resolved = (kind or "desk").strip().lower()
+    if resolved in {"stub", "ema", "ema_trend_stub", "research"}:
+        return "stub", stub_factory, STUB_GRID
+    if resolved in {"desk", "trader_desk", "live", "confluence"}:
+        return "desk", desk_factory, DESK_GRID
+    raise ValueError(f"unknown evaluation strategy kind: {kind!r} (use desk|stub)")
 
 
 @dataclass
@@ -70,6 +105,7 @@ class EvaluationResult:
     timeframe: str
     generated_at: str
     bars: int
+    strategy_version: str
 
     # Full-sample backtest, after costs
     trade_count: int
@@ -106,7 +142,20 @@ class EvaluationResult:
     warnings: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        data = asdict(self)
+        # Nested shape the promotion gate reads for OOS metrics.
+        data["out_of_sample"] = {
+            "trade_count": self.oos_trade_count,
+            "return_pct": self.oos_return_pct,
+            "win_rate": self.oos_win_rate,
+            "profit_factor": self.oos_profit_factor,
+            "max_drawdown_pct": self.oos_max_drawdown_pct,
+            "sharpe": self.oos_sharpe,
+            "walk_forward_efficiency": self.walk_forward_efficiency,
+            "verdict": self.verdict,
+        }
+        return data
+
 
 
 @dataclass
@@ -115,7 +164,7 @@ class _CacheEntry:
     at: datetime
 
 
-_CACHE: dict[tuple[str, str], _CacheEntry] = {}
+_CACHE: dict[tuple[str, str, str], _CacheEntry] = {}
 
 
 def clear_cache() -> None:
@@ -134,10 +183,12 @@ async def evaluate_symbol(
     starting_equity: Decimal = Decimal(100000),
     use_cache: bool = True,
     now: datetime | None = None,
+    strategy: StrategyKind = "desk",
 ) -> EvaluationResult:
     symbol = symbol.upper()
     now = now or datetime.now(UTC)
-    key = (symbol, timeframe.value)
+    kind, factory, grid = resolve_strategy_kind(strategy)
+    key = (symbol, timeframe.value, kind)
 
     if use_cache:
         entry = _CACHE.get(key)
@@ -168,9 +219,68 @@ async def evaluate_symbol(
         folds=folds,
         starting_equity=starting_equity,
         now=now,
+        factory=factory,
+        grid=grid,
     )
     _CACHE[key] = _CacheEntry(result=result, at=now)
+    _persist_evaluation_evidence(result)
     return result
+
+
+def _persist_evaluation_evidence(result: EvaluationResult) -> None:
+    """Stage 8: attach Evaluation evidence to whatever version was measured."""
+    try:
+        from datetime import datetime
+
+        from core.enums import Timeframe as Tf
+        from core.schemas import BacktestSummary
+        from database.repository import persist_backtest_summary
+        from strategy.promotion import persist_evaluation_run
+        from strategy.registry import ensure_builtin_strategies
+
+        ensure_builtin_strategies()
+        payload = result.as_dict()
+        persist_evaluation_run(
+            strategy_version_key=result.strategy_version,
+            symbol=result.symbol,
+            timeframe=result.timeframe,
+            verdict=result.verdict,
+            payload=payload,
+            generated_at=datetime.fromisoformat(result.generated_at),
+        )
+        starting = Decimal(100000)
+        net = starting * Decimal(str(result.return_pct)) / Decimal(100)
+        wins = int(round(result.win_rate * result.trade_count))
+        summary = BacktestSummary(
+            strategy_version=result.strategy_version,
+            symbol=result.symbol,
+            timeframe=Tf(result.timeframe),
+            starting_equity=starting,
+            ending_equity=starting + net,
+            net_pnl=net,
+            return_pct=result.return_pct,
+            trade_count=result.trade_count,
+            win_count=wins,
+            loss_count=max(0, result.trade_count - wins),
+            win_rate=result.win_rate,
+            profit_factor=result.profit_factor,
+            max_drawdown_pct=result.max_drawdown_pct,
+            avg_r=result.expectancy_r,
+            avg_bars_held=None,
+            total_costs=Decimal(str(result.total_costs)),
+            expectancy_r=result.expectancy_r,
+            sharpe=result.sharpe,
+            sortino=result.sortino,
+            calmar=result.calmar,
+            cagr_pct=result.cagr_pct,
+        )
+        persist_backtest_summary(
+            summary,
+            params={"source": "evaluation"},
+            notes="evaluation full-sample (Stage 8 evidence)",
+        )
+    except Exception:  # noqa: BLE001 — measurement must not break the read path
+        pass
 
 
 def _evaluate(
@@ -184,23 +294,35 @@ def _evaluate(
     folds: int,
     starting_equity: Decimal,
     now: datetime,
+    factory: Any = None,
+    grid: dict[str, list[Any]] | None = None,
 ) -> EvaluationResult:
     warnings: list[str] = []
     if len(bars) < MIN_BARS:
         raise ValueError(f"{symbol}: {len(bars)} bars is not enough to evaluate (need {MIN_BARS})")
 
-    strategy = default_factory({})
+    factory = factory or default_factory
+    grid = grid if grid is not None else DESK_GRID
+    strategy = factory({})
+    from strategy.registry import LIVE_STRATEGY_KEY, RESEARCH_STRATEGY_KEY
+
+    fallback_key = (
+        LIVE_STRATEGY_KEY
+        if getattr(strategy, "version", "").startswith("trader_desk")
+        else RESEARCH_STRATEGY_KEY
+    )
+
     summary = BacktestEngine(strategy, starting_equity=starting_equity, costs=costs).run(
         symbol, timeframe, bars
     )
 
     try:
         oos: OutOfSampleReport | None = walk_forward(
-            default_factory,
+            factory,
             symbol,
             timeframe,
             bars,
-            grid=DEFAULT_GRID,
+            grid=grid,
             folds=folds,
             starting_equity=starting_equity,
             costs=costs,
@@ -237,6 +359,7 @@ def _evaluate(
         timeframe=timeframe.value,
         generated_at=now.isoformat(),
         bars=len(bars),
+        strategy_version=getattr(strategy, "version", None) or fallback_key,
         trade_count=summary.trade_count,
         return_pct=summary.return_pct,
         win_rate=summary.win_rate,
@@ -262,7 +385,9 @@ def _evaluate(
         benchmark_max_drawdown_pct=bench_dd,
         excess_return_pct=excess,
         beats_benchmark=excess > 0,
-        by_regime=_by_regime(symbol, timeframe, bars, costs, starting_equity),
+        by_regime=_by_regime(
+            symbol, timeframe, bars, costs, starting_equity, factory=factory
+        ),
         warnings=warnings,
     )
 
@@ -273,11 +398,14 @@ def _by_regime(
     bars: list[Bar],
     costs: CostModel,
     starting_equity: Decimal,
+    *,
+    factory: Any = None,
 ) -> list[RegimeResult]:
     """Score the strategy separately in each regime it lived through."""
+    factory = factory or default_factory
     out: list[RegimeResult] = []
     for segment in segment_by_regime(bars):
-        strategy = default_factory({})
+        strategy = factory({})
         if segment.length < strategy.warm_up() + 10:
             continue
         try:

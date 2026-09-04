@@ -7,19 +7,236 @@ from typing import Any
 
 from core.enums import EntryWatchStatus, SetupType
 from core.schemas import Bar, EntryTimingFacts, EntryWatch
+from trading.arrival_admission import buy_blocked_for_arrival, evaluate_arrival_gate
 from trading.entry_likelihood import evaluate_entry_likelihood
-from trading.entry_watches import price_in_zone
+from trading.entry_policy import EntryThresholds, get_entry_thresholds
+from trading.entry_watches import price_in_zone, zone_trigger_bounds
 from trading.market_context import build_market_context
-from trading.zone_arrival import evaluate_zone_arrival, zone_arrival_required
+from trading.zone_arrival import ArrivalType, ZoneArrivalFacts, evaluate_zone_arrival, zone_arrival_required
 from trading.zone_touch_calibration import calibration_payload
 
 APPROACHING_ATR = 0.5
 
+# Adaptive entry-watch loop cadence (seconds between passes).
+WATCH_POLL_HOT_SEC = 5.0
+WATCH_POLL_NEAR_SEC = 10.0
+WATCH_POLL_COLD_SEC = 30.0
+
+_HOT_STATUSES = frozenset(
+    {
+        EntryWatchStatus.TRIGGERED,
+        EntryWatchStatus.REVALIDATING,
+        EntryWatchStatus.ADMITTED,
+        EntryWatchStatus.CONVERTING,
+    }
+)
+
+# Admission / revalidation codes surfaced on TRIGGER cards (comma bundles included).
+_ADMISSION_HINT_CODES = (
+    "EXTREME_CHASE",
+    "INVALID_STOP",
+    "TARGET_UNREALISTIC",
+    "EXTREME_SPREAD",
+    "SPREAD_TOO_WIDE",
+    "SPREAD_ACCEPTABLE",
+    "ZONE_ARRIVAL_MISSING",
+    "INSUFFICIENT_BARS",
+    "SETUP_QUALITY_BELOW_THRESHOLD",
+    "ENTRY_QUALITY_BELOW_THRESHOLD",
+    "ATR_ONLY_STOP",
+    "TARGET_PLAN_MISMATCH",
+    "MISSING_TARGET",
+    "MISSING_STOP",
+    "STALE_DATA",
+    "STALE_BARS",
+    "MARKET_DATA_UNHEALTHY",
+    "DATA_BLOCKED",
+    "QUOTE_TIMESTAMP_INVALID",
+    "BAR_TIMESTAMP_MISSING",
+)
+
+
+def _hint_from_reason(raw: str) -> str | None:
+    text = raw.strip()
+    if not text:
+        return None
+    if text.startswith("TRIGGERED_CONDITIONS_PENDING:"):
+        return text.split(":", 1)[1]
+    if text.startswith("INSUFFICIENT_EFFECTIVE_RR:"):
+        return text
+    if "," in text:
+        parts = [p.strip() for p in text.split(",") if p.strip()]
+        if any(
+            p in _ADMISSION_HINT_CODES or p.startswith("INSUFFICIENT_EFFECTIVE_RR:")
+            for p in parts
+        ):
+            return ",".join(parts[:4])
+    for code in _ADMISSION_HINT_CODES:
+        if text == code or text.startswith(f"{code}:"):
+            return text
+    return None
+
+
+# Geometry-only — stale at the cushion fill price; never hide live quote gates.
+_CUSHION_SUPPRESSED_HINTS = frozenset(
+    {
+        "EXTREME_CHASE",
+        "INVALID_STOP",
+        "TARGET_UNREALISTIC",
+        "ATR_ONLY_STOP",
+    }
+)
+
+_SPREAD_HINT_CODES = frozenset(
+    {
+        "SPREAD_ACCEPTABLE",
+        "SPREAD_TOO_WIDE",
+        "EXTREME_SPREAD",
+    }
+)
+
+
+def strip_resolved_spread_hints(hint: str | None, *, spread_acceptable: bool) -> str | None:
+    """Drop stale spread blocks once live spread passes the policy gate."""
+    if not hint or not spread_acceptable:
+        return hint
+    kept: list[str] = []
+    for part in hint.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        if token.split(":")[0] not in _SPREAD_HINT_CODES:
+            kept.append(token)
+    return ",".join(kept[:4]) if kept else None
+
+
+def _filter_hint_for_cushion(
+    hint: str | None,
+    watch: EntryWatch,
+    *,
+    atr: float | None,
+) -> str | None:
+    """Inside ±0.2 ATR the desk allows fill — do not show chase/geometry stale blocks."""
+    if not hint:
+        return None
+    px = float(watch.last_price or watch.current_price_at_creation)
+    if not price_in_zone(px, watch, atr=atr):
+        return hint
+    kept: list[str] = []
+    for part in hint.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        code = token.split(":")[0]
+        if code not in _CUSHION_SUPPRESSED_HINTS:
+            kept.append(token)
+    return ",".join(kept[:4]) if kept else None
+
+
+def desk_revalidation_hint(watch: EntryWatch) -> str | None:
+    """Latest admission / trigger reason for desk display (not arrival-only)."""
+    if watch.status not in {
+        EntryWatchStatus.WAITING,
+        EntryWatchStatus.TRIGGERED,
+        EntryWatchStatus.REVALIDATING,
+    }:
+        return None
+    px = float(watch.last_price or watch.current_price_at_creation)
+    atr_v = watch.admission_snapshot.atr_at_creation if watch.admission_snapshot else None
+    if watch.status is EntryWatchStatus.WAITING and not price_in_zone(px, watch, atr=atr_v):
+        return None
+    hint: str | None = None
+    for raw in reversed(watch.reasons or []):
+        parsed = _hint_from_reason(raw)
+        if parsed:
+            hint = parsed
+            break
+    return _filter_hint_for_cushion(hint, watch, atr=atr_v)
+
+
+def desk_block_reason_from_arrival(arrival: ZoneArrivalFacts, th: EntryThresholds) -> str | None:
+    gate = evaluate_arrival_gate(arrival, th)
+    return gate.desk_summary()
+
+
+def buy_blocked_from_arrival_dict(payload: dict[str, object], th: EntryThresholds) -> bool:
+    """Recompute display block from cached zone_arrival + live thresholds."""
+    raw = payload.get("zone_arrival")
+    if not isinstance(raw, dict):
+        return False
+    try:
+        arrival = ZoneArrivalFacts(
+            score=float(raw["score"]),
+            arrival_type=ArrivalType(str(raw["arrival_type"])),
+            arrival_speed_pct=raw.get("arrival_speed_pct"),  # type: ignore[arg-type]
+            arrival_speed_atr=raw.get("arrival_speed_atr"),  # type: ignore[arg-type]
+            atr_velocity=raw.get("atr_velocity"),  # type: ignore[arg-type]
+            bars_to_zone=raw.get("bars_to_zone"),  # type: ignore[arg-type]
+            red_bar_ratio=raw.get("red_bar_ratio"),  # type: ignore[arg-type]
+            consecutive_red_bars=int(raw.get("consecutive_red_bars") or 0),
+            largest_red_bar_atr=raw.get("largest_red_bar_atr"),  # type: ignore[arg-type]
+            sell_volume_ratio=raw.get("sell_volume_ratio"),  # type: ignore[arg-type]
+            volume_acceleration=raw.get("volume_acceleration"),  # type: ignore[arg-type]
+            gap_down_pct=raw.get("gap_down_pct"),  # type: ignore[arg-type]
+            crash_velocity=bool(raw.get("crash_velocity")),
+            structural_damage=bool(raw.get("structural_damage")),
+            reason_codes=list(raw.get("reason_codes") or []),
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+    return buy_blocked_for_arrival(arrival, th)
+
+
+def watch_poll_hot(watch: EntryWatch) -> bool:
+    """True when the watch loop should run a hot cadence for this card."""
+    if watch.status in _HOT_STATUSES:
+        return True
+    enrichment = watch.desk_enrichment or {}
+    ui = str(enrichment.get("ui_state") or enrichment.get("status_label") or "")
+    if ui in {"IN_ZONE", "TRIGGERED"}:
+        return True
+    dist = enrichment.get("distance_to_zone_atr")
+    if isinstance(dist, (int, float)) and float(dist) <= 0.2:
+        return True
+    px = float(watch.last_price or watch.current_price_at_creation)
+    likelihood = evaluate_entry_likelihood(watch, price=px)
+    ui_live = derive_ui_state(watch, price=px, distance_atr=likelihood.distance_atr)
+    return ui_live in {"IN_ZONE", "TRIGGERED"}
+
+
+def watch_poll_near(watch: EntryWatch) -> bool:
+    """True when price is approaching the zone (but not yet hot)."""
+    if watch_poll_hot(watch):
+        return False
+    enrichment = watch.desk_enrichment or {}
+    ui = str(enrichment.get("ui_state") or enrichment.get("status_label") or "")
+    if ui == "APPROACHING":
+        return True
+    dist = enrichment.get("distance_to_zone_atr")
+    if isinstance(dist, (int, float)) and float(dist) <= APPROACHING_ATR:
+        return True
+    px = float(watch.last_price or watch.current_price_at_creation)
+    likelihood = evaluate_entry_likelihood(watch, price=px)
+    ui_live = derive_ui_state(watch, price=px, distance_atr=likelihood.distance_atr)
+    return ui_live == "APPROACHING"
+
+
+def watch_loop_interval_sec(watches: list[EntryWatch]) -> float:
+    """Adaptive sleep between entry-watch passes."""
+    if not watches:
+        return WATCH_POLL_COLD_SEC
+    if any(watch_poll_hot(w) for w in watches):
+        return WATCH_POLL_HOT_SEC
+    if any(watch_poll_near(w) for w in watches):
+        return WATCH_POLL_NEAR_SEC
+    return WATCH_POLL_COLD_SEC
+
 
 def derive_ui_state(watch: EntryWatch, *, price: float, distance_atr: float | None) -> str:
-    if watch.status is EntryWatchStatus.TRIGGERED:
+    in_zone = price_in_zone(price, watch)
+    if watch.status is EntryWatchStatus.TRIGGERED and in_zone:
         return "TRIGGERED"
-    if price_in_zone(price, watch):
+    if in_zone:
         return "IN_ZONE"
     if distance_atr is not None and distance_atr <= APPROACHING_ATR:
         return "APPROACHING"
@@ -61,6 +278,12 @@ def enrich_watch_for_desk(
     payload["entry_quality"] = watch.entry_quality_at_creation
     payload["setup_type"] = watch.setup_type.value
     payload["market_context"] = build_market_context(symbol=watch.symbol).as_dict()
+    atr_v = facts.atr if facts and facts.atr else None
+    if atr_v is None and watch.admission_snapshot and watch.admission_snapshot.atr_at_creation:
+        atr_v = watch.admission_snapshot.atr_at_creation
+    trig_lo, trig_hi = zone_trigger_bounds(watch, atr=atr_v)
+    payload["entry_zone_trigger_low"] = round(trig_lo, 4)
+    payload["entry_zone_trigger_high"] = round(trig_hi, 4)
 
     in_zone = ui_state in {"IN_ZONE", "TRIGGERED"}
     if in_zone and bars:
@@ -72,17 +295,16 @@ def enrich_watch_for_desk(
         payload["zone_arrival_quality"] = round(arrival.score)
         payload["zone_arrival_type"] = arrival.arrival_type.value
         payload["arrival_reason_codes"] = arrival.reason_codes
-        if arrival.crash_velocity or arrival.structural_damage:
-            payload["buy_blocked"] = True
-        else:
-            min_arrival = 60
-            payload["buy_blocked"] = arrival.score < min_arrival
+        th = get_entry_thresholds()
+        payload["buy_blocked"] = buy_blocked_for_arrival(arrival, th)
+        payload["desk_block_reason"] = desk_block_reason_from_arrival(arrival, th)
     else:
         payload["zone_arrival"] = None
         payload["zone_arrival_quality"] = None
         payload["zone_arrival_type"] = None
         payload["arrival_reason_codes"] = []
         payload["buy_blocked"] = False
+        payload["desk_block_reason"] = None
         try:
             payload["zone_touch_calibration"] = calibration_payload(
                 setup_type=watch.setup_type or SetupType.PULLBACK_CONTINUATION,
@@ -99,6 +321,8 @@ def enrich_watch_for_desk(
         payload["status_label"] = "TRIGGERED"
     else:
         payload["status_label"] = "WAITING"
+
+    payload["desk_revalidation_hint"] = desk_revalidation_hint(watch)
 
     return payload
 

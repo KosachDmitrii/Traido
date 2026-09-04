@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
-import { Gauge, KeyRound, Languages, ScanSearch, ShieldAlert } from "lucide-react";
-import { runScanner, setEntryPolicy, setKillSwitch } from "@/lib/api";
+import { runScanner, invalidateDeskEtag, setAutoTrigger, setBrokerBackend, setEntryPolicy, setKillSwitch, fetchAutoTrigger, fetchBrokerBackend, fetchEntryPolicy } from "@/lib/api";
+import { executionBrokerLabelKey } from "@/lib/brokerLabel";
 import { useDesk } from "@/context/DeskContext";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Locale, MessageKey } from "@/i18n";
+import type { Vars } from "@/i18n/store";
 import { Button, Input, SegmentedControl, SwitchControl } from "@/ui";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Gauge, KeyRound, Languages, ScanSearch, ShieldAlert, Building2, Zap } from "lucide-react";
 
 /** Five production desk steps — Сильно → Слабо. Values match backend ENTRY_LEVELS. */
 const ENTRY_STEPS = [
@@ -13,6 +15,11 @@ const ENTRY_STEPS = [
   { value: 50, key: "settings.entry.medium" as const },
   { value: 75, key: "settings.entry.softer" as const },
   { value: 100, key: "settings.entry.weak" as const },
+] as const;
+
+const BROKER_STEPS = [
+  { value: "alpaca", key: "settings.broker.alpaca" as const },
+  { value: "ibkr", key: "settings.broker.ibkr" as const },
 ] as const;
 
 function snapEntryStep(n: number): number {
@@ -28,6 +35,41 @@ function entryLabelKey(aggressiveness: number): MessageKey {
   return step?.key ?? "settings.entry.strong";
 }
 
+function entryStepDetailKey(aggressiveness: number): MessageKey {
+  const step = snapEntryStep(aggressiveness);
+  return (`settings.entry.step.${step}` as MessageKey);
+}
+
+
+type Translate = (key: MessageKey, vars?: Vars) => string;
+
+function brokerConnectionStateLabel(t: Translate, state: string | undefined): string {
+  const raw = (state ?? "").trim().toUpperCase();
+  if (!raw) return "—";
+  if (raw === "READY") return t("settings.broker.state.ready");
+  if (raw === "DISCONNECTED") return t("settings.broker.state.disconnected");
+  if (raw === "DEGRADED") return t("settings.broker.state.degraded");
+  if (raw === "CONNECTING") return t("settings.broker.state.connecting");
+  if (raw === "RECONNECTING") return t("settings.broker.state.reconnecting");
+  return t("settings.broker.state.unknown", { state: state ?? raw });
+}
+
+function brokerBlockedReasonLabel(t: Translate, reason: string): string {
+  const openPos = /^open_positions:(.+)$/i.exec(reason);
+  if (openPos) {
+    return t("settings.broker.blocked.openPositions", { symbols: openPos[1] });
+  }
+  const unknown = /^unknown_intents:(\d+)$/i.exec(reason);
+  if (unknown) {
+    return t("settings.broker.blocked.unknownIntents", { n: Number(unknown[1]) });
+  }
+  const openIntents = /^open_intents:(\d+)$/i.exec(reason);
+  if (openIntents) {
+    return t("settings.broker.blocked.openIntents", { n: Number(openIntents[1]) });
+  }
+  return reason;
+}
+
 export function SettingsPage() {
   const { desk, refreshAll, showFlash, killSwitch: kill, refreshKillSwitch } = useDesk();
   const { t, locale, setLocale } = useI18n();
@@ -35,14 +77,61 @@ export function SettingsPage() {
     typeof window !== "undefined" ? window.localStorage.getItem("TRAIDO_API_KEY") || "" : "",
   );
   const [busy, setBusy] = useState(false);
-  const [aggressiveness, setAggressiveness] = useState(
-    () => snapEntryStep(desk?.entry_policy?.aggressiveness ?? 0),
-  );
+  const [settingsReady, setSettingsReady] = useState(false);
+  const [aggressiveness, setAggressiveness] = useState<number | null>(null);
+  const [brokerBackend, setBrokerBackendState] = useState<"alpaca" | "ibkr" | null>(null);
+  const [autoTrigger, setAutoTriggerState] = useState<boolean | null>(null);
+  const entrySaveGen = useRef(0);
+  const brokerSaveGen = useRef(0);
+  const triggerSaveGen = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [entry, trigger, broker] = await Promise.all([
+          fetchEntryPolicy(),
+          fetchAutoTrigger(),
+          fetchBrokerBackend(),
+        ]);
+        if (cancelled) return;
+        if (entrySaveGen.current === 0) {
+          setAggressiveness(snapEntryStep(entry.aggressiveness));
+        }
+        if (triggerSaveGen.current === 0) {
+          setAutoTriggerState(trigger.enabled);
+        }
+        if (brokerSaveGen.current === 0) {
+          setBrokerBackendState(broker.backend === "ibkr" ? "ibkr" : "alpaca");
+        }
+        setSettingsReady(true);
+      } catch {
+        if (!cancelled) setSettingsReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const n = desk?.entry_policy?.aggressiveness;
+    // Do not let a stale desk poll overwrite a save still in flight.
+    if (entrySaveGen.current !== 0) return;
     if (typeof n === "number") setAggressiveness(snapEntryStep(n));
   }, [desk?.entry_policy?.aggressiveness]);
+
+  useEffect(() => {
+    const b = desk?.broker_backend?.backend;
+    if (brokerSaveGen.current !== 0) return;
+    if (b === "alpaca" || b === "ibkr") setBrokerBackendState(b);
+  }, [desk?.broker_backend?.backend]);
+
+  useEffect(() => {
+    const enabled = desk?.auto_trigger?.enabled;
+    if (triggerSaveGen.current !== 0) return;
+    if (typeof enabled === "boolean") setAutoTriggerState(enabled);
+  }, [desk?.auto_trigger?.enabled]);
 
   const saveKey = useCallback(() => {
     if (apiKey.trim()) {
@@ -98,9 +187,11 @@ export function SettingsPage() {
   const commitEntryPolicy = useCallback(
     async (value: number) => {
       const stepped = snapEntryStep(value);
+      const gen = ++entrySaveGen.current;
       try {
         const next = await setEntryPolicy(stepped);
         setAggressiveness(snapEntryStep(next.aggressiveness));
+        invalidateDeskEtag();
         const aborted = Boolean(next.rescan?.aborted);
         showFlash({
           kind: "ok",
@@ -116,10 +207,74 @@ export function SettingsPage() {
           title: t("settings.entry.flash.failed"),
           detail: err instanceof Error ? err.message : String(err),
         });
+      } finally {
+        if (entrySaveGen.current === gen) entrySaveGen.current = 0;
       }
     },
     [refreshAll, showFlash, t],
   );
+
+  const commitBrokerBackend = useCallback(
+    async (value: string) => {
+      const backend = value === "ibkr" ? "ibkr" : "alpaca";
+      const gen = ++brokerSaveGen.current;
+      try {
+        const next = await setBrokerBackend(backend);
+        setBrokerBackendState(next.backend === "ibkr" ? "ibkr" : "alpaca");
+        invalidateDeskEtag();
+        showFlash({
+          kind: "ok",
+          title: t("settings.broker.flash.title"),
+          detail: t("settings.broker.flash.detail", { n: t(executionBrokerLabelKey(next.backend)) }),
+        });
+        await refreshAll();
+      } catch (err) {
+        showFlash({
+          kind: "error",
+          title: t("settings.broker.flash.failed"),
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        const current = desk?.broker_backend?.backend;
+        if (current === "alpaca" || current === "ibkr") setBrokerBackendState(current);
+      } finally {
+        if (brokerSaveGen.current === gen) brokerSaveGen.current = 0;
+      }
+    },
+    [desk?.broker_backend?.backend, refreshAll, showFlash, t],
+  );
+
+  const toggleAutoTrigger = useCallback(async () => {
+    if (autoTrigger === null) return;
+    const next = !autoTrigger;
+    setAutoTriggerState(next);
+    const gen = ++triggerSaveGen.current;
+    setBusy(true);
+    try {
+      const result = await setAutoTrigger(next);
+      setAutoTriggerState(result.enabled);
+      invalidateDeskEtag();
+      showFlash({
+        kind: result.enabled ? "info" : "ok",
+        title: result.enabled
+          ? t("settings.trigger.flash.on.title")
+          : t("settings.trigger.flash.off.title"),
+        detail: result.enabled
+          ? t("settings.trigger.flash.on.detail")
+          : t("settings.trigger.flash.off.detail"),
+      });
+      await refreshAll();
+    } catch (err) {
+      setAutoTriggerState(!next);
+      showFlash({
+        kind: "error",
+        title: t("settings.trigger.flash.failed"),
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      if (triggerSaveGen.current === gen) triggerSaveGen.current = 0;
+      setBusy(false);
+    }
+  }, [autoTrigger, refreshAll, showFlash, t]);
 
   const scanNow = useCallback(async () => {
     setBusy(true);
@@ -145,6 +300,8 @@ export function SettingsPage() {
         : kill === "loading"
           ? t("settings.kill.badge.loading")
           : t("settings.kill.badge.unreadable");
+
+  const controlsDisabled = busy || !settingsReady;
 
   return (
     <section className="settings-page">
@@ -193,12 +350,56 @@ export function SettingsPage() {
 
       <article className="settings-card">
         <div className="settings-card__icon" aria-hidden>
+          <Zap size={20} strokeWidth={1.5} absoluteStrokeWidth />
+        </div>
+        <div className="settings-card__body">
+          <div className="settings-card__head">
+            <h3>{t("settings.trigger.title")}</h3>
+            <span className={`settings-badge${autoTrigger ? " settings-badge--on" : ""}`}>
+              {!settingsReady || autoTrigger === null
+                ? "…"
+                : autoTrigger
+                  ? t("settings.trigger.badge.on")
+                  : t("settings.trigger.badge.off")}
+            </span>
+          </div>
+          <p className="settings-card__lead">{t("settings.trigger.lead")}</p>
+          <ul className="settings-points">
+            <li>{t("settings.trigger.what")}</li>
+            <li>{t("settings.trigger.keeps")}</li>
+            <li>{t("settings.trigger.when")}</li>
+          </ul>
+          <div className="settings-kill-control">
+            <div className="settings-kill-control__copy">
+              <strong>
+                {autoTrigger ? t("settings.trigger.disable") : t("settings.trigger.enable")}
+              </strong>
+              <span>{t("settings.trigger.lead")}</span>
+            </div>
+            <SwitchControl
+              checked={autoTrigger ?? false}
+              onCheckedChange={() => void toggleAutoTrigger()}
+              disabled={controlsDisabled}
+              aria-label={
+                autoTrigger ? t("settings.trigger.disable") : t("settings.trigger.enable")
+              }
+            />
+          </div>
+        </div>
+      </article>
+
+      <article className="settings-card">
+        <div className="settings-card__icon" aria-hidden>
           <Gauge size={20} strokeWidth={1.5} absoluteStrokeWidth />
         </div>
         <div className="settings-card__body">
           <div className="settings-card__head">
             <h3>{t("settings.entry.title")}</h3>
-            <span className="settings-badge">{t(entryLabelKey(aggressiveness))}</span>
+            <span className="settings-badge">
+              {settingsReady && aggressiveness !== null
+                ? t(entryLabelKey(aggressiveness))
+                : "…"}
+            </span>
           </div>
           <p className="settings-card__lead">{t("settings.entry.lead")}</p>
           <ul className="settings-points">
@@ -214,14 +415,73 @@ export function SettingsPage() {
             <SegmentedControl
               wide
               ariaLabel={t("settings.entry.title")}
-              value={String(aggressiveness)}
+              value={String(aggressiveness ?? 0)}
               onChange={(v) => {
+                if (controlsDisabled) return;
                 const n = snapEntryStep(Number(v));
                 setAggressiveness(n);
                 void commitEntryPolicy(n);
               }}
               options={ENTRY_STEPS.map((step) => ({
                 value: String(step.value),
+                label: t(step.key),
+              }))}
+            />
+            <p className="settings-entry-steps__detail">
+              {settingsReady && aggressiveness !== null
+                ? t(entryStepDetailKey(aggressiveness))
+                : ""}
+            </p>
+          </div>
+        </div>
+      </article>
+
+      <article className="settings-card">
+        <div className="settings-card__icon" aria-hidden>
+          <Building2 size={20} strokeWidth={1.5} absoluteStrokeWidth />
+        </div>
+        <div className="settings-card__body">
+          <div className="settings-card__head">
+            <h3>{t("settings.broker.title")}</h3>
+            <span className="settings-badge">
+              {settingsReady && brokerBackend
+                ? t(executionBrokerLabelKey(brokerBackend))
+                : "…"}
+            </span>
+          </div>
+          <p className="settings-card__lead">{t("settings.broker.lead")}</p>
+          <ul className="settings-points">
+            <li>{t("settings.broker.what")}</li>
+            <li>{t("settings.broker.keeps")}</li>
+            <li>{t("settings.broker.hint")}</li>
+          </ul>
+          <p className="settings-card__lead">
+            {t("settings.broker.status", {
+              state: brokerConnectionStateLabel(t, desk?.broker_backend?.connection_state),
+            })}
+            {desk?.broker_backend?.account_id
+              ? ` · ${t("settings.broker.account", { id: desk.broker_backend.account_id })}`
+              : null}
+          </p>
+          {desk?.broker_backend?.switch_blocked_reason ? (
+            <p className="settings-card__lead">
+              {t("settings.broker.blocked", {
+                reason: brokerBlockedReasonLabel(t, desk.broker_backend.switch_blocked_reason),
+              })}
+            </p>
+          ) : null}
+          <div className="settings-entry-steps">
+            <SegmentedControl
+              wide
+              ariaLabel={t("settings.broker.title")}
+              value={brokerBackend ?? "alpaca"}
+              onChange={(v) => {
+                if (controlsDisabled) return;
+                setBrokerBackendState(v as "alpaca" | "ibkr");
+                void commitBrokerBackend(v);
+              }}
+              options={BROKER_STEPS.map((step) => ({
+                value: step.value,
                 label: t(step.key),
               }))}
             />

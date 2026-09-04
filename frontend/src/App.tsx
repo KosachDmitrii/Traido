@@ -9,6 +9,7 @@ import { LogsPage } from "@/pages/LogsPage";
 import { OpportunitiesPage } from "@/pages/OpportunitiesPage";
 import { PositionsPage } from "@/pages/PositionsPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { StrategiesPage } from "@/pages/StrategiesPage";
 
 export function App() {
   return (
@@ -22,6 +23,7 @@ export function App() {
             <Route path="agents" element={<AgentsPage />} />
             <Route path="journal" element={<JournalPage />} />
             <Route path="evaluation" element={<EvaluationPage />} />
+            <Route path="strategies" element={<StrategiesPage />} />
             <Route path="logs" element={<LogsPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

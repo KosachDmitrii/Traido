@@ -5,7 +5,7 @@ import { fetchEvaluation, fetchF3Diagnostics } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
 import { useT } from "@/i18n/I18nProvider";
 import type { MessageKey } from "@/i18n";
-import { TablePager, useTablePager } from "@/ui";
+import { TablePager, useTablePager, LoadingDots } from "@/ui";
 
 function SymbolPicker({
   symbols,
@@ -179,6 +179,12 @@ function Metric({
   );
 }
 
+function chaseReasonLabel(t: ReturnType<typeof useT>, code: string): string {
+  const key = `eval.f3.chase.${code}` as MessageKey;
+  const translated = t(key);
+  return translated !== key ? translated : code.replace(/_/g, " ").toLowerCase();
+}
+
 export function EvaluationPage() {
   const t = useT();
   const { desk } = useDesk();
@@ -193,18 +199,22 @@ export function EvaluationPage() {
   const [error, setError] = useState<string | null>(null);
   const [f3, setF3] = useState<F3Diagnostics | null>(null);
   const [f3Error, setF3Error] = useState<string | null>(null);
+  const [f3Loading, setF3Loading] = useState(false);
 
   useEffect(() => {
     if (!symbol && sortedUniverse.length) setSymbol(sortedUniverse[0]);
   }, [symbol, sortedUniverse]);
 
   const loadF3 = useCallback(async () => {
+    setF3Loading(true);
     try {
       setF3Error(null);
       setF3(await fetchF3Diagnostics());
     } catch (err) {
       setF3(null);
       setF3Error(err instanceof Error ? err.message : "f3_diagnostics_failed");
+    } finally {
+      setF3Loading(false);
     }
   }, []);
 
@@ -248,9 +258,19 @@ export function EvaluationPage() {
             <h2>{t("eval.f3.title")}</h2>
             <div className="sub">{t("eval.f3.sub")}</div>
           </div>
-          <button type="button" className="eval-refresh" onClick={() => void loadF3()}>
-            <RefreshCw size={15} strokeWidth={1.75} aria-hidden />
-            {t("eval.f3.refresh")}
+          <button
+            type="button"
+            className="eval-refresh"
+            onClick={() => void loadF3()}
+            disabled={f3Loading}
+            aria-busy={f3Loading}
+          >
+            {f3Loading ? (
+              <LoadingDots ariaLabel={t("common.loading")} />
+            ) : (
+              <RefreshCw size={15} strokeWidth={1.75} aria-hidden />
+            )}
+            {f3Loading ? t("eval.f3.loading") : t("eval.f3.refresh")}
           </button>
         </div>
         {f3Error ? <p className="empty-hint">{f3Error}</p> : null}
@@ -288,15 +308,20 @@ export function EvaluationPage() {
               />
             </div>
             {sig.top_chase_reasons.length ? (
-              <ul className="eval-warnings">
-                {sig.top_chase_reasons.slice(0, 5).map(([code, n]) => (
-                  <li key={code}>
-                    {code}: {n}
-                  </li>
-                ))}
-              </ul>
+              <>
+                <p className="sub" style={{ marginTop: 12, marginBottom: 8 }}>
+                  {t("eval.f3.chaseTitle")}
+                </p>
+                <ul className="eval-warnings">
+                  {sig.top_chase_reasons.slice(0, 5).map(([code, n]) => (
+                    <li key={code}>
+                      {chaseReasonLabel(t, code)}: {n}
+                    </li>
+                  ))}
+                </ul>
+              </>
             ) : null}
-            <p className="empty-hint">{fwd.note}</p>
+            <p className="empty-hint">{t("eval.f3.forwardNote")}</p>
           </>
         ) : !f3Error ? (
           <p className="empty-hint">{t("eval.f3.loading")}</p>
@@ -316,8 +341,13 @@ export function EvaluationPage() {
               className="eval-refresh"
               onClick={() => void load(symbol, true)}
               disabled={loading || !symbol}
+              aria-busy={loading}
             >
-              <RefreshCw size={15} strokeWidth={1.75} aria-hidden />
+              {loading ? (
+                <LoadingDots ariaLabel={t("common.loading")} />
+              ) : (
+                <RefreshCw size={15} strokeWidth={1.75} aria-hidden />
+              )}
               {loading ? t("eval.strategy.running") : t("eval.strategy.recompute")}
             </button>
           </div>
@@ -449,7 +479,7 @@ export function EvaluationPage() {
                 <thead>
                   <tr>
                     <th>{t("eval.regime.col.regime")}</th>
-                    <th>Bars</th>
+                    <th>{t("eval.regime.col.bars")}</th>
                     <th>{t("eval.regime.col.trades")}</th>
                     <th>{t("eval.regime.col.return")}</th>
                     <th>{t("eval.oos.winRate")}</th>

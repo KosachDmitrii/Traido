@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -10,8 +11,11 @@ from uuid import UUID, uuid4
 from core.enums import EntryWatchStatus, SetupType
 from core.schemas import AdmissionSnapshot, EntryDecisionBundle, EntryWatch, TradeCandidate
 
+logger = logging.getLogger(__name__)
+
 # Machine-readable wait / invalidate conditions (F3 frozen set).
 PRICE_ENTERS_ZONE = "PRICE_ENTERS_ZONE"
+ZONE_RECLAIM = "ZONE_RECLAIM"
 VWAP_HOLDS = "VWAP_HOLDS"
 SUPPORT_HOLDS = "SUPPORT_HOLDS"
 MOMENTUM_TURNS_POSITIVE = "MOMENTUM_TURNS_POSITIVE"
@@ -127,22 +131,32 @@ class EntryWatchStore:
         assert bundle.entry_zone_low is not None and bundle.entry_zone_high is not None
         symbol = candidate.symbol.upper()
 
+        expired_to_persist: list[EntryWatch] = []
         with self._lock:
             self._collapse_duplicates_locked()
+            expired_to_persist.extend(self._expire_stale_waiting_locked(now))
             open_same = [
                 w
                 for w in self._rows.values()
                 if w.symbol == symbol
-                and w.status in {EntryWatchStatus.WAITING, EntryWatchStatus.TRIGGERED}
+                and w.status
+                in {
+                    EntryWatchStatus.WAITING,
+                    EntryWatchStatus.TRIGGERED,
+                    EntryWatchStatus.REVALIDATING,
+                }
             ]
-            triggered = [w for w in open_same if w.status is EntryWatchStatus.TRIGGERED]
+            triggered = [
+                w
+                for w in open_same
+                if w.status in {EntryWatchStatus.TRIGGERED, EntryWatchStatus.REVALIDATING}
+            ]
             waiting = [w for w in open_same if w.status is EntryWatchStatus.WAITING]
 
             if triggered:
                 # Entry path already live for this symbol — do not stack a WAIT.
-                return triggered[0]
-
-            if waiting:
+                result = triggered[0]
+            elif waiting:
                 primary = waiting[0]
                 updated = primary.model_copy(
                     update={
@@ -172,42 +186,51 @@ class EntryWatchStore:
                     }
                 )
                 self._rows[primary.id] = updated
-                return updated
+                result = updated
+            else:
+                # Memory may already show EXPIRED while SQLite still says waiting
+                # (TTL expiry used to skip persist). Re-flush so UNIQUE clears.
+                expired_to_persist.extend(
+                    w
+                    for w in self._rows.values()
+                    if w.symbol == symbol and w.status is EntryWatchStatus.EXPIRED
+                )
+                watch = EntryWatch(
+                    id=uuid4(),
+                    symbol=symbol,
+                    strategy_version=candidate.strategy_version,
+                    created_at=now,
+                    valid_until=now + timedelta(minutes=ttl_minutes),
+                    thesis=bundle.thesis,
+                    signal_price=candidate.signal_price or candidate.entry,
+                    current_price_at_creation=Decimal_safe(bundle.facts.current_price),
+                    last_price=Decimal_safe(bundle.facts.current_price),
+                    last_observed_at=now,
+                    entry_zone_low=bundle.entry_zone_low,
+                    entry_zone_high=bundle.entry_zone_high,
+                    planned_entry=plan.entry,
+                    planned_stop=plan.stop,
+                    planned_target=plan.target,
+                    planned_risk_reward=plan.risk_reward,
+                    required_conditions=list(DEFAULT_REQUIRED),
+                    invalidating_conditions=list(DEFAULT_INVALIDATING),
+                    entry_quality_at_creation=bundle.entry_quality,
+                    setup_type=setup_type,
+                    setup_quality_at_creation=bundle.setup_quality,
+                    admission_snapshot=snapshot,
+                    max_spread_bps=th.max_spread_bps,
+                    status=EntryWatchStatus.WAITING,
+                    pipeline_run_id=candidate.pipeline_run_id,
+                    candidate=aligned or candidate,
+                    reasons=list(bundle.reasons),
+                )
+                from trading.entry_watch_transitions import enrich_new_watch_fields
 
-            watch = EntryWatch(
-                id=uuid4(),
-                symbol=symbol,
-                strategy_version=candidate.strategy_version,
-                created_at=now,
-                valid_until=now + timedelta(minutes=ttl_minutes),
-                thesis=bundle.thesis,
-                signal_price=candidate.signal_price or candidate.entry,
-                current_price_at_creation=Decimal_safe(bundle.facts.current_price),
-                last_price=Decimal_safe(bundle.facts.current_price),
-                last_observed_at=now,
-                entry_zone_low=bundle.entry_zone_low,
-                entry_zone_high=bundle.entry_zone_high,
-                planned_entry=plan.entry,
-                planned_stop=plan.stop,
-                planned_target=plan.target,
-                planned_risk_reward=plan.risk_reward,
-                required_conditions=list(DEFAULT_REQUIRED),
-                invalidating_conditions=list(DEFAULT_INVALIDATING),
-                entry_quality_at_creation=bundle.entry_quality,
-                setup_type=setup_type,
-                setup_quality_at_creation=bundle.setup_quality,
-                admission_snapshot=snapshot,
-                max_spread_bps=th.max_spread_bps,
-                status=EntryWatchStatus.WAITING,
-                pipeline_run_id=candidate.pipeline_run_id,
-                candidate=aligned or candidate,
-                reasons=list(bundle.reasons),
-            )
-            from trading.entry_watch_transitions import enrich_new_watch_fields
-
-            watch = enrich_new_watch_fields(watch)
-            self._rows[watch.id] = watch
-            return watch
+                watch = enrich_new_watch_fields(watch)
+                self._rows[watch.id] = watch
+                result = watch
+        self._persist_status_changes(expired_to_persist)
+        return result
 
     def list_open(self) -> list[EntryWatch]:
         """WAITING watches still inside TTL (expires stale ones as a side effect)."""
@@ -215,9 +238,11 @@ class EntryWatchStore:
 
     def list_for_desk(self) -> list[EntryWatch]:
         """Actionable watches — operator sees machine state through conversion."""
+        now = datetime.now(UTC)
+        expired_to_persist: list[EntryWatch] = []
         with self._lock:
             self._collapse_duplicates_locked()
-            now = datetime.now(UTC)
+            expired_to_persist.extend(self._expire_stale_waiting_locked(now))
             out: list[EntryWatch] = []
             visible = {
                 EntryWatchStatus.WAITING,
@@ -227,15 +252,47 @@ class EntryWatchStore:
                 EntryWatchStatus.CONVERTING,
             }
             for w in self._rows.values():
-                if w.status is EntryWatchStatus.WAITING and w.valid_until <= now:
-                    continue
                 if w.status in visible:
                     out.append(w)
-            return out
+            result = out
+        self._persist_status_changes(expired_to_persist)
+        return result
 
     def list_actionable(self) -> list[EntryWatch]:
         """WAITING + TRIGGERED — what the background poller must touch."""
         return self._list_actionable_locked()
+
+    def _expire_stale_waiting_locked(self, now: datetime) -> list[EntryWatch]:
+        """Mark past-TTL WAITING as EXPIRED in memory. Caller persists the batch."""
+        expired: list[EntryWatch] = []
+        for w in list(self._rows.values()):
+            if w.status is EntryWatchStatus.WAITING and w.valid_until <= now:
+                row = w.model_copy(
+                    update={
+                        "status": EntryWatchStatus.EXPIRED,
+                        "reasons": [*w.reasons, WAIT_EXPIRED],
+                    }
+                )
+                self._rows[w.id] = row
+                expired.append(row)
+        return expired
+
+    def _persist_status_changes(self, watches: list[EntryWatch]) -> None:
+        """Flush TTL expiries so UNIQUE(symbol, strategy) can accept a new WAIT.
+
+        Goes through `update` so a patched store persists to its bound engine —
+        calling `persist_watch` directly would hit the process default DB.
+        """
+        if not watches:
+            return
+        for watch in watches:
+            try:
+                self.update(watch)
+            except Exception:  # noqa: BLE001 — expiry must not take down the desk loop
+                logger.exception(
+                    "entry watch: failed to persist TTL expiry for %s",
+                    watch.symbol,
+                )
 
     def _collapse_duplicates_locked(self) -> None:
         """Keep one actionable watch per symbol; invalidate the rest.
@@ -266,19 +323,12 @@ class EntryWatchStore:
 
     def _list_actionable_locked(self) -> list[EntryWatch]:
         now = datetime.now(UTC)
+        expired_to_persist: list[EntryWatch] = []
         with self._lock:
             self._collapse_duplicates_locked()
+            expired_to_persist.extend(self._expire_stale_waiting_locked(now))
             out: list[EntryWatch] = []
             for w in self._rows.values():
-                if w.status is EntryWatchStatus.WAITING and w.valid_until <= now:
-                    expired = w.model_copy(
-                        update={
-                            "status": EntryWatchStatus.EXPIRED,
-                            "reasons": [*w.reasons, WAIT_EXPIRED],
-                        }
-                    )
-                    self._rows[w.id] = expired
-                    continue
                 if w.status in {
                     EntryWatchStatus.WAITING,
                     EntryWatchStatus.TRIGGERED,
@@ -287,7 +337,9 @@ class EntryWatchStore:
                     EntryWatchStatus.REVALIDATING,
                 }:
                     out.append(w)
-            return list(out)
+            result = list(out)
+        self._persist_status_changes(expired_to_persist)
+        return result
 
     def status_counts(self) -> dict[str, int]:
         with self._lock:
@@ -300,6 +352,25 @@ class EntryWatchStore:
     def get(self, watch_id: UUID) -> EntryWatch | None:
         with self._lock:
             return self._rows.get(watch_id)
+
+    def touch_mark(self, watch_id: UUID, price: float) -> EntryWatch | None:
+        """Update last trade in memory only — do not hit SQLite every tick.
+
+        Persistence is for durable WAIT/TRIGGERED state. Mark-to-market on the
+        rail must stay cheap or a parallel refresh of 20 names freezes the API.
+        """
+        with self._lock:
+            w = self._rows.get(watch_id)
+            if w is None:
+                return None
+            updated = w.model_copy(
+                update={
+                    "last_price": Decimal(str(round(price, 4))),
+                    "last_observed_at": datetime.now(UTC),
+                }
+            )
+            self._rows[watch_id] = updated
+            return updated
 
     def update(self, watch: EntryWatch) -> EntryWatch:
         with self._lock:
@@ -344,8 +415,32 @@ def Decimal_safe(x: float) -> Decimal:
     return Decimal(str(round(x, 4)))
 
 
-def price_in_zone(price: float, watch: EntryWatch) -> bool:
-    return float(watch.entry_zone_low) <= price <= float(watch.entry_zone_high)
+# Match trade_admission.ZONE_ABOVE_BUFFER_ATR so TRIGGER and BUY zone gates agree.
+# Strict edges used to flap: last prints in-zone while ask (admission) used ±0.2 ATR.
+ZONE_TRIGGER_BUFFER_ATR = 0.20
+
+
+def price_in_zone(price: float, watch: EntryWatch, *, atr: float | None = None) -> bool:
+    """True when price is inside the entry band, with the admission ATR cushion.
+
+    Does not invent BUY above the plan — only aligns trigger/wait-condition
+    geometry with TradeAdmission's ±0.2 ATR allowance.
+    """
+    lo, hi = zone_trigger_bounds(watch, atr=atr)
+    return lo <= price <= hi
+
+
+def zone_trigger_bounds(watch: EntryWatch, *, atr: float | None = None) -> tuple[float, float]:
+    """Printed zone ±0.2 ATR — same band as price_in_zone / trigger gates."""
+    lo = float(watch.entry_zone_low)
+    hi = float(watch.entry_zone_high)
+    buf = 0.0
+    atr_v = atr
+    if atr_v is None and watch.admission_snapshot is not None:
+        atr_v = watch.admission_snapshot.atr_at_creation
+    if atr_v is not None and atr_v > 0:
+        buf = float(atr_v) * ZONE_TRIGGER_BUFFER_ATR
+    return lo - buf, hi + buf
 
 
 ENTRY_WATCHES = EntryWatchStore()

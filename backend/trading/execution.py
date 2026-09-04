@@ -411,21 +411,6 @@ class ExecutionService:
         portfolio = portfolio.model_copy(update={"kill_switch": is_kill_switch_on()})
         context, context_notes = await self._risk_context(opp.candidate)
 
-        risk = self.risk.evaluate(
-            opp.candidate,
-            portfolio,
-            candidate_id=opp.id,
-            context=context,
-        )
-        if risk.verdict.value != "pass" or not risk.sized_qty:
-            await self.audit.append(
-                "RiskRejectOnApprove",
-                "risk_engine",
-                {**risk.model_dump(mode="json"), "context_notes": context_notes},
-                pipeline_run_id=opp.candidate.pipeline_run_id,
-            )
-            raise RuntimeError(f"RISK_REJECT:{','.join(risk.reasons)}")
-
         gate, bars = await self._pre_trade_gates(opp)
         if gate is not None:
             await self.audit.append(
@@ -441,7 +426,7 @@ class ExecutionService:
         # rests below the market and the fill window closes on it untouched.
         # Pricing the order against the live offer is what makes an approval an
         # entry rather than an eighteen-second wait.
-        quote, spread = await self._top_of_book(opp.candidate.symbol)
+        quote, spread, tape_last = await self._top_of_book(opp.candidate.symbol)
         priced, pricing = self._priced_for_execution(opp.candidate, quote, spread)
         if priced is None:
             await self.audit.append(
@@ -514,6 +499,7 @@ class ExecutionService:
                 require_sector=True,
                 opportunity_id=opp.id,
                 decision_version=opp.decision_version,
+                tape_last=tape_last,
             )
             approval_admission = final_eval.admission
             admission_input = final_eval.admission_input
@@ -750,6 +736,8 @@ class ExecutionService:
             sector_classification_version=sector.classification_version,
             target_reachability=target_reach,
             entry_quality=int(getattr(admission_input.bundle, "entry_quality", 0) or 0),
+            zone_arrival=final_eval.zone_arrival,
+            tape_last=tape_last,
         )
         approval_admission = final_ok.admission
         admission_input = final_ok.evidence.admission_input
@@ -1195,24 +1183,36 @@ class ExecutionService:
         )
         return repriced, GateResult(gate="liquidity", passed=True, reasons=(), measured=measured)
 
-    async def _top_of_book(self, symbol: str) -> tuple[Quote | None, SpreadReading]:
+    async def _top_of_book(self, symbol: str) -> tuple[Quote | None, SpreadReading, float | None]:
         """One read of the book, used to price the order and to judge the spread.
 
         Read twice, the order could be priced off one snapshot and cleared by a
         gate that measured another.
         """
         if self.quotes is None:
-            return None, SPREAD_UNAVAILABLE
+            return None, SPREAD_UNAVAILABLE, None
         try:
             quote = await self.quotes.get_quote(symbol)
         except Exception:
             logger.warning("execution: quote unavailable for %s", symbol, exc_info=True)
-            return None, SPREAD_UNAVAILABLE
+            return None, SPREAD_UNAVAILABLE, None
+        last_price: float | None = None
+        get_last = getattr(self.quotes, "get_last_price", None)
+        if get_last is not None:
+            try:
+                last_price = float(await get_last(symbol))
+            except Exception:
+                last_price = None
+        from core.config import get_settings
+        from market_data.factory import resolve_alpaca_data_feed
+
         return quote, measure_spread(
             quote,
             now=self._clock(),
             max_age_sec=self.liquidity_policy.max_quote_age_sec,
-        )
+            last_price=last_price,
+            feed=resolve_alpaca_data_feed(get_settings()),
+        ), last_price
 
     async def _pre_trade_gates(
         self,

@@ -9,6 +9,7 @@ import {
   FileText,
   Home,
   Inbox,
+  Layers,
   Settings2,
   Workflow,
 } from "lucide-react";
@@ -32,6 +33,7 @@ const PRIMARY: NavItem[] = [
   { id: "agents", to: "/agents", labelKey: "nav.agents", icon: Workflow },
   { id: "journal", to: "/journal", labelKey: "nav.journal", icon: ClipboardList },
   { id: "evaluation", to: "/evaluation", labelKey: "nav.evaluation", icon: Activity },
+  { id: "strategies", to: "/strategies", labelKey: "nav.strategies", icon: Layers },
   { id: "logs", to: "/logs", labelKey: "nav.logs", icon: FileText },
 ];
 

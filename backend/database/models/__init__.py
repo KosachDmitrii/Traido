@@ -12,6 +12,7 @@ from database.models.desk import (
 )
 from database.models.journal import BacktestRunRow, TradeJournalRow
 from database.models.positions import OpenPositionRow
+from database.models.strategy import StrategyEvaluationRunRow, StrategyVersionRow
 
 __all__ = [
     "AdmissionRecordRow",
@@ -26,5 +27,7 @@ __all__ = [
     "OpportunityRow",
     "OrderIntentRow",
     "ShadowOutcomeRow",
+    "StrategyEvaluationRunRow",
+    "StrategyVersionRow",
     "TradeJournalRow",
 ]

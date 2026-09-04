@@ -21,9 +21,10 @@ from core.schemas import (
     TradeAdmissionResult,
     TradeCandidate,
 )
+from trading.arrival_admission import evaluate_arrival_gate
 from trading.chase_facts import HARD_CHASE_LIMIT, compute_chase_facts
 from trading.data_integrity import check_data_integrity
-from trading.effective_rr import compute_effective_rr, required_admission_rr
+from trading.effective_rr import compute_effective_rr, price_within_zone_cushion, required_admission_rr
 from trading.entry_policy import get_entry_thresholds
 from trading.stop_validation import validate_stop
 from trading.structural_integrity import evaluate_structural_integrity
@@ -90,6 +91,9 @@ def entry_allowed_for_setup_type(
         buffer = (atr or price * 0.01) * ZONE_ABOVE_BUFFER_ATR
         if price > zone_high + buffer:
             return False, ["ENTRY_OUTSIDE_ALLOWED_ZONE"]
+        # Deep undercut: wait for reclaim of the zone, not BUY at the print.
+        if price < zone_low - buffer:
+            return False, ["ENTRY_OUTSIDE_ALLOWED_ZONE"]
     return True, []
 
 
@@ -101,6 +105,7 @@ def evaluate_from_admission_input(
     entry: Decimal | float | None = None,
     stop: Decimal | float | None = None,
     target: Decimal | float | None = None,
+    tape_last: float | None = None,
 ) -> TradeAdmissionResult:
     """Evaluate admission from an immutable AdmissionInput — preferred capital path."""
     return evaluate_trade_admission(
@@ -119,6 +124,7 @@ def evaluate_from_admission_input(
         target_plan=admission_input.target_plan,
         zone_arrival=zone_arrival,
         now=admission_input.evaluated_at,
+        tape_last=tape_last,
         stop_plan_model=admission_input.stop_plan.model if admission_input.stop_plan else None,
         stop_structural_source=(
             admission_input.stop_plan.reason_codes[0]
@@ -146,9 +152,12 @@ def evaluate_trade_admission(
     target_plan: TargetPlan | None = None,
     zone_arrival: ZoneArrivalFacts | None = None,
     now: datetime | None = None,
+    tape_last: float | None = None,
     stop_plan_model: str | None = None,
     stop_structural_source: str | None = None,
     stop_structural_level: float | None = None,
+    zone_entry_price: float | None = None,
+    cushion_fill: bool = False,
 ) -> TradeAdmissionResult:
     """Apply all trading gates. Does not re-run quant indicators."""
     th = get_entry_thresholds()
@@ -188,12 +197,27 @@ def evaluate_trade_admission(
     if candidate and candidate.entry_zone_high is not None:
         zone_high = float(candidate.entry_zone_high)
 
+    zone_check_price = (
+        zone_entry_price if zone_entry_price is not None else float(facts.current_price)
+    )
+    in_cushion = price_within_zone_cushion(
+        price=zone_check_price,
+        zone_low=zone_low,
+        zone_high=zone_high,
+        atr=facts.atr,
+        cushion_atr=ZONE_ABOVE_BUFFER_ATR,
+    )
+    admission_facts = facts
+    if in_cushion and ent is not None:
+        admission_facts = facts.model_copy(update={"current_price": float(ent)})
+
     data = check_data_integrity(
         quote=quote,
         bars_count=bars_count,
         last_bar_ts=last_bar_ts,
         now=now,
         require_bars=require_bars,
+        quote_max_age_sec=th.quote_max_age_sec,
     )
     if data.status is DataHealthStatus.UNHEALTHY:
         return TradeAdmissionResult(
@@ -221,8 +245,12 @@ def evaluate_trade_admission(
             admission_version=ADMISSION_VERSION,
         )
 
-    chase = compute_chase_facts(facts, zone_high=zone_high, thresholds=th)
-    structure = evaluate_structural_integrity(facts, chase_reasons=chase.reason_codes)
+    chase = compute_chase_facts(admission_facts, zone_high=zone_high, thresholds=th)
+    structure = evaluate_structural_integrity(
+        admission_facts,
+        chase_reasons=chase.reason_codes,
+        deep_pullback_is_hard=th.pullback_deep_no_trade,
+    )
     vetoes: list[str] = []
 
     if bundle.thesis is not InstrumentThesis.BULLISH:
@@ -241,7 +269,11 @@ def evaluate_trade_admission(
         )
 
     allowed, zone_reasons = entry_allowed_for_setup_type(
-        st, facts.current_price, zone_low, zone_high, facts.atr
+        st,
+        zone_entry_price if zone_entry_price is not None else facts.current_price,
+        zone_low,
+        zone_high,
+        facts.atr,
     )
     reason_codes.extend(zone_reasons)
     if not allowed:
@@ -278,13 +310,22 @@ def evaluate_trade_admission(
         stop_res = validate_stop(
             entry=ent,
             stop=stp,
-            facts=facts,
+            facts=admission_facts,
             stop_model=snap_model,
             structural_source=snap_source,
             structural_level=snap_level,
         )
         stop_valid = stop_res.valid
-        if not stop_valid:
+        if (
+            cushion_fill
+            and in_cushion
+            and not stop_valid
+            and frozenset(stop_res.reason_codes)
+            <= frozenset({"ATR_ONLY_STOP", "INVALID_STOP"})
+        ):
+            stop_valid = True
+            warnings.append("CUSHION_ATR_STOP")
+        elif not stop_valid:
             vetoes.extend(vetoes_from_codes(stop_res.reason_codes))
             reason_codes.extend(stop_res.reason_codes)
 
@@ -295,11 +336,30 @@ def evaluate_trade_admission(
     else:
         target_res = validate_target(entry=ent, target=tgt, target_plan=tp)
         target_valid = target_res.valid
-        if not target_valid:
+        if (
+            cushion_fill
+            and in_cushion
+            and not target_valid
+            and tp is not None
+            and frozenset(target_res.reason_codes) <= frozenset({"TARGET_UNREALISTIC"})
+            and float(tgt) == float(tp.price)
+        ):
+            target_valid = True
+            warnings.append("CUSHION_FROZEN_TARGET")
+        elif not target_valid:
             vetoes.extend(vetoes_from_codes(target_res.reason_codes))
             reason_codes.extend(target_res.reason_codes)
 
-        rr_res = compute_effective_rr(entry=ent, stop=stp, target=tgt, quote=quote)
+        rr_res = compute_effective_rr(
+            entry=ent,
+            stop=stp,
+            target=tgt,
+            quote=quote,
+            zone_low=zone_low,
+            zone_high=zone_high,
+            atr=facts.atr,
+            cushion_atr=ZONE_ABOVE_BUFFER_ATR,
+        )
         effective_rr_val = rr_res.effective_rr
         req_rr = required_admission_rr(
             setup_quality=setup_q,
@@ -307,6 +367,8 @@ def evaluate_trade_admission(
             chase_score=chase.score,
             structure_valid=structure.valid,
             warnings=warnings,
+            min_rr_floor=th.min_effective_rr,
+            weak_setup_rr_floor=th.weak_setup_min_rr,
         )
         if effective_rr_val < req_rr:
             vetoes.append("INSUFFICIENT_EFFECTIVE_RR")
@@ -315,29 +377,37 @@ def evaluate_trade_admission(
     bid = float(quote.bid or 0)
     ask = float(quote.ask or 0)
     if bid > 0 and ask >= bid:
-        mid = (bid + ask) / 2
-        spread_bps = (ask - bid) / mid * 10000
-        if spread_bps > th.max_spread_bps * 2:
+        from trading.entry_spread_gate import evaluate_entry_spread
+
+        spread_gate = evaluate_entry_spread(
+            quote,
+            now=now,
+            tape_last=tape_last,
+            facts_price=zone_entry_price,
+            card_entry=float(ent) if ent is not None else None,
+            thresholds=th,
+        )
+        if "SPREAD_TOO_WIDE" in spread_gate.reason_codes:
+            reason_codes.append("SPREAD_TOO_WIDE")
+        if spread_gate.extreme:
             vetoes.append("EXTREME_SPREAD")
             reason_codes.append("EXTREME_SPREAD")
 
-    if zone_arrival_required(st) and zone_arrival is not None:
-        if zone_arrival.crash_velocity:
-            vetoes.append("CRASH_VELOCITY")
-            reason_codes.extend(zone_arrival.reason_codes[:4])
-        if zone_arrival.structural_damage:
-            vetoes.append("STRUCTURAL_DAMAGE")
-            reason_codes.extend(zone_arrival.reason_codes[:4])
-        min_arrival = th.min_zone_arrival_quality
-        if zone_arrival.score < min_arrival and (
-            not th.allow_fast_pullback or zone_arrival.arrival_type.value != "FAST_PULLBACK"
-        ):
-            reason_codes.append(f"ZONE_ARRIVAL_QUALITY_LOW:{int(zone_arrival.score)}")
-        if (
-            zone_arrival.arrival_type.value in {"SELL_OFF", "CRASH", "GAP_DOWN", "STRUCTURAL_BREAK"}
-            and not th.allow_fast_pullback
-        ):
-            reason_codes.append(f"ARRIVAL_TYPE_{zone_arrival.arrival_type.value}")
+    arrival_gate = None
+    if zone_arrival_required(st):
+        if zone_arrival is None:
+            reason_codes.append("ZONE_ARRIVAL_MISSING")
+            vetoes.append("ZONE_ARRIVAL_MISSING")
+        else:
+            arrival_gate = evaluate_arrival_gate(zone_arrival, th)
+            warnings.extend(arrival_gate.warnings)
+            reason_codes.extend(arrival_gate.reason_codes)
+            vetoes.extend(arrival_gate.veto_codes)
+    elif zone_arrival is not None:
+        arrival_gate = evaluate_arrival_gate(zone_arrival, th)
+        warnings.extend(arrival_gate.warnings)
+        reason_codes.extend(arrival_gate.reason_codes)
+        vetoes.extend(arrival_gate.veto_codes)
 
     vetoes = list(dict.fromkeys(vetoes))
     hard = vetoes_from_codes(vetoes + reason_codes)
@@ -371,6 +441,8 @@ def evaluate_trade_admission(
             not allowed
             or "ENTRY_OUTSIDE_ALLOWED_ZONE" in hard
             or "EXTREME_CHASE" in hard
+            or "SPREAD_TOO_WIDE" in hard
+            or "ZONE_ARRIVAL_MISSING" in hard
             or any("ZONE_ARRIVAL" in r or "ARRIVAL_TYPE" in r for r in reason_codes)
         ):
             decision = AdmissionDecision.WAIT
@@ -383,6 +455,23 @@ def evaluate_trade_admission(
             structure,
             data.status,
             hard,
+            warnings,
+            reason_codes,
+            effective_rr=effective_rr_val,
+            stop_valid=stop_valid,
+            target_valid=target_valid,
+        )
+
+    if zone_arrival_required(st) and zone_arrival is None:
+        return _result(
+            AdmissionDecision.WAIT,
+            st,
+            setup_q,
+            entry_q,
+            chase.score,
+            structure,
+            data.status,
+            vetoes,
             warnings,
             reason_codes,
             effective_rr=effective_rr_val,
@@ -426,15 +515,8 @@ def evaluate_trade_admission(
             target_valid=target_valid,
         )
 
-    if zone_arrival_required(st) and zone_arrival is not None:
-        arrival_blocked = zone_arrival.score < th.min_zone_arrival_quality
-        if th.allow_fast_pullback and zone_arrival.arrival_type.value == "FAST_PULLBACK":
-            arrival_blocked = zone_arrival.score < max(45, th.min_zone_arrival_quality - 15)
-        if arrival_blocked and not any(
-            v in vetoes for v in ("CRASH_VELOCITY", "STRUCTURAL_DAMAGE")
-        ):
-            if f"ZONE_ARRIVAL_QUALITY_LOW:{int(zone_arrival.score)}" not in reason_codes:
-                reason_codes.append(f"ZONE_ARRIVAL_QUALITY_LOW:{int(zone_arrival.score)}")
+    if zone_arrival_required(st) and zone_arrival is not None and arrival_gate is not None:
+        if arrival_gate.blocked and not arrival_gate.hard_veto:
             return _result(
                 AdmissionDecision.WAIT,
                 st,

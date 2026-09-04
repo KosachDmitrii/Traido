@@ -46,6 +46,14 @@ class EntryPolicyBody(BaseModel):
     )
 
 
+class BrokerBackendBody(BaseModel):
+    backend: str = Field(description="alpaca or ibkr — paper execution only")
+
+
+class AutoTriggerBody(BaseModel):
+    enabled: bool = Field(description="Auto-approve BUY cards after TRIGGERED admission")
+
+
 @router.get("/opportunities", response_model=list[TradeOpportunity])
 async def list_opportunities() -> list[TradeOpportunity]:
     return OPPORTUNITIES.list_open()
@@ -209,3 +217,75 @@ async def put_entry_policy(body: EntryPolicyBody) -> dict:
     payload = policy_payload()
     payload["rescan"] = rescan
     return payload
+
+
+@router.get("/auto-trigger")
+async def get_auto_trigger() -> dict:
+    from trading.auto_trigger_policy import policy_payload
+
+    return policy_payload()
+
+
+@router.put("/auto-trigger")
+async def put_auto_trigger(body: AutoTriggerBody) -> dict:
+    from trading.auto_trigger_policy import policy_payload, set_auto_trigger_enabled
+
+    set_auto_trigger_enabled(body.enabled, actor="user")
+    audit = create_audit()
+    await audit.append(
+        "AutoTriggerUpdated",
+        "user",
+        {"enabled": body.enabled},
+    )
+    DESK_BUS.bump_desk()
+    return policy_payload()
+
+
+def _broker_backend_status() -> dict:
+    from broker.backend_policy import broker_backend_payload, get_broker_backend
+    from broker.factory import create_broker
+    from broker.interface import broker_connection_state
+    from broker.switch_guard import broker_switch_blocked_reason
+    from core.config import get_settings
+
+    payload = broker_backend_payload()
+    payload["switch_blocked_reason"] = broker_switch_blocked_reason()
+    try:
+        broker = create_broker(get_settings())
+        payload["connection_state"] = broker_connection_state(broker).value
+        account = getattr(broker, "account_id", None)
+        if account:
+            payload["account_id"] = account
+        payload["broker_class"] = type(broker).__name__
+    except Exception as exc:  # noqa: BLE001
+        payload["connection_state"] = "disconnected"
+        payload["error"] = type(exc).__name__
+    payload["backend"] = get_broker_backend()
+    return payload
+
+
+@router.get("/broker-backend")
+async def get_broker_backend_route() -> dict:
+    return _broker_backend_status()
+
+
+@router.put("/broker-backend")
+async def put_broker_backend(body: BrokerBackendBody) -> dict:
+    """Switch paper execution venue (Alpaca ↔ IBKR). Market data stays Alpaca."""
+    from broker.backend_policy import BrokerBackendError
+    from broker.factory import apply_broker_backend
+    from broker.switch_guard import broker_switch_blocked_reason
+
+    blocked = broker_switch_blocked_reason()
+    if blocked:
+        raise HTTPException(status_code=409, detail=f"broker_switch_blocked:{blocked}")
+
+    try:
+        backend = apply_broker_backend(body.backend, actor="user")
+    except BrokerBackendError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    audit = create_audit()
+    await audit.append("BrokerBackendUpdated", "user", {"backend": backend})
+    DESK_BUS.bump_desk()
+    return _broker_backend_status()

@@ -318,6 +318,20 @@ class AdmissionRecordStore:
             )
             if existing is not None:
                 existing_rec = AdmissionRecord.model_validate(existing.payload)
+                if phase_val == "watch_revalidation":
+                    # Revalidation polls every few seconds on the same trigger slot.
+                    # Live quotes shift the canonical payload; upsert instead of conflict.
+                    record.id = existing_rec.id
+                    data["id"] = str(existing_rec.id)
+                    existing.payload = data
+                    existing.recorded_at = now
+                    existing.decision = admission.decision.value
+                    existing.symbol = record.symbol
+                    existing.expires_at = record.expires_at
+                    if request_fingerprint:
+                        existing.request_fingerprint = request_fingerprint
+                    session.flush()
+                    return AdmissionRecord.model_validate(data)
                 return self._resolve_existing(
                     existing_rec,
                     eval_key=eval_key,

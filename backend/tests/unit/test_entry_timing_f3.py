@@ -219,7 +219,8 @@ def test_wait_observe_does_not_execute() -> None:
     ENTRY_WATCHES.clear()
     watch = ENTRY_WATCHES.create_from_bundle(cand, bundle)
     assert watch.status is EntryWatchStatus.WAITING
-    triggered = observe_price(watch, float(bundle.entry_zone_low) + 0.01)
+    zone_mid = (float(bundle.entry_zone_low) + float(bundle.entry_zone_high)) / 2.0
+    triggered = observe_price(watch, zone_mid, atr=1.0)
     assert triggered.status is EntryWatchStatus.TRIGGERED
 
 
@@ -250,7 +251,8 @@ def test_wait_revalidation_without_quote_is_no_trade() -> None:
     )
     ENTRY_WATCHES.clear()
     watch = ENTRY_WATCHES.create_from_bundle(cand, bundle)
-    watch = observe_price(watch, float(bundle.entry_zone_low))
+    zone_mid = (float(bundle.entry_zone_low) + float(bundle.entry_zone_high)) / 2.0
+    watch = observe_price(watch, zone_mid, atr=1.0)
     assert watch.status is EntryWatchStatus.TRIGGERED
     decision, _admission = revalidate_triggered_watch(watch, exec_snap=_snap(), quote=None)
     assert decision is EntryDecision.NO_TRADE

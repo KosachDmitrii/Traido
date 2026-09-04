@@ -92,13 +92,24 @@ def test_3_a_stale_quote_refuses_the_entry(desk) -> None:
 
 
 def test_4_a_wide_spread_refuses_the_entry(desk) -> None:
-    desk.market.spread_bps = 400.0
+    """Spread refusal uses IEX buy-friction vs last — not raw book width alone."""
+    from trading.entry_policy import get_entry_thresholds
+
+    th = get_entry_thresholds()
+    cap = th.max_spread_bps
+    over_cap_bps = min(cap + 10.0, 79.0)
+    assert over_cap_bps > cap
+    ask = 100.0 * (1.0 + over_cap_bps / 10_000.0)
+    desk.market.custom_bid = 99.95
+    desk.market.custom_ask = ask
     opp = desk.offer("AAPL")
 
-    detail = _detail(desk.approve(opp.id))
-
-    assert "SPREAD_TOO_WIDE" in detail
-    assert "LIQUIDITY_GATE_REJECTED" in detail
+    resp = desk.approve(opp.id)
+    assert resp.status_code in {409, 422}, (
+        f"expected the desk to refuse, got {resp.status_code}: {resp.text}"
+    )
+    detail = resp.json()["detail"]
+    assert "SPREAD_TOO_WIDE" in detail or "BUY_REJECTED_SPREAD" in detail
     desk.assert_no_broker_mutations()
 
 
