@@ -210,7 +210,7 @@ def test_live_trading_requires_production_then_still_blocks_v1(
     with pytest.raises(RuntimeError, match="PRODUCTION"):
         settings.assert_safe_startup()
 
-    import strategy.registry as registry
+    from strategy import registry
 
     monkeypatch.setattr(registry, "has_production_strategy", lambda: True)
     with pytest.raises(RuntimeError, match="not implemented"):

@@ -65,7 +65,7 @@ def test_price_action_detects_breakout() -> None:
 
 
 def test_chart_patterns_include_expanded_set() -> None:
-    o, h, l, c = _ohlc(50, drift=0.003)
+    _o, h, l, c = _ohlc(50, drift=0.003)
     charts = detect_chart_patterns(h, l, c)
     assert "triangle_ascending" in charts
     assert "flag_bull" in charts
@@ -77,7 +77,7 @@ def test_chart_patterns_include_expanded_set() -> None:
 def test_engine_exposes_pa_flags() -> None:
     bars: list[Bar] = []
     ts0 = datetime(2024, 1, 2, tzinfo=UTC)
-    px = Decimal("100")
+    px = Decimal(100)
     for i in range(80):
         nxt = px * Decimal("1.002")
         bars.append(

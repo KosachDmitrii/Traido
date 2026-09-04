@@ -33,8 +33,8 @@ from trading.historical_mfe import ensure_seeded_from_aftermath, sync_from_paper
 from trading.pipeline import publish_opportunity
 from trading.scan_context import open_scan_context
 from trading.wait_plan import stale_invalidate_reason
-from trading.watch_enrichment import refresh_watch_desk_cache
 from trading.watch_desk import WATCH_POLL_COLD_SEC, watch_loop_interval_sec
+from trading.watch_enrichment import refresh_watch_desk_cache
 
 logger = logging.getLogger(__name__)
 
@@ -316,9 +316,8 @@ async def _convert_admitted_watch(
         stats["invalidated"] += 1
         return
 
-    from trading.market_gate import evaluate_market_gate_for_candidate
-
     from agents.market.agent import assess_market
+    from trading.market_gate import evaluate_market_gate_for_candidate
 
     fresh_market = await assess_market(settings.fred_api_key, now=datetime.now(UTC))
     gate = evaluate_market_gate_for_candidate(forced, market=fresh_market)

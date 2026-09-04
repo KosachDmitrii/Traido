@@ -105,7 +105,7 @@ async def refresh_all_watch_marks(
             from trading.shadow_outcomes import SHADOW_OUTCOMES
 
             SHADOW_OUTCOMES.update_price(watch.symbol, price)
-        except Exception:
+        except Exception:  # noqa: BLE001, S110 — shadow marks are best-effort
             pass
     return by_symbol
 

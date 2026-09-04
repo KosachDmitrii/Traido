@@ -97,7 +97,7 @@ async def attach_buy_viability(
         if get_last is not None:
             try:
                 last_price = float(await get_last(opp.candidate.symbol))
-            except Exception:
+            except Exception:  # noqa: BLE001 — optional last-trade feed must not block spread
                 last_price = None
         from trading import execution as execution_mod
         from trading.entry_spread_gate import evaluate_entry_spread

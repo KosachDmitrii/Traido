@@ -7,6 +7,7 @@ from decimal import Decimal
 
 import pytest
 
+import strategy.promotion as promo_mod
 from database.models.journal import BacktestRunRow, TradeJournalRow
 from database.models.strategy import StrategyEvaluationRunRow
 from database.session import session_factory
@@ -26,7 +27,6 @@ from strategy.registry import (
     register_version,
 )
 from strategy.thresholds import PromotionThresholds
-import strategy.promotion as promo_mod
 
 
 @pytest.fixture()
@@ -107,7 +107,7 @@ def test_promotion_chain_to_production(loose_thresholds) -> None:
                 params={},
             )
         )
-        for pnl in (Decimal("50"), Decimal("25"), Decimal("-10")):
+        for pnl in (Decimal(50), Decimal(25), Decimal(-10)):
             session.add(
                 TradeJournalRow(
                     symbol="AAA",

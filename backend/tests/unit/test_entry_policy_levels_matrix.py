@@ -14,7 +14,13 @@ from core.enums import (
     SetupType,
     TargetReachabilityClass,
 )
-from core.schemas import EntryDecisionBundle, EntryQualityBreakdown, EntryTimingFacts, Quote, TargetPlan
+from core.schemas import (
+    EntryDecisionBundle,
+    EntryQualityBreakdown,
+    EntryTimingFacts,
+    Quote,
+    TargetPlan,
+)
 from trading.arrival_admission import evaluate_arrival_gate
 from trading.entry_policy import set_entry_aggressiveness, thresholds_for
 from trading.trade_admission import evaluate_trade_admission
@@ -34,7 +40,7 @@ def level(request: pytest.FixtureRequest) -> int:
 def _quote() -> Quote:
     return Quote(
         symbol="TEST",
-        bid=Decimal("100"),
+        bid=Decimal(100),
         ask=Decimal("100.05"),
         ts=datetime.now(UTC),
         source="test",
@@ -62,11 +68,11 @@ def _healthy_bundle(*, entry_q: int = 70, setup_q: int = 75) -> EntryDecisionBun
             signal_drift=entry_q,
         ),
         facts=facts,
-        entry_zone_low=Decimal("98"),
-        entry_zone_high=Decimal("100"),
-        stop_price=Decimal("95"),
+        entry_zone_low=Decimal(98),
+        entry_zone_high=Decimal(100),
+        stop_price=Decimal(95),
         target=TargetPlan(
-            price=Decimal("110"),
+            price=Decimal(110),
             model="2R",
             reachability=TargetReachabilityClass.REALISTIC,
         ),

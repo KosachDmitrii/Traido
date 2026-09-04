@@ -1201,7 +1201,7 @@ class ExecutionService:
         if get_last is not None:
             try:
                 last_price = float(await get_last(symbol))
-            except Exception:
+            except Exception:  # noqa: BLE001 — optional last-trade feed must not block spread
                 last_price = None
         from core.config import get_settings
         from market_data.factory import resolve_alpaca_data_feed

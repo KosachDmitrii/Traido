@@ -171,7 +171,7 @@ class DbAudit:
                 remember=remember,
                 mirror=True,
             )
-        except Exception:  # noqa: BLE001 — activity feed must survive audit write failures
+        except Exception:
             logger.exception("audit append_sync failed for %s", event_type)
 
     def list_events(

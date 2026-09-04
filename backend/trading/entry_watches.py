@@ -288,7 +288,7 @@ class EntryWatchStore:
         for watch in watches:
             try:
                 self.update(watch)
-            except Exception:  # noqa: BLE001 — expiry must not take down the desk loop
+            except Exception:
                 logger.exception(
                     "entry watch: failed to persist TTL expiry for %s",
                     watch.symbol,

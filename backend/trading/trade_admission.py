@@ -24,7 +24,11 @@ from core.schemas import (
 from trading.arrival_admission import evaluate_arrival_gate
 from trading.chase_facts import HARD_CHASE_LIMIT, compute_chase_facts
 from trading.data_integrity import check_data_integrity
-from trading.effective_rr import compute_effective_rr, price_within_zone_cushion, required_admission_rr
+from trading.effective_rr import (
+    compute_effective_rr,
+    price_within_zone_cushion,
+    required_admission_rr,
+)
 from trading.entry_policy import get_entry_thresholds
 from trading.stop_validation import validate_stop
 from trading.structural_integrity import evaluate_structural_integrity
@@ -515,23 +519,28 @@ def evaluate_trade_admission(
             target_valid=target_valid,
         )
 
-    if zone_arrival_required(st) and zone_arrival is not None and arrival_gate is not None:
-        if arrival_gate.blocked and not arrival_gate.hard_veto:
-            return _result(
-                AdmissionDecision.WAIT,
-                st,
-                setup_q,
-                entry_q,
-                chase.score,
-                structure,
-                data.status,
-                vetoes,
-                warnings,
-                reason_codes,
-                effective_rr=effective_rr_val,
-                stop_valid=stop_valid,
-                target_valid=target_valid,
-            )
+    if (
+        zone_arrival_required(st)
+        and zone_arrival is not None
+        and arrival_gate is not None
+        and arrival_gate.blocked
+        and not arrival_gate.hard_veto
+    ):
+        return _result(
+            AdmissionDecision.WAIT,
+            st,
+            setup_q,
+            entry_q,
+            chase.score,
+            structure,
+            data.status,
+            vetoes,
+            warnings,
+            reason_codes,
+            effective_rr=effective_rr_val,
+            stop_valid=stop_valid,
+            target_valid=target_valid,
+        )
 
     if not allowed:
         return _result(

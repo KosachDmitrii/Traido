@@ -20,7 +20,7 @@ def _watch(*, reasons: list[str]) -> EntryWatch:
         created_at=now,
         valid_until=now + timedelta(hours=1),
         thesis=InstrumentThesis.BULLISH,
-        signal_price=Decimal("72"),
+        signal_price=Decimal(72),
         current_price_at_creation=Decimal("72.3"),
         last_price=Decimal("72.3"),
         entry_zone_low=Decimal("69.3"),

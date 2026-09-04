@@ -12,7 +12,12 @@ from trading.entry_likelihood import evaluate_entry_likelihood
 from trading.entry_policy import EntryThresholds, get_entry_thresholds
 from trading.entry_watches import price_in_zone, zone_trigger_bounds
 from trading.market_context import build_market_context
-from trading.zone_arrival import ArrivalType, ZoneArrivalFacts, evaluate_zone_arrival, zone_arrival_required
+from trading.zone_arrival import (
+    ArrivalType,
+    ZoneArrivalFacts,
+    evaluate_zone_arrival,
+    zone_arrival_required,
+)
 from trading.zone_touch_calibration import calibration_payload
 
 APPROACHING_ATR = 0.5

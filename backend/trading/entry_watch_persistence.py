@@ -104,9 +104,8 @@ def persist_watch(watch: EntryWatch, *, engine: Engine | None = None) -> None:
                 return
             except IntegrityError:
                 session.rollback()
-
-            if watch.status not in _ACTIONABLE:
-                raise
+                if watch.status not in _ACTIONABLE:
+                    raise
 
             cleared = (
                 session.query(EntryWatchRow)
