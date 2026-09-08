@@ -19,10 +19,12 @@ def current_entry_is_eligible(
     planned entry from forcing every otherwise valid setup into WAIT. Entry
     quality, admission, effective R:R and risk still decide execution.
     """
-    if price <= 0 or atr <= 0 or sma20 is None or sma20 <= 0 or price < sma20:
+    if price <= 0 or atr <= 0 or sma20 is None or sma20 <= 0:
         return False
-    distance_fraction = (price - sma20) / sma20
-    distance_atr = (price - sma20) / atr
+    if price < sma20 and not bool(thresholds.allow_below_sma):
+        return False
+    distance_fraction = abs(price - sma20) / sma20
+    distance_atr = abs(price - sma20) / atr
     return distance_fraction <= float(thresholds.near_sma_frac) and distance_atr <= float(
         thresholds.atr_ext_max
     )

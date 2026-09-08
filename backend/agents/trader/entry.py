@@ -10,7 +10,9 @@ from trading.current_entry_plan import current_entry_is_eligible, current_entry_
 from trading.entry_policy import get_candidate_thresholds
 from trading.entry_quality import decide_entry
 from trading.entry_timing import evaluate_timing
+from trading.stop_validation import validate_stop
 from trading.target_model import build_target_plan
+from trading.target_validation import validate_target
 
 PROMPT_VERSION = "trader.entry@1.2.0"
 
@@ -72,10 +74,15 @@ def run_entry(bundle: TraderBundle) -> StepResult:
         planned_entry = float(close)
     planned_stop = planned_entry - 1.5 * atr_f
     supports = exec_snap.support or []
+    structural_support: float | None = None
     if supports:
         try:
-            nearest = max(float(s) for s in supports if float(s) < planned_entry)
-            planned_stop = max(planned_stop, nearest * 0.995)
+            structural_support = max(float(s) for s in supports if float(s) < planned_entry)
+            # A long stop must sit below the level that invalidates the thesis.
+            # Choosing the higher of the ATR stop and support left the stop above
+            # support in production, so admission correctly classified it as
+            # ATR_ONLY_STOP. ATR may widen a structural stop, never replace it.
+            planned_stop = min(planned_stop, structural_support * 0.995)
         except ValueError:
             pass
 
@@ -122,7 +129,40 @@ def run_entry(bundle: TraderBundle) -> StepResult:
         target=target_plan,
         stop_price=float(stop_d),
     )
-    if use_current_entry and decision.entry_decision is EntryDecision.BUY_NOW:
+
+    # BUY_NOW is a promise that the proposed geometry is admissible, not just
+    # that timing scores are high. Keep invalid current geometry as an
+    # actionable pullback WAIT instead of publishing a BUY candidate that the
+    # next layer must immediately destroy.
+    if decision.entry_decision is EntryDecision.BUY_NOW:
+        stop_check = validate_stop(
+            entry=entry_d,
+            stop=stop_d,
+            facts=facts,
+            stop_model="support" if structural_support is not None else None,
+            structural_source="nearest_support" if structural_support is not None else None,
+            structural_level=structural_support,
+        )
+        target_check = validate_target(
+            entry=entry_d,
+            target=target_plan.price,
+            target_plan=target_plan,
+        )
+        geometry_reasons = [*stop_check.reason_codes, *target_check.reason_codes]
+        if not stop_check.valid or not target_check.valid:
+            decision = decision.model_copy(
+                update={
+                    "entry_decision": EntryDecision.WAIT_FOR_ENTRY,
+                    "reasons": [
+                        *decision.reasons,
+                        "CURRENT_GEOMETRY_NOT_ADMISSIBLE",
+                        *geometry_reasons,
+                    ],
+                }
+            )
+
+    planned_at_current = abs(planned_entry - float(close)) <= max(0.0001, float(close) * 1e-6)
+    if planned_at_current and decision.entry_decision is EntryDecision.BUY_NOW:
         zone_low, zone_high = current_entry_zone(
             price=float(close),
             atr=atr_f,
@@ -132,7 +172,12 @@ def run_entry(bundle: TraderBundle) -> StepResult:
             update={
                 "entry_zone_low": zone_low,
                 "entry_zone_high": zone_high,
-                "reasons": [*decision.reasons, "CURRENT_ENTRY_NEAR_SMA20"],
+                "reasons": [
+                    *decision.reasons,
+                    "CURRENT_ENTRY_NEAR_SMA20"
+                    if use_current_entry
+                    else "CURRENT_ENTRY_AT_OR_BELOW_SMA20",
+                ],
             }
         )
 
