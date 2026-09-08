@@ -20,6 +20,7 @@ from strategy.promotion import (
     reject_version,
 )
 from strategy.registry import (
+    LEGACY_CONFLUENCE_KEY,
     LIVE_STRATEGY_KEY,
     RESEARCH_STRATEGY_KEY,
     ensure_builtin_strategies,
@@ -58,6 +59,26 @@ def test_builtin_strategies_register_immutably(loose_thresholds) -> None:
             version_tag="1.2.0",
             parameters={"tampered": True},
         )
+
+
+def test_new_live_version_does_not_mutate_existing_legacy_hash(loose_thresholds) -> None:
+    register_version(
+        key=LEGACY_CONFLUENCE_KEY,
+        name="strategy_confluence",
+        version_tag="0.3.0-f3",
+        parameters={
+            "min_technical": 68,
+            "min_overall": 70,
+            "min_risk_reward": 2.0,
+            "thesis": "bullish_confluence",
+            "entry_model": "f3",
+            "superseded_by": "trader_desk@1.2.0",
+        },
+    )
+
+    ensure_builtin_strategies()
+
+    assert get_by_key(LEGACY_CONFLUENCE_KEY) is not None
 
 
 def test_promotion_chain_to_production(loose_thresholds) -> None:

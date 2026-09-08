@@ -26,6 +26,9 @@ LIVE_STRATEGY_KEY = f"{LIVE_STRATEGY_NAME}@{LIVE_STRATEGY_TAG}"
 
 # Legacy confluence key kept registered so old journal rows still promote.
 LEGACY_CONFLUENCE_KEY = "strategy_confluence@0.3.0-f3"
+# This value is part of the immutable legacy version's parameter hash. It must
+# not follow LIVE_STRATEGY_KEY when a new desk version is released.
+LEGACY_CONFLUENCE_SUCCESSOR_KEY = "trader_desk@1.2.0"
 
 # Evaluation / walk-forward research stub (quant.backtesting.strategy.EmaTrendStub).
 RESEARCH_STRATEGY_NAME = "ema_trend_stub"
@@ -54,7 +57,7 @@ LEGACY_CONFLUENCE_PARAMETERS: dict[str, Any] = {
     "min_risk_reward": 2.0,
     "thesis": "bullish_confluence",
     "entry_model": "f3",
-    "superseded_by": LIVE_STRATEGY_KEY,
+    "superseded_by": LEGACY_CONFLUENCE_SUCCESSOR_KEY,
 }
 
 RESEARCH_PARAMETERS: dict[str, Any] = {
