@@ -6,10 +6,13 @@ from decimal import Decimal
 
 from core.enums import TargetReachabilityClass
 from core.schemas import EntryTimingFacts, TargetPlan
+from trading.buy_confirmation import BASE_RR_FLOOR
 
 # Frozen F3 initial policy.
 ATR_TARGET_MULT = 1.2
-MIN_RR_FLOOR = 1.4  # after costs / slippage headroom vs classic 2R
+# One absolute gross-geometry floor.  Final confirmation still evaluates
+# effective R:R after spread/slippage and may therefore require a better entry.
+MIN_RR_FLOOR = BASE_RR_FLOOR
 
 
 def build_target_plan(

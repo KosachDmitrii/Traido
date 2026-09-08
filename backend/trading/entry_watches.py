@@ -43,6 +43,10 @@ DEFAULT_INVALIDATING = [
 ]
 
 
+class InvalidWaitCandidateError(ValueError):
+    """Stable candidate facts cannot support an actionable WAIT plan."""
+
+
 class EntryWatchStore:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -111,6 +115,18 @@ class EntryWatchStore:
         from trading.wait_plan import derive_wait_levels
 
         plan = derive_wait_levels(bundle, candidate)
+        from trading.wait_candidate import evaluate_wait_candidate_eligibility
+
+        eligibility = evaluate_wait_candidate_eligibility(
+            setup_quality=bundle.setup_quality,
+            entry=plan.entry,
+            stop=plan.stop,
+            target=plan.target,
+        )
+        if not eligibility.eligible:
+            raise InvalidWaitCandidateError(
+                ",".join(eligibility.reason_codes) or "INVALID_WAIT_CANDIDATE"
+            )
         now = datetime.now(UTC)
         setup_type = candidate.setup_type if candidate else SetupType.UNKNOWN
         snapshot = AdmissionSnapshot(

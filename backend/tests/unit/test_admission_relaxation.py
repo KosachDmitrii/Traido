@@ -218,6 +218,46 @@ def test_a_setup_at_floor_uses_ordinary_pipeline() -> None:
     assert admission.decision is not AdmissionDecision.BUY_ALLOWED
 
 
+def test_transient_zone_wait_cannot_hide_setup_below_candidate_floor() -> None:
+    """XLP regression: touching the zone later cannot repair weak setup evidence."""
+    set_entry_aggressiveness(50, actor="test")
+    admission = _admit(
+        setup_q=52,
+        entry_q=70,
+        price=104.0,
+        zone_low=99.0,
+        zone_high=101.0,
+        entry=100.0,
+        stop=95.0,
+        target=110.0,
+        setup_type=SetupType.PULLBACK_CONTINUATION,
+    )
+
+    assert admission.decision is AdmissionDecision.NO_TRADE
+    assert admission.buy_ready is False
+    assert "CANDIDATE_SETUP_BELOW_FLOOR" in admission.reason_codes
+
+
+def test_transient_zone_wait_cannot_hide_plan_below_rr_floor() -> None:
+    """NVDA regression: an invalid plan must not be presented as an opportunity."""
+    set_entry_aggressiveness(50, actor="test")
+    admission = _admit(
+        setup_q=70,
+        entry_q=70,
+        price=227.445,
+        zone_low=213.977,
+        zone_high=220.199,
+        entry=220.199,
+        stop=210.348,
+        target=234.280,
+        setup_type=SetupType.PULLBACK_CONTINUATION,
+    )
+
+    assert admission.decision is AdmissionDecision.NO_TRADE
+    assert admission.buy_ready is False
+    assert "PLANNED_RR_BELOW_BASE_FLOOR" in admission.reason_codes
+
+
 def test_b_small_deficit_compensates_and_continues() -> None:
     """B: setup=52 floor=53, in zone, RR=2.1 → SETUP_COMPENSATED, pipeline continues."""
     result = _comp(setup_score=52, setup_floor=53, rr=2.1)

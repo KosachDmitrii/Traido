@@ -8,6 +8,7 @@ from uuid import uuid4
 from core.enums import EntryDecision, InstrumentThesis, TradeAction
 from core.schemas import TradeCandidate
 from tests.unit.test_entry_timing_f3 import _snap
+from trading.buy_confirmation import BASE_RR_FLOOR
 from trading.entry_quality import decide_entry
 from trading.entry_timing import evaluate_timing
 from trading.entry_watches import EntryWatch, EntryWatchStatus
@@ -52,6 +53,7 @@ def test_wait_levels_anchor_to_zone_not_sma() -> None:
     assert float(plan.entry) == float(bundle.entry_zone_high)
     assert float(plan.stop) < float(bundle.entry_zone_low)
     assert float(plan.target) > float(plan.entry)
+    assert plan.risk_reward >= BASE_RR_FLOOR
 
 
 def test_stale_when_price_passed_target() -> None:

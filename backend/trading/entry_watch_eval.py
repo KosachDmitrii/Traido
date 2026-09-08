@@ -232,13 +232,32 @@ def _revalidate_after_claim(
         watch.thesis,
         facts,
         market=market,
+        technical_score=watch.candidate.technical_score if watch.candidate else None,
         stop_price=float(watch.planned_stop),
         target=target,
     )
+    # setup_quality is thesis/candidate evidence frozen by the latest scanner
+    # refresh.  Revalidation previously rebuilt it without the original news
+    # score (which is not persisted) and could downgrade a valid watch merely
+    # because the second calculation had fewer inputs.  Current structure,
+    # arrival, momentum, volume, VWAP, quote and R:R are still re-evaluated
+    # below from fresh facts.
+    frozen_setup_quality = watch.setup_quality_at_creation
+    if frozen_setup_quality <= 0 and watch.candidate and watch.candidate.setup_quality is not None:
+        frozen_setup_quality = watch.candidate.setup_quality
+    frozen_setup_breakdown = None
+    if watch.candidate and watch.candidate.setup_quality_breakdown:
+        from core.schemas import SetupQualityBreakdown
+
+        frozen_setup_breakdown = SetupQualityBreakdown.model_validate(
+            watch.candidate.setup_quality_breakdown
+        )
     bundle = bundle.model_copy(
         update={
             "entry_zone_low": watch.entry_zone_low,
             "entry_zone_high": watch.entry_zone_high,
+            "setup_quality": frozen_setup_quality,
+            "setup_breakdown": frozen_setup_breakdown or bundle.setup_breakdown,
         }
     )
     pending = unmet_wait_conditions(watch, facts_for_wait, quote=quote)

@@ -27,6 +27,13 @@ _ACTIONABLE = {
     EntryWatchStatus.BLOCKED_DATA,
     EntryWatchStatus.BLOCKED_OPERATIONAL,
 }
+_WAIT_ELIGIBILITY_STATUSES = {
+    EntryWatchStatus.WAITING,
+    EntryWatchStatus.TRIGGERED,
+    EntryWatchStatus.REVALIDATING,
+    EntryWatchStatus.BLOCKED_DATA,
+    EntryWatchStatus.BLOCKED_OPERATIONAL,
+}
 _enabled = False
 _lock = Lock()
 
@@ -76,6 +83,17 @@ def _mark_row_expired(row: EntryWatchRow, *, reason: str) -> None:
     row.status = EntryWatchStatus.EXPIRED.value
     payload = dict(row.payload or {})
     payload["status"] = EntryWatchStatus.EXPIRED.value
+    reasons = list(payload.get("reasons") or [])
+    if reason not in reasons:
+        reasons.append(reason)
+    payload["reasons"] = reasons
+    row.payload = payload
+
+
+def _mark_row_invalidated(row: EntryWatchRow, *, reason: str) -> None:
+    row.status = EntryWatchStatus.INVALIDATED.value
+    payload = dict(row.payload or {})
+    payload["status"] = EntryWatchStatus.INVALIDATED.value
     reasons = list(payload.get("reasons") or [])
     if reason not in reasons:
         reasons.append(reason)
@@ -205,6 +223,28 @@ def hydrate_entry_watches(
                 continue
             if watch.status not in _ACTIONABLE:
                 continue
+            if watch.status in _WAIT_ELIGIBILITY_STATUSES:
+                from trading.wait_candidate import evaluate_wait_candidate_eligibility
+
+                setup_quality = watch.setup_quality_at_creation
+                if (
+                    setup_quality <= 0
+                    and watch.candidate
+                    and watch.candidate.setup_quality is not None
+                ):
+                    setup_quality = watch.candidate.setup_quality
+                eligibility = evaluate_wait_candidate_eligibility(
+                    setup_quality=setup_quality,
+                    entry=watch.planned_entry,
+                    stop=watch.planned_stop,
+                    target=watch.planned_target,
+                )
+                if not eligibility.eligible:
+                    reason = (
+                        eligibility.reason_codes[0] if eligibility.reason_codes else "INVALID_WAIT"
+                    )
+                    _mark_row_invalidated(row, reason=reason)
+                    continue
             existing = target.get(watch.id)
             if (
                 existing is None
@@ -217,6 +257,7 @@ def hydrate_entry_watches(
             ):
                 target.update(watch)
                 loaded += 1
+        session.commit()
     if loaded:
         logger.info("entry watch persistence: hydrated %d watches from DB", loaded)
     return loaded

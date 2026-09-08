@@ -46,6 +46,7 @@ from trading.stop_validation import validate_stop
 from trading.structural_integrity import evaluate_structural_integrity, structure_is_terminal
 from trading.target_validation import validate_target
 from trading.trade_vetoes import vetoes_from_codes
+from trading.wait_candidate import evaluate_wait_candidate_eligibility
 from trading.zone_arrival import ZoneArrivalFacts, zone_arrival_required
 
 ADMISSION_VERSION = "admission@1.1.0"
@@ -482,6 +483,31 @@ def evaluate_trade_admission(
     elif zone_arrival_required(st):
         reason_codes.append("ZONE_ARRIVAL_MISSING")
         vetoes.append("ZONE_ARRIVAL_MISSING")
+
+    # Stable candidate eligibility must run before transient zone/arrival
+    # reasons return WAIT.  Otherwise a setup below the candidate floor (or a
+    # plan below the absolute R:R floor) becomes a watch that can never pass
+    # BUY_READY when it eventually reaches the zone.
+    # When no explicit/candidate entry was supplied, ``ent`` is the live price.
+    # A pullback WAIT, however, is planned at the zone rather than at the
+    # extended live quote, so evaluate its stable geometry at the same zone
+    # boundary used by the watch planner.
+    wait_plan_entry = (
+        entry
+        if entry is not None
+        else candidate.entry
+        if candidate is not None
+        else bundle.entry_zone_high
+        if bundle.entry_zone_high is not None
+        else ent
+    )
+    wait_candidate = evaluate_wait_candidate_eligibility(
+        setup_quality=setup_q,
+        entry=wait_plan_entry,
+        stop=stp,
+        target=tgt,
+    )
+    reason_codes.extend(code for code in wait_candidate.reason_codes if code not in reason_codes)
 
     vetoes = list(dict.fromkeys(vetoes))
     hard = vetoes_from_codes(vetoes + reason_codes)

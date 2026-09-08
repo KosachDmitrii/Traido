@@ -212,3 +212,51 @@ def test_watch_persistence_roundtrip(engine) -> None:
         assert loaded.symbol == "NEM"
     finally:
         configure_entry_watch_persistence(enabled=False)
+
+
+def test_hydration_invalidates_legacy_dead_wait(engine) -> None:
+    """Deploy cleanup: old WAIT rows below stable floors must disappear from the rail."""
+    from database.models.desk import EntryWatchRow
+    from database.session import session_factory
+
+    configure_entry_watch_persistence(enabled=True)
+    try:
+        store = EntryWatchStore()
+        patch_entry_watch_store(store, engine=engine)
+        watch = _watch().model_copy(update={"setup_quality_at_creation": 52})
+        store.update(watch)
+
+        other = EntryWatchStore()
+        assert hydrate_entry_watches(other, engine=engine) == 0
+        assert other.get(watch.id) is None
+
+        SessionLocal = session_factory(engine)
+        with SessionLocal() as session:
+            row = session.get(EntryWatchRow, watch.id)
+            assert row is not None
+            assert row.status == EntryWatchStatus.INVALIDATED.value
+            assert "CANDIDATE_SETUP_BELOW_FLOOR" in row.payload["reasons"]
+    finally:
+        configure_entry_watch_persistence(enabled=False)
+
+
+def test_hydration_does_not_cancel_an_admitted_in_flight_watch(engine) -> None:
+    """Startup cleanup must never rewrite an already admitted capital-path state."""
+    configure_entry_watch_persistence(enabled=True)
+    try:
+        store = EntryWatchStore()
+        patch_entry_watch_store(store, engine=engine)
+        watch = _watch().model_copy(
+            update={
+                "status": EntryWatchStatus.ADMITTED,
+                "setup_quality_at_creation": 0,
+            }
+        )
+        store.update(watch)
+
+        other = EntryWatchStore()
+        assert hydrate_entry_watches(other, engine=engine) == 1
+        assert other.get(watch.id) is not None
+        assert other.get(watch.id).status is EntryWatchStatus.ADMITTED
+    finally:
+        configure_entry_watch_persistence(enabled=False)

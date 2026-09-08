@@ -648,7 +648,7 @@ class EntryWatch(StrictModel):
     required_conditions: list[str] = Field(default_factory=list)
     invalidating_conditions: list[str] = Field(default_factory=list)
     max_spread_bps: float = 30.0
-    minimum_reward_risk: float = 1.4
+    minimum_reward_risk: float = 1.45
     entry_quality_at_creation: int = Field(ge=0, le=100)
     setup_type: SetupType = SetupType.UNKNOWN
     setup_quality_at_creation: int = Field(ge=0, le=100, default=0)
