@@ -14,6 +14,7 @@ from core.enums import (
     AdmissionDecision,
     DataHealthStatus,
     RiskVerdict,
+    TargetReachabilityClass,
     TradeAction,
 )
 from core.schemas import PipelineResult, PortfolioSnapshot, RiskDecision, TradeCandidate
@@ -33,6 +34,8 @@ def _candidate() -> TradeCandidate:
         risk_reward=2.0,
         reasons=["test"],
         strategy_version="test@1",
+        target_model="structure",
+        target_reachability=TargetReachabilityClass.REALISTIC,
     )
 
 
@@ -104,4 +107,41 @@ async def test_missing_sector_never_creates_actionable_opportunity(
     assert result.status == "data_blocked"
     assert result.opportunity is None
     assert result.errors == ["SECTOR_METADATA_MISSING", "SECTOR_ASSESSMENT_MISSING"]
+    assert created == []
+
+
+@pytest.mark.asyncio
+async def test_missing_target_metadata_never_creates_actionable_opportunity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    created: list[str] = []
+    monkeypatch.setattr("trading.pipeline.OPPORTUNITIES.list_open", list)
+    monkeypatch.setattr(
+        "trading.pipeline.OPPORTUNITIES.create",
+        lambda *_args, **_kwargs: created.append("created"),
+    )
+    candidate = _candidate().model_copy(
+        update={"target_model": None, "target_reachability": None}
+    )
+    risk = _risk()
+
+    result = await publish_opportunity(
+        PipelineResult(
+            pipeline_run_id=uuid4(),
+            symbol="CNQ",
+            status="risk_passed",
+            candidate=candidate,
+            risk=risk,
+        ),
+        risk,
+        settings=Settings(),
+        admission=SimpleNamespace(
+            decision=AdmissionDecision.BUY_ALLOWED,
+            admitted=True,
+            data_status=DataHealthStatus.HEALTHY,
+        ),  # type: ignore[arg-type]
+    )
+
+    assert result.status == "admission_required"
+    assert result.errors == ["TARGET_PLAN_REQUIRED"]
     assert created == []

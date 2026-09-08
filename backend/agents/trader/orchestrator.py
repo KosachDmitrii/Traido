@@ -99,6 +99,7 @@ def _build_candidate(bundle: TraderBundle, *, run_id: UUID) -> TradeCandidate:
     news = bundle.news
     assert plan is not None and tech is not None and market is not None and news is not None
     entry_bundle = getattr(bundle, "_entry_decision", None)
+    target_plan = entry_bundle.target if entry_bundle is not None else None
     reasons = [
         f"desk={DESK_VERSION}",
         *[r for s in bundle.steps for r in s.reasons[:2]],
@@ -127,6 +128,8 @@ def _build_candidate(bundle: TraderBundle, *, run_id: UUID) -> TradeCandidate:
         chase_reasons=list(entry_bundle.chase_reasons) if entry_bundle is not None else [],
         entry_zone_low=entry_bundle.entry_zone_low if entry_bundle is not None else None,
         entry_zone_high=entry_bundle.entry_zone_high if entry_bundle is not None else None,
+        target_model=target_plan.model if target_plan is not None else None,
+        target_reachability=target_plan.reachability if target_plan is not None else None,
         session_cohort=getattr(getattr(bundle, "_entry_facts", None), "session_cohort", None),
         entry_quality_breakdown=(
             entry_bundle.breakdown.as_dict() if entry_bundle is not None else {}
@@ -286,16 +289,10 @@ async def run_trader_desk(
             from dataclasses import replace
             from decimal import Decimal
 
-            from trading.target_model import build_target_plan
             from trading.wait_plan import derive_wait_levels
 
             wait_levels = derive_wait_levels(entry_bundle)
-            tp = build_target_plan(
-                entry=wait_levels.entry,
-                stop=wait_levels.stop,
-                facts=entry_bundle.facts,
-                min_rr=2.0,
-            )
+            tp = wait_levels.target_plan
             bundle._planned = (
                 float(wait_levels.entry),
                 float(wait_levels.stop),

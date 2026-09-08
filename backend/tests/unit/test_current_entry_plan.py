@@ -139,6 +139,10 @@ def test_current_buy_geometry_survives_full_trade_admission(monkeypatch) -> None
     assert entry_step.detail == "BUY_NOW"
     assert run_risk_plan(bundle).ok
     candidate = _build_candidate(bundle, run_id=uuid4())
+    assert bundle._entry_decision is not None
+    assert bundle._entry_decision.target is not None
+    assert candidate.target_model == bundle._entry_decision.target.model
+    assert candidate.target_reachability == bundle._entry_decision.target.reachability
     arrival = ZoneArrivalFacts(
         score=80,
         arrival_type=ArrivalType.HEALTHY_PULLBACK,

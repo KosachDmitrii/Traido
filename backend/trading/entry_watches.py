@@ -157,6 +157,8 @@ class EntryWatchStore:
                     "risk_reward": plan.risk_reward,
                     "entry_zone_low": bundle.entry_zone_low,
                     "entry_zone_high": bundle.entry_zone_high,
+                    "target_model": plan.target_plan.model,
+                    "target_reachability": plan.target_plan.reachability,
                 }
             )
         assert bundle.entry_zone_low is not None and bundle.entry_zone_high is not None

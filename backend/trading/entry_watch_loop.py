@@ -17,7 +17,7 @@ from core.audit import create_audit
 from core.config import Settings, get_settings
 from core.desk_bus import DESK_BUS
 from core.enums import EntryDecision, EntryWatchStatus, RiskVerdict, Timeframe
-from core.schemas import EntryWatch, PipelineResult, Quote, TradeAdmissionResult
+from core.schemas import EntryWatch, PipelineResult, Quote, TargetPlan, TradeAdmissionResult
 from market_data.factory import create_market_data_port
 from quant.engine import compute_features
 from risk.context_builder import build_risk_context
@@ -26,7 +26,7 @@ from risk.risk_engine import RiskEngine
 from trading.entry_watch_eval import (
     build_candidate_from_revalidation,
     observe_price,
-    revalidate_triggered_watch,
+    revalidate_triggered_watch_full,
 )
 from trading.entry_watches import ENTRY_WATCHES
 from trading.historical_mfe import ensure_seeded_from_aftermath, sync_from_paper_journal
@@ -308,12 +308,17 @@ async def run_watch_pass() -> dict[str, int]:
             ENTRY_WATCHES.update(cached)
             current = ENTRY_WATCHES.get(current.id) or current
 
-            decision, admission = revalidate_triggered_watch(
+            revalidation = revalidate_triggered_watch_full(
                 current,
                 exec_snap=snap,
                 quote=q,
                 bars=bars_h1,
             )
+            if revalidation is None:
+                stats["invalidated"] += 1
+                continue
+            decision = revalidation.entry_decision
+            admission = revalidation.admission
             if decision is EntryDecision.NO_TRADE:
                 stats["invalidated"] += 1
                 continue
@@ -330,6 +335,7 @@ async def run_watch_pass() -> dict[str, int]:
                 price=price,
                 quote=q,
                 admission=admission,
+                target_plan=revalidation.target_plan,
             )
 
         except Exception:
@@ -353,6 +359,7 @@ async def _convert_admitted_watch(
     price: float,
     quote: Quote | None,
     admission: TradeAdmissionResult | None = None,
+    target_plan: TargetPlan | None = None,
 ) -> None:
     """ADMITTED → CONVERTING → publish opportunity → CONVERTED.
 
@@ -387,6 +394,7 @@ async def _convert_admitted_watch(
             stats,
             quote=quote,
             admission=admission,
+            target_plan=target_plan,
         )
     finally:
         latest = ENTRY_WATCHES.get(current.id)
@@ -404,6 +412,7 @@ async def _publish_admitted_watch(
     *,
     quote: Quote | None,
     admission: TradeAdmissionResult,
+    target_plan: TargetPlan | None = None,
 ) -> None:
     """CONVERTING → publish or fail. Caller holds and releases the admission claim."""
     from core.enums import EntryWatchStatus
@@ -429,7 +438,11 @@ async def _publish_admitted_watch(
         return
 
     revalidation = build_candidate_from_revalidation(
-        current, base=base, admission=admission, quote=q
+        current,
+        base=base,
+        admission=admission,
+        quote=q,
+        target_plan=target_plan,
     )
 
     if revalidation.candidate is None:

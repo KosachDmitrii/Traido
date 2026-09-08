@@ -236,6 +236,11 @@ def test_build_candidate_matches_full_admission_geometry() -> None:
         admission=admission,
         quote=quote,
         geometry=geometry,
+        target_plan=TargetPlan(
+            price=Decimal(str(recalc_target)),
+            model="structure",
+            reachability=TargetReachabilityClass.REALISTIC,
+        ),
     )
     assert result.candidate is not None
     built = result.candidate
@@ -248,6 +253,8 @@ def test_build_candidate_matches_full_admission_geometry() -> None:
     assert normalize_geometry_price(built.target) == normalize_geometry_price(
         admission.snapshot.target_at_creation
     )
+    assert built.target_model == "structure"
+    assert built.target_reachability is TargetReachabilityClass.REALISTIC
     assert (
         geometry_hash_from_candidate(built, exec_timeframe=watch.exec_timeframe)
         == geometry.geometry_hash

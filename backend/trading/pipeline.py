@@ -41,7 +41,7 @@ from risk.limits import default_risk_limits
 from risk.risk_engine import RiskEngine
 from trading.decision_outcome import DECISION_OUTCOMES
 from trading.entry_watches import ENTRY_WATCHES
-from trading.opportunities import OPPORTUNITIES, _write_payload
+from trading.opportunities import OPPORTUNITIES, _write_payload, withdraw_unactionable
 from trading.pre_watch_eligibility import evaluate_pre_watch_eligibility
 from trading.scan_context import ScanContext, open_scan_context
 from trading.shadow_policy import record_shadow_async
@@ -222,19 +222,13 @@ async def run_symbol_pipeline(
             and bundle.entry_zone_low is not None
             and bundle.entry_zone_high is not None
         ):
-            from trading.target_model import build_target_plan
             from trading.wait_plan import derive_wait_levels
 
             wait_levels = derive_wait_levels(bundle, candidate)
             adm_entry = wait_levels.entry
             adm_stop = wait_levels.stop
             adm_target = wait_levels.target
-            adm_target_plan = build_target_plan(
-                entry=wait_levels.entry,
-                stop=wait_levels.stop,
-                facts=bundle.facts,
-                min_rr=2.0,
-            )
+            adm_target_plan = wait_levels.target_plan
             adm_target = adm_target_plan.price
             stop_model = "structure"
             stop_source = "entry_zone_low"
@@ -245,6 +239,8 @@ async def run_symbol_pipeline(
                     "stop": wait_levels.stop,
                     "target": adm_target,
                     "risk_reward": wait_levels.risk_reward,
+                    "target_model": adm_target_plan.model,
+                    "target_reachability": adm_target_plan.reachability,
                 }
             )
             result = result.model_copy(update={"candidate": candidate})
@@ -585,8 +581,23 @@ async def publish_opportunity(
     symbol = result.candidate.symbol
     audit = create_audit()
 
+    if (
+        result.candidate.target_model is None
+        or result.candidate.target_reachability is None
+    ):
+        return result.model_copy(
+            update={
+                "status": "admission_required",
+                "opportunity": None,
+                "errors": ["TARGET_PLAN_REQUIRED"],
+            }
+        )
+
     # Re-checked at publish time: ranking happens after a full pass, and the
     # symbol may have gained a proposal while the rest of the universe scanned.
+    # Clear terminal legacy cards first; otherwise their partial unique row can
+    # prevent the repaired candidate from replacing them.
+    withdraw_unactionable(OPPORTUNITIES)
     existing = [o for o in OPPORTUNITIES.list_open() if o.candidate.symbol == symbol.upper()]
     if existing:
         return result.model_copy(

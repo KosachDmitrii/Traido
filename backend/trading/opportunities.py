@@ -332,7 +332,9 @@ def withdraw_unactionable(store: Any = None) -> int:
     and a symbol that gained a position after its card was written kept offering
     an entry that `POSITION_ALREADY_OPEN` was certain to refuse. Three of the
     five queue slots were held that way, and at five the scanner stops looking
-    for real ideas altogether — dead cards were crowding out live ones.
+    for real ideas altogether — dead cards were crowding out live ones. A card
+    without target-model provenance is equally terminal: final admission can
+    never reproduce its target plan, so it must be replaced by a fresh scan.
 
     Only durable facts are swept. A wide spread, a moved price or a closed
     session all refuse an entry too, and all of them come back: withdrawing on
@@ -356,6 +358,12 @@ def withdraw_unactionable(store: Any = None) -> int:
         if expires is not None and now > expires:
             to_status = OpportunityStatus.EXPIRED
             why = "proposal is past its hour"
+        elif (
+            opp.candidate.target_model is None
+            or opp.candidate.target_reachability is None
+        ):
+            to_status = OpportunityStatus.DISCARDED
+            why = "proposal has no reproducible target plan"
         elif LEDGER.find_open_by_symbol(symbol) is not None:
             to_status = OpportunityStatus.DISCARDED
             why = "position already open in this symbol"

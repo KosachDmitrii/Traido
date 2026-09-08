@@ -18,6 +18,7 @@ import pytest
 from core.enums import (
     OpportunityStatus,
     RiskVerdict,
+    TargetReachabilityClass,
     TradeAction,
     TradingMode,
 )
@@ -37,6 +38,8 @@ def _candidate(symbol: str) -> TradeCandidate:
         confidence=0.7,
         reasons=["pullback"],
         strategy_version="test",
+        target_model="structure",
+        target_reachability=TargetReachabilityClass.REALISTIC,
     )
 
 
@@ -117,6 +120,17 @@ def test_a_card_for_a_symbol_now_held_is_taken_down(held):
     assert store.get(doomed.id).status is OpportunityStatus.DISCARDED
     assert store.get(live.id).status is OpportunityStatus.AWAITING_CONFIRMATION
     assert [o.candidate.symbol for o in store.list_open()] == ["ADBE"]
+
+
+def test_a_card_without_reproducible_target_plan_is_taken_down(held):
+    store = MemoryOpportunityStore()
+    incomplete = _candidate("CNQ").model_copy(
+        update={"target_model": None, "target_reachability": None}
+    )
+    card = store.create(incomplete, _risk(), TradingMode.CONFIRMATION)
+
+    assert withdraw_unactionable(store) == 1
+    assert store.get(card.id).status is OpportunityStatus.DISCARDED
 
 
 def test_a_card_the_operator_is_already_pressing_is_not_yanked(held):

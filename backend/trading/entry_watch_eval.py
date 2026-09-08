@@ -19,6 +19,7 @@ from core.schemas import (
     MarketAssessment,
     Quote,
     StopPlan,
+    TargetPlan,
     TradeAdmissionResult,
     TradeCandidate,
     WatchRevalidationResult,
@@ -386,6 +387,7 @@ def _revalidate_after_claim(
             admission=admission,
             quote=quote,
             geometry=exec_geometry,
+            target_plan=target,
         )
         if built.candidate is None:
             return None
@@ -468,6 +470,7 @@ def build_candidate_from_revalidation(
     admission: TradeAdmissionResult,
     quote: Quote,
     geometry: ExecutionGeometry | None = None,
+    target_plan: TargetPlan | None = None,
 ) -> RevalidationBuildResult:
     """Immutable candidate from fresh revalidation — never reuse stale geometry."""
     if admission.decision is not AdmissionDecision.BUY_ALLOWED or not admission.admitted:
@@ -493,6 +496,10 @@ def build_candidate_from_revalidation(
         return RevalidationBuildResult(None, "REVALIDATION_GEOMETRY_MISMATCH")
 
     snap = admission.snapshot
+    target_model = target_plan.model if target_plan is not None else base.target_model
+    target_reachability = (
+        target_plan.reachability if target_plan is not None else base.target_reachability
+    )
     candidate = base.model_copy(
         update={
             "entry_decision": EntryDecision.BUY_NOW,
@@ -505,6 +512,8 @@ def build_candidate_from_revalidation(
             "admission_version": admission.admission_version,
             "admission_snapshot": snap.model_dump(mode="json"),
             "effective_rr_at_creation": geometry.effective_rr,
+            "target_model": target_model,
+            "target_reachability": target_reachability,
             "pipeline_run_id": uuid4(),
             "market_label": base.market_label,
             "reasons": [

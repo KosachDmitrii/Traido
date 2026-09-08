@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from core.schemas import EntryDecisionBundle, EntryWatch, TradeCandidate
+from core.schemas import EntryDecisionBundle, EntryWatch, TargetPlan, TradeCandidate
 from trading.entry_watches import REWARD_RISK_DROPPED
 from trading.historical_mfe import lookup_mfe
 from trading.target_model import build_target_plan
@@ -17,6 +17,7 @@ class WaitPlanLevels:
     stop: Decimal
     target: Decimal
     risk_reward: float
+    target_plan: TargetPlan
 
 
 def derive_wait_levels(
@@ -65,6 +66,7 @@ def derive_wait_levels(
         stop=stop,
         target=target,
         risk_reward=round(rr, 2),
+        target_plan=target_plan,
     )
 
 
