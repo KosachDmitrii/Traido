@@ -21,7 +21,7 @@ from strategy import StrategyPromotionStage
 # Desk confirmation strategy — stamped onto every candidate / journal row.
 # Same key for paper and live; broker environment is orthogonal.
 LIVE_STRATEGY_NAME = "trader_desk"
-LIVE_STRATEGY_TAG = "1.2.0"
+LIVE_STRATEGY_TAG = "1.3.0"
 LIVE_STRATEGY_KEY = f"{LIVE_STRATEGY_NAME}@{LIVE_STRATEGY_TAG}"
 
 # Legacy confluence key kept registered so old journal rows still promote.
@@ -38,6 +38,7 @@ LIVE_PARAMETERS: dict[str, Any] = {
     "min_risk_reward": 2.0,
     "thesis": "bullish_multi_tf",
     "entry_model": "f3",
+    "current_entry_model": "near_sma20_with_atr_cap",
     "timeframes": ["1d", "4h", "1h", "15m"],
     "setups": [
         "pullback_continuation",

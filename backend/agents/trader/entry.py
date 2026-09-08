@@ -6,11 +6,13 @@ from decimal import Decimal
 
 from agents.trader.types import StepResult, TraderBundle, TraderStep
 from core.enums import EntryDecision, InstrumentThesis, SessionCohort, Timeframe
+from trading.current_entry_plan import current_entry_is_eligible, current_entry_zone
+from trading.entry_policy import get_candidate_thresholds
 from trading.entry_quality import decide_entry
 from trading.entry_timing import evaluate_timing
 from trading.target_model import build_target_plan
 
-PROMPT_VERSION = "trader.entry@1.1.0"
+PROMPT_VERSION = "trader.entry@1.2.0"
 
 
 def run_entry(bundle: TraderBundle) -> StepResult:
@@ -51,8 +53,21 @@ def run_entry(bundle: TraderBundle) -> StepResult:
         return result
     atr_f = float(atr)
     sma20 = exec_snap.indicators.get("sma_20")
-    if isinstance(sma20, (int, float)) and 0 < sma20 <= close:
-        planned_entry = float(sma20)
+    sma20_f = float(sma20) if isinstance(sma20, (int, float)) else None
+    # Current-entry geometry is candidate discovery, so it stays fixed at the
+    # Medium policy. The operator slider is applied later by ``decide_entry``
+    # only to the final buy confirmation.
+    thresholds = get_candidate_thresholds()
+    use_current_entry = current_entry_is_eligible(
+        price=float(close),
+        sma20=sma20_f,
+        atr=atr_f,
+        thresholds=thresholds,
+    )
+    if use_current_entry:
+        planned_entry = float(close)
+    elif sma20_f is not None and 0 < sma20_f <= close:
+        planned_entry = sma20_f
     else:
         planned_entry = float(close)
     planned_stop = planned_entry - 1.5 * atr_f
@@ -107,6 +122,19 @@ def run_entry(bundle: TraderBundle) -> StepResult:
         target=target_plan,
         stop_price=float(stop_d),
     )
+    if use_current_entry and decision.entry_decision is EntryDecision.BUY_NOW:
+        zone_low, zone_high = current_entry_zone(
+            price=float(close),
+            atr=atr_f,
+            thresholds=thresholds,
+        )
+        decision = decision.model_copy(
+            update={
+                "entry_zone_low": zone_low,
+                "entry_zone_high": zone_high,
+                "reasons": [*decision.reasons, "CURRENT_ENTRY_NEAR_SMA20"],
+            }
+        )
 
     bundle._entry_facts = facts
     bundle._planned = (
