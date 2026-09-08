@@ -120,9 +120,7 @@ async def test_missing_target_metadata_never_creates_actionable_opportunity(
         "trading.pipeline.OPPORTUNITIES.create",
         lambda *_args, **_kwargs: created.append("created"),
     )
-    candidate = _candidate().model_copy(
-        update={"target_model": None, "target_reachability": None}
-    )
+    candidate = _candidate().model_copy(update={"target_model": None, "target_reachability": None})
     risk = _risk()
 
     result = await publish_opportunity(

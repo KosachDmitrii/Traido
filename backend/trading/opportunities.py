@@ -358,10 +358,7 @@ def withdraw_unactionable(store: Any = None) -> int:
         if expires is not None and now > expires:
             to_status = OpportunityStatus.EXPIRED
             why = "proposal is past its hour"
-        elif (
-            opp.candidate.target_model is None
-            or opp.candidate.target_reachability is None
-        ):
+        elif opp.candidate.target_model is None or opp.candidate.target_reachability is None:
             to_status = OpportunityStatus.DISCARDED
             why = "proposal has no reproducible target plan"
         elif LEDGER.find_open_by_symbol(symbol) is not None:

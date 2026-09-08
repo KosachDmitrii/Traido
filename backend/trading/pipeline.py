@@ -581,10 +581,7 @@ async def publish_opportunity(
     symbol = result.candidate.symbol
     audit = create_audit()
 
-    if (
-        result.candidate.target_model is None
-        or result.candidate.target_reachability is None
-    ):
+    if result.candidate.target_model is None or result.candidate.target_reachability is None:
         return result.model_copy(
             update={
                 "status": "admission_required",
