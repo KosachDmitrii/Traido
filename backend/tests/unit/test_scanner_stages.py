@@ -200,6 +200,58 @@ def test_a_trending_name_scores_above_a_flat_one() -> None:
     assert strong.quant_score > flat.quant_score
 
 
+def test_pullback_ready_name_outranks_extended_momentum_name() -> None:
+    """The expensive top-K must feed the active pullback strategy."""
+    extended = _bars("EXTD", drift=0.008)
+    ready = _bars("REDY", drift=0.004)
+    prior = [float(bar.close) for bar in ready[-20:-1]]
+    pullback_close = sum(prior) / len(prior)
+    ready[-1] = ready[-1].model_copy(
+        update={
+            "open": Decimal(str(round(pullback_close * 0.995, 4))),
+            "high": Decimal(str(round(pullback_close * 1.01, 4))),
+            "low": Decimal(str(round(pullback_close * 0.99, 4))),
+            "close": Decimal(str(round(pullback_close, 4))),
+        }
+    )
+
+    outcome = prerank(
+        [_instrument("EXTD"), _instrument("REDY")],
+        {"EXTD": extended, "REDY": ready},
+        top_k=1,
+        now=NOW,
+    )
+
+    assert outcome.shortlist[0].symbol == "REDY"
+    assert outcome.shortlist[0].features["pullback_readiness_tier"] == 0
+    assert outcome.outranked[0].features["pullback_readiness_tier"] == 2
+
+
+def test_daily_pullback_proxy_cannot_monopolise_the_shortlist() -> None:
+    """H1 decides entry, so Stage 2 retains room for a strong non-ready D1 name."""
+    bars = {
+        "EXTD": _bars("EXTD", drift=0.008),
+        "RDY1": _bars("RDY1", drift=0.004),
+        "RDY2": _bars("RDY2", drift=0.003),
+    }
+    for symbol in ("RDY1", "RDY2"):
+        prior = [float(bar.close) for bar in bars[symbol][-20:-1]]
+        pullback_close = sum(prior) / len(prior)
+        bars[symbol][-1] = bars[symbol][-1].model_copy(
+            update={"close": Decimal(str(round(pullback_close, 4)))}
+        )
+
+    outcome = prerank(
+        [_instrument(symbol) for symbol in bars],
+        bars,
+        top_k=2,
+        now=NOW,
+    )
+
+    assert outcome.shortlist[0].symbol in {"RDY1", "RDY2"}
+    assert "EXTD" in {candidate.symbol for candidate in outcome.shortlist}
+
+
 def test_a_name_without_enough_history_is_not_scored_optimistically() -> None:
     """A 50-day trend measured on 20 bars is a 20-day trend wearing a label."""
     result = score_candidate(_instrument(), _bars("AAAA", count=20), PrerankPolicy(), now=NOW)

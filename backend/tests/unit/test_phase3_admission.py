@@ -214,8 +214,8 @@ def test_watch_persistence_roundtrip(engine) -> None:
         configure_entry_watch_persistence(enabled=False)
 
 
-def test_hydration_invalidates_legacy_dead_wait(engine) -> None:
-    """Deploy cleanup: old WAIT rows below stable floors must disappear from the rail."""
+def test_hydration_invalidates_legacy_wait_with_dead_geometry(engine) -> None:
+    """Deploy cleanup rejects objective geometry failures, not dynamic scores."""
     from database.models.desk import EntryWatchRow
     from database.session import session_factory
 
@@ -223,7 +223,7 @@ def test_hydration_invalidates_legacy_dead_wait(engine) -> None:
     try:
         store = EntryWatchStore()
         patch_entry_watch_store(store, engine=engine)
-        watch = _watch().model_copy(update={"setup_quality_at_creation": 52})
+        watch = _watch().model_copy(update={"planned_target": Decimal(114)})
         store.update(watch)
 
         other = EntryWatchStore()
@@ -235,7 +235,7 @@ def test_hydration_invalidates_legacy_dead_wait(engine) -> None:
             row = session.get(EntryWatchRow, watch.id)
             assert row is not None
             assert row.status == EntryWatchStatus.INVALIDATED.value
-            assert "CANDIDATE_SETUP_BELOW_FLOOR" in row.payload["reasons"]
+            assert "PLANNED_RR_BELOW_BASE_FLOOR" in row.payload["reasons"]
     finally:
         configure_entry_watch_persistence(enabled=False)
 

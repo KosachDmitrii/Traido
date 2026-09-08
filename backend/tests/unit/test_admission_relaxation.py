@@ -218,8 +218,8 @@ def test_a_setup_at_floor_uses_ordinary_pipeline() -> None:
     assert admission.decision is not AdmissionDecision.BUY_ALLOWED
 
 
-def test_transient_zone_wait_cannot_hide_setup_below_candidate_floor() -> None:
-    """XLP regression: touching the zone later cannot repair weak setup evidence."""
+def test_price_sensitive_setup_below_floor_can_wait_outside_zone() -> None:
+    """XLP regression: support/retracement quality may improve at the zone."""
     set_entry_aggressiveness(50, actor="test")
     admission = _admit(
         setup_q=52,
@@ -231,6 +231,25 @@ def test_transient_zone_wait_cannot_hide_setup_below_candidate_floor() -> None:
         stop=95.0,
         target=110.0,
         setup_type=SetupType.PULLBACK_CONTINUATION,
+    )
+
+    assert admission.decision is AdmissionDecision.WAIT
+    assert admission.buy_ready is False
+    assert "ENTRY_OUTSIDE_ALLOWED_ZONE" in admission.reason_codes
+
+
+def test_setup_below_candidate_floor_still_cannot_buy_inside_zone() -> None:
+    set_entry_aggressiveness(100, actor="test")
+    admission = _admit(
+        setup_q=52,
+        entry_q=70,
+        price=100.0,
+        zone_low=99.0,
+        zone_high=101.0,
+        entry=100.0,
+        stop=95.0,
+        target=110.0,
+        setup_type=SetupType.BREAKOUT_CONTINUATION,
     )
 
     assert admission.decision is AdmissionDecision.NO_TRADE

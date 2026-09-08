@@ -226,15 +226,7 @@ def hydrate_entry_watches(
             if watch.status in _WAIT_ELIGIBILITY_STATUSES:
                 from trading.wait_candidate import evaluate_wait_candidate_eligibility
 
-                setup_quality = watch.setup_quality_at_creation
-                if (
-                    setup_quality <= 0
-                    and watch.candidate
-                    and watch.candidate.setup_quality is not None
-                ):
-                    setup_quality = watch.candidate.setup_quality
                 eligibility = evaluate_wait_candidate_eligibility(
-                    setup_quality=setup_quality,
                     entry=watch.planned_entry,
                     stop=watch.planned_stop,
                     target=watch.planned_target,

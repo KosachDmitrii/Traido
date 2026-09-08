@@ -14,7 +14,7 @@ from database.session import init_db
 from tests.unit.test_entry_timing_f3 import _snap
 from trading.entry_quality import decide_entry
 from trading.entry_timing import evaluate_timing
-from trading.entry_watches import EntryWatchStore, InvalidWaitCandidateError
+from trading.entry_watches import EntryWatchStore
 
 
 @pytest.fixture
@@ -66,13 +66,15 @@ def test_second_wait_for_same_symbol_refreshes_instead_of_stacking() -> None:
     assert len(store.list_open()) == 1
 
 
-def test_store_rejects_wait_that_can_never_pass_candidate_floor() -> None:
+def test_store_keeps_price_sensitive_setup_for_fresh_revalidation() -> None:
     store = EntryWatchStore()
     bundle, candidate = _bundle_and_candidate("XLP")
     bundle = bundle.model_copy(update={"setup_quality": 54})
 
-    with pytest.raises(InvalidWaitCandidateError, match="CANDIDATE_SETUP_BELOW_FLOOR"):
-        store.create_from_bundle(candidate, bundle)
+    watch = store.create_from_bundle(candidate, bundle)
+
+    assert watch.setup_quality_at_creation == 54
+    assert watch.status is EntryWatchStatus.WAITING
 
 
 def test_list_open_collapses_legacy_duplicates() -> None:

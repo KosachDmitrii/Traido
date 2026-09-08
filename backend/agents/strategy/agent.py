@@ -18,6 +18,10 @@ from core.schemas import (
     TechnicalAssessment,
     TradeCandidate,
 )
+from strategy.pullback_policy import (
+    PULLBACK_MAX_ABOVE_SMA_FRACTION,
+    PULLBACK_NEAR_SMA_FRACTION,
+)
 
 # Registered in strategy.registry (Stage 8). Do not change parameters without a new tag.
 from strategy.registry import LIVE_STRATEGY_KEY as STRATEGY_VERSION
@@ -75,9 +79,9 @@ def _confluence(
 
     if isinstance(sma20, (int, float)) and sma20 > 0:
         dist = abs(close - sma20) / sma20
-        if dist <= 0.025:
+        if dist <= PULLBACK_NEAR_SMA_FRACTION:
             reasons.append(f"Pullback near SMA20 ({dist * 100:.1f}%)")
-        elif close > sma20 * 1.04:
+        elif close > sma20 * (1.0 + PULLBACK_MAX_ABOVE_SMA_FRACTION):
             reasons.append("Extended >4% above SMA20 — reject chase")
             return False, reasons, exec_tf
         else:

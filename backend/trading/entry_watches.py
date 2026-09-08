@@ -44,7 +44,7 @@ DEFAULT_INVALIDATING = [
 
 
 class InvalidWaitCandidateError(ValueError):
-    """Stable candidate facts cannot support an actionable WAIT plan."""
+    """Entry/stop/target geometry cannot support an actionable WAIT plan."""
 
 
 class EntryWatchStore:
@@ -118,7 +118,6 @@ class EntryWatchStore:
         from trading.wait_candidate import evaluate_wait_candidate_eligibility
 
         eligibility = evaluate_wait_candidate_eligibility(
-            setup_quality=bundle.setup_quality,
             entry=plan.entry,
             stop=plan.stop,
             target=plan.target,

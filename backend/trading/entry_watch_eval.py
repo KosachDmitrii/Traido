@@ -41,6 +41,7 @@ from trading.execution_geometry import (
     executable_geometry_for_watch,
     validate_geometry_against_admission_snapshot,
 )
+from trading.setup_revalidation import merge_revalidated_setup
 from trading.target_model import build_target_plan
 from trading.trade_admission import evaluate_trade_admission
 from trading.wait_conditions import TRANSIENT_TRIGGER_CONDITIONS, unmet_wait_conditions
@@ -236,28 +237,15 @@ def _revalidate_after_claim(
         stop_price=float(watch.planned_stop),
         target=target,
     )
-    # setup_quality is thesis/candidate evidence frozen by the latest scanner
-    # refresh.  Revalidation previously rebuilt it without the original news
-    # score (which is not persisted) and could downgrade a valid watch merely
-    # because the second calculation had fewer inputs.  Current structure,
-    # arrival, momentum, volume, VWAP, quote and R:R are still re-evaluated
-    # below from fresh facts.
-    frozen_setup_quality = watch.setup_quality_at_creation
-    if frozen_setup_quality <= 0 and watch.candidate and watch.candidate.setup_quality is not None:
-        frozen_setup_quality = watch.candidate.setup_quality
-    frozen_setup_breakdown = None
-    if watch.candidate and watch.candidate.setup_quality_breakdown:
-        from core.schemas import SetupQualityBreakdown
-
-        frozen_setup_breakdown = SetupQualityBreakdown.model_validate(
-            watch.candidate.setup_quality_breakdown
-        )
+    persisted_setup = watch.candidate.setup_quality_breakdown if watch.candidate else None
+    assert bundle.setup_breakdown is not None
+    revalidated_setup = merge_revalidated_setup(bundle.setup_breakdown, persisted_setup)
     bundle = bundle.model_copy(
         update={
             "entry_zone_low": watch.entry_zone_low,
             "entry_zone_high": watch.entry_zone_high,
-            "setup_quality": frozen_setup_quality,
-            "setup_breakdown": frozen_setup_breakdown or bundle.setup_breakdown,
+            "setup_quality": revalidated_setup.total,
+            "setup_breakdown": revalidated_setup,
         }
     )
     pending = unmet_wait_conditions(watch, facts_for_wait, quote=quote)

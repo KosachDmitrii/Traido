@@ -484,10 +484,10 @@ def evaluate_trade_admission(
         reason_codes.append("ZONE_ARRIVAL_MISSING")
         vetoes.append("ZONE_ARRIVAL_MISSING")
 
-    # Stable candidate eligibility must run before transient zone/arrival
-    # reasons return WAIT.  Otherwise a setup below the candidate floor (or a
-    # plan below the absolute R:R floor) becomes a watch that can never pass
-    # BUY_READY when it eventually reaches the zone.
+    # Stable geometry eligibility must run before transient zone/arrival
+    # reasons return WAIT. Setup and entry scores are deliberately excluded:
+    # their support, retracement, volume and price-location inputs change when
+    # a pullback reaches the zone and are recalculated during revalidation.
     # When no explicit/candidate entry was supplied, ``ent`` is the live price.
     # A pullback WAIT, however, is planned at the zone rather than at the
     # extended live quote, so evaluate its stable geometry at the same zone
@@ -502,7 +502,6 @@ def evaluate_trade_admission(
         else ent
     )
     wait_candidate = evaluate_wait_candidate_eligibility(
-        setup_quality=setup_q,
         entry=wait_plan_entry,
         stop=stp,
         target=tgt,

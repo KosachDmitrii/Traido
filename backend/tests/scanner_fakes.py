@@ -210,6 +210,19 @@ class FakeMarketData:
                     source=self.source,
                 )
             )
+        if symbol == self.strongest:
+            # Strong trend plus a current pullback, matching the strategy the
+            # pre-ranker is meant to feed instead of a parabolic last print.
+            prior = [float(bar.close) for bar in out[-20:-1]]
+            pullback_close = sum(prior) / len(prior)
+            out[-1] = out[-1].model_copy(
+                update={
+                    "open": Decimal(str(round(pullback_close * 0.995, 4))),
+                    "high": Decimal(str(round(pullback_close * 1.01, 4))),
+                    "low": Decimal(str(round(pullback_close * 0.99, 4))),
+                    "close": Decimal(str(round(pullback_close, 4))),
+                }
+            )
         return out
 
     async def get_daily_bars_batch(

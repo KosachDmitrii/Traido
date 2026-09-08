@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from core.schemas import Bar
+from strategy.pullback_policy import pullback_readiness
 from universe.models import Instrument
 
 MIN_BARS = 60
@@ -67,7 +68,8 @@ class PrerankPolicy:
     trend_weight: float = 0.35
     momentum_weight: float = 0.30
     relative_volume_weight: float = 0.20
-    proximity_weight: float = 0.15
+    entry_readiness_weight: float = 0.15
+    entry_ready_share: float = 0.60
 
 
 @dataclass
@@ -131,8 +133,6 @@ def score_candidate(
 
     closes = [float(b.close) for b in ordered]
     volumes = [float(b.volume) for b in ordered]
-    highs = [float(b.high) for b in ordered]
-    lows = [float(b.low) for b in ordered]
 
     if any(c <= 0 for c in closes[-policy.min_bars :]):
         return QuantCandidate(
@@ -144,6 +144,7 @@ def score_candidate(
 
     last = closes[-1]
     sma50 = _sma(closes, 50)
+    sma20 = _sma(closes, 20)
     avg_vol20 = _sma(volumes, 20) or 0.0
     avg_dollar_volume = avg_vol20 * last
 
@@ -184,26 +185,28 @@ def score_candidate(
         relative_volume = _clamp((raw_rv - 0.5) / 1.5)
         features["relative_volume"] = raw_rv
 
-    # Proximity: how near the top of the recent range it sits. High is close to
-    # breakout, which is what the strategies downstream are looking for.
-    proximity = 0.0
-    window_high = max(highs[-60:])
-    window_low = min(lows[-60:])
-    if window_high > window_low:
-        raw_pos = (last - window_low) / (window_high - window_low)
-        proximity = _clamp(raw_pos)
-        features["range_position"] = raw_pos
+    # The active downstream strategy is PULLBACK_CONTINUATION, so analysis
+    # priority must reflect readiness for that strategy rather than proximity
+    # to a range high. This is a soft ordering signal; all capital gates still
+    # run later on fresh H1 facts.
+    readiness_tier = 2
+    readiness = 0.0
+    if sma20 and sma20 > 0:
+        distance_from_sma20 = last / sma20 - 1.0
+        readiness_tier, readiness = pullback_readiness(distance_from_sma20)
+        features["distance_from_sma20"] = distance_from_sma20
+    features["pullback_readiness_tier"] = float(readiness_tier)
 
     score = (
         policy.trend_weight * trend
         + policy.momentum_weight * momentum
         + policy.relative_volume_weight * relative_volume
-        + policy.proximity_weight * proximity
+        + policy.entry_readiness_weight * readiness
     )
     features["component_trend"] = trend
     features["component_momentum"] = momentum
     features["component_relative_volume"] = relative_volume
-    features["component_proximity"] = proximity
+    features["component_entry_readiness"] = readiness
 
     return QuantCandidate(
         symbol=symbol,
@@ -262,8 +265,26 @@ def prerank(
 
     scored.sort(key=lambda c: (-c.quant_score, c.symbol))
     if top_k > 0:
-        outcome.shortlist = scored[:top_k]
-        for cut in scored[top_k:]:
+        # D1 proximity is only a coarse proxy because final entry timing runs
+        # on fresh H1 data. Reserve a bounded share for likely pullbacks rather
+        # than letting either extended momentum or the D1 proxy monopolise the
+        # expensive analysis budget.
+        ready_slots = min(top_k, max(1, round(top_k * pol.entry_ready_share)))
+        ready = [
+            candidate
+            for candidate in scored
+            if int(candidate.features.get("pullback_readiness_tier", 2.0)) <= 1
+        ]
+        selected = ready[:ready_slots]
+        selected_symbols = {candidate.symbol for candidate in selected}
+        selected.extend(
+            candidate for candidate in scored if candidate.symbol not in selected_symbols
+        )
+        outcome.shortlist = selected[:top_k]
+        shortlisted_symbols = {candidate.symbol for candidate in outcome.shortlist}
+        for cut in scored:
+            if cut.symbol in shortlisted_symbols:
+                continue
             cut.passed = False
             cut.reasons = (*cut.reasons, PrerankReason.OUTRANKED)
             outcome.outranked.append(cut)
