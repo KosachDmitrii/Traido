@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import ConfigDict
 
 from core.schemas import StrictModel
-from trading.sector_policy import CLASSIFICATION_PROVIDER, CLASSIFICATION_VERSION
+from trading.sector_policy import (
+    CLASSIFICATION_PROVIDER,
+    CLASSIFICATION_VERSION,
+    DYNAMIC_CLASSIFICATION_VERSION,
+)
 
 # Instrument → (sector, industry, benchmark ETF). Classification only.
 _INSTRUMENT_SECTOR: dict[str, tuple[str, str, str]] = {
@@ -71,4 +77,40 @@ def classify_symbol(symbol: str) -> SectorClassification:
         benchmark=benchmark,
         classification_provider=CLASSIFICATION_PROVIDER,
         classification_version=CLASSIFICATION_VERSION,
+    )
+
+
+async def resolve_symbol_classification(
+    symbol: str,
+    *,
+    finnhub_api_key: str | None,
+    now: datetime | None = None,
+) -> SectorClassification:
+    """Resolve broad-universe names through the Risk Engine's canonical source.
+
+    Specialised static entries stay authoritative (for example gold miners use
+    GDX). Other discovered equities use ``universe.json`` first and Finnhub as
+    fallback, then the canonical sector-to-ETF map. Missing facts stay missing.
+    """
+    static = classify_symbol(symbol)
+    if static.sector is not None and static.benchmark is not None:
+        return static
+
+    from core.universe import default_universe
+    from market_data.providers.sector import get_sector_resolver
+
+    info = await get_sector_resolver(finnhub_api_key).resolve(static.symbol, now=now)
+    if not info.available or info.sector is None:
+        return SectorClassification(
+            symbol=static.symbol,
+            classification_provider=info.source or CLASSIFICATION_PROVIDER,
+            classification_version=DYNAMIC_CLASSIFICATION_VERSION,
+        )
+
+    return SectorClassification(
+        symbol=static.symbol,
+        sector=info.sector,
+        benchmark=default_universe().sector_etf.get(info.sector),
+        classification_provider=info.source or "sector_resolver",
+        classification_version=DYNAMIC_CLASSIFICATION_VERSION,
     )

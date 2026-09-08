@@ -16,7 +16,11 @@ from core.enums import DataHealthStatus, MarketRegimeLabel, Timeframe
 from core.ports import MarketDataPort
 from core.schemas import Bar, StrictModel
 from quant.market_regime import classify as classify_regime
-from trading.sector_classification import SectorClassification, classify_symbol
+from trading.sector_classification import (
+    SectorClassification,
+    classify_symbol,
+    resolve_symbol_classification,
+)
 from trading.sector_policy import (
     BENCHMARK_BAR_TTL_SECONDS,
     BENCHMARK_LOOKBACK_DAYS,
@@ -284,6 +288,17 @@ class BenchmarkBarsSectorAssessment:
             evaluated_at = evaluated_at.astimezone(UTC)
 
         classification = classify_symbol(symbol)
+        if classification.benchmark is None and market_data is not None:
+            # Broad discovery may return names outside the specialised map.
+            # RiskContext already resolves those through universe/Finnhub; the
+            # capital-path assessment must use the same classification source.
+            from core.config import get_settings
+
+            classification = await resolve_symbol_classification(
+                symbol,
+                finnhub_api_key=get_settings().finnhub_api_key,
+                now=evaluated_at,
+            )
         if classification.benchmark is None:
             return _blocked(
                 classification=classification,

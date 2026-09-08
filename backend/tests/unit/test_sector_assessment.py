@@ -15,7 +15,7 @@ from trading.sector_assessment import (
     assess_from_benchmark_bars,
     get_sector_assessment_port,
 )
-from trading.sector_classification import classify_symbol
+from trading.sector_classification import classify_symbol, resolve_symbol_classification
 from trading.sector_policy import BENCHMARK_MIN_BARS
 
 
@@ -147,6 +147,62 @@ async def test_lly_xlv_pass_fail_missing_stale() -> None:
 async def test_production_port_is_benchmark_bars() -> None:
     port = get_sector_assessment_port()
     assert isinstance(port, BenchmarkBarsSectorAssessment)
+
+
+@pytest.mark.asyncio
+async def test_broad_symbol_uses_canonical_dynamic_sector_and_benchmark(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CNQ-like discovery names must not disappear between risk and approval."""
+    from types import SimpleNamespace
+
+    from core.enums import SectorCheck
+    from market_data.providers.sector import SectorInfo
+
+    class _Resolver:
+        async def resolve(self, symbol: str, *, now=None):
+            return SectorInfo(
+                symbol=symbol,
+                sector="energy",
+                status=SectorCheck.CHECKED,
+                source="finnhub",
+            )
+
+    monkeypatch.setattr(
+        "market_data.providers.sector.get_sector_resolver",
+        lambda _key: _Resolver(),
+    )
+    monkeypatch.setattr(
+        "core.config.get_settings",
+        lambda: SimpleNamespace(finnhub_api_key="test-key"),
+    )
+
+    classification = await resolve_symbol_classification(
+        "CNQ", finnhub_api_key="test-key", now=datetime.now(UTC)
+    )
+    assert classification.sector == "energy"
+    assert classification.benchmark == "XLE"
+    assert classification.classification_provider == "finnhub"
+
+    class _MarketData:
+        def __init__(self) -> None:
+            self.requested: list[str] = []
+
+        async def get_bars(self, symbol, timeframe, start, end):
+            self.requested.append(symbol)
+            return _bars(symbol, BENCHMARK_MIN_BARS + 10, trend=0.004, now=end)
+
+    market_data = _MarketData()
+    result = await BenchmarkBarsSectorAssessment().assess(
+        "CNQ",
+        market_data=market_data,  # type: ignore[arg-type]
+        now=datetime.now(UTC),
+    )
+    assert market_data.requested == ["XLE"]
+    assert result.sector == "energy"
+    assert result.benchmark == "XLE"
+    assert result.tradable_long is True
+    assert result.data_status is DataHealthStatus.HEALTHY
 
 
 @pytest.mark.asyncio

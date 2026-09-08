@@ -21,6 +21,7 @@ from core.enums import (
     SessionCohort,
     Timeframe,
 )
+from core.ports import MarketDataPort
 from core.schemas import (
     AdmissionSnapshot,
     Bar,
@@ -554,7 +555,12 @@ async def run_symbol_pipeline(
         )
 
     return await publish_opportunity(
-        result, risk, settings=settings, admission=admission, quote=quote
+        result,
+        risk,
+        settings=settings,
+        admission=admission,
+        quote=quote,
+        market_data=context.market_data,
     )
 
 
@@ -565,6 +571,7 @@ async def publish_opportunity(
     settings: Settings | None = None,
     admission: TradeAdmissionResult | None = None,
     quote: Quote | None = None,
+    market_data: MarketDataPort | None = None,
 ) -> PipelineResult:
     """Put a risk-passed evaluation on the desk as something the human can act on.
 
@@ -611,6 +618,70 @@ async def publish_opportunity(
     ):
         return result.model_copy(update={"status": "admission_blocked", "opportunity": None})
 
+    # A BUY card is an actionable promise. Verify the same sector benchmark
+    # before publishing it; approval still performs an independent fresh check.
+    from trading.sector_assessment import get_sector_assessment_port
+
+    sector = await get_sector_assessment_port().assess(
+        symbol,
+        market_data=market_data,
+        now=datetime.now(UTC),
+    )
+    if sector.data_status is DataHealthStatus.UNHEALTHY or sector.tradable_long is None:
+        reasons = tuple(sector.reason_codes or ("SECTOR_ASSESSMENT_MISSING",))
+        BOARD.set_agent("risk", status="done", detail="DATA_BLOCKED (sector)", symbol=symbol)
+        BOARD.log(
+            "risk",
+            f"DATA_BLOCKED · {','.join(reasons[:4])}",
+            symbol=symbol,
+            level="warn",
+        )
+        DECISION_OUTCOMES.record(
+            symbol=symbol,
+            stage="opportunity_creation",
+            outcome="DATA_BLOCKED",
+            primary_reason=reasons[0],
+            reason_codes=reasons,
+            admission=adm.decision,
+            entry_decision=result.candidate.entry_decision,
+            risk_verdict=risk.verdict,
+            pipeline_run_id=result.pipeline_run_id,
+        )
+        return result.model_copy(
+            update={
+                "status": "data_blocked",
+                "opportunity": None,
+                "errors": list(reasons),
+            }
+        )
+    if sector.tradable_long is False:
+        reasons = tuple(sector.reason_codes or ("SECTOR_BLOCKED",))
+        BOARD.set_agent("risk", status="done", detail="NO_TRADE (sector)", symbol=symbol)
+        BOARD.log(
+            "risk",
+            f"NO_TRADE · {','.join(reasons[:4])}",
+            symbol=symbol,
+            level="warn",
+        )
+        DECISION_OUTCOMES.record(
+            symbol=symbol,
+            stage="opportunity_creation",
+            outcome="NO_TRADE",
+            primary_reason=reasons[0],
+            reason_codes=reasons,
+            admission=adm.decision,
+            entry_decision=result.candidate.entry_decision,
+            risk_verdict=risk.verdict,
+            pipeline_run_id=result.pipeline_run_id,
+        )
+        return result.model_copy(
+            update={
+                "status": "no_trade",
+                "opportunity": None,
+                "errors": list(reasons),
+            }
+        )
+
     opp = OPPORTUNITIES.create(result.candidate, risk, settings.trading_mode)
     from trading.admission_records import persist_admission
     from trading.entry_policy import get_entry_thresholds
@@ -623,7 +694,11 @@ async def publish_opportunity(
         admission=adm,
         opportunity_id=opp.id,
         pipeline_run_id=result.pipeline_run_id,
-        context={"source": "publish_opportunity", "phase": "creation"},
+        context={
+            "source": "publish_opportunity",
+            "phase": "creation",
+            "sector": sector.model_dump(mode="json"),
+        },
         geometry_hash=gh,
         quote_ts=quote.ts if quote else None,
         phase="creation",

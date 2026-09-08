@@ -70,10 +70,20 @@ export function humanizeError(raw: string): FlashMessage {
     };
   }
   if (upper.includes("DATA_BLOCKED")) {
+    const reasonCodes = text
+      .split(":")
+      .slice(1)
+      .join(":")
+      .split(",")
+      .map((code) => code.trim())
+      .filter(Boolean);
+    const sectorOnly = reasonCodes.length > 0 && reasonCodes.every((code) => code.startsWith("SECTOR_"));
     return {
       kind: "error",
       title: t("toast.error.dataBlocked.title"),
-      detail: t("toast.error.dataBlocked.detail"),
+      detail: sectorOnly
+        ? `${t("toast.error.dataBlocked.sectorDetail")} (${reasonCodes.join(", ")})`
+        : t("toast.error.dataBlocked.detail"),
     };
   }
   if (upper.includes("BROKER_ENVIRONMENT_BLOCKED")) {

@@ -38,6 +38,7 @@ from agents.scanner.prerank import PrerankPolicy, QuantCandidate, prerank
 from core.activity import BOARD
 from core.config import Settings, get_settings
 from core.enums import UniverseMode
+from core.ports import MarketDataPort
 from core.schemas import PipelineResult
 from trading.opportunities import OPPORTUNITIES, withdraw_unactionable
 from trading.pipeline import publish_opportunity, run_symbol_pipeline
@@ -327,7 +328,14 @@ async def _run_stages(
 
     # ── Rank, then capacity, then publish ──────────────────────────────────
     t0 = time.monotonic()
-    await _rank_and_publish(passed, funnel, result, settings=settings, max_open=max_open)
+    await _rank_and_publish(
+        passed,
+        funnel,
+        result,
+        settings=settings,
+        max_open=max_open,
+        market_data=ctx.market_data,
+    )
     result.timings.publish = time.monotonic() - t0
 
 
@@ -415,6 +423,7 @@ async def _rank_and_publish(
     *,
     settings: Settings,
     max_open: int,
+    market_data: MarketDataPort,
 ) -> None:
     """Rank everything, then spend capacity, then re-check, then publish.
 
@@ -456,15 +465,26 @@ async def _rank_and_publish(
             continue
 
         try:
-            await publish_opportunity(
+            published = await publish_opportunity(
                 entry,
                 entry.risk,
                 settings=settings,
                 admission=entry.trade_admission,
+                market_data=market_data,
             )
         except Exception as exc:  # noqa: BLE001
             funnel.deep_analysis_failed += 1
             BOARD.log("scanner", f"{symbol} publish failed: {exc!r}", symbol=symbol, level="error")
+            continue
+        if published.opportunity is None:
+            if published.status == "data_blocked":
+                funnel.data_blocked += 1
+            elif published.status == "no_trade":
+                funnel.deep_analysis_no_candidate += 1
+            else:
+                funnel.deep_analysis_failed += 1
+            for reason in published.errors:
+                funnel.rejection_reasons[reason] = funnel.rejection_reasons.get(reason, 0) + 1
             continue
         funnel.published += 1
         result.published.append(symbol)

@@ -679,6 +679,8 @@ export const ru: Record<MessageKey, string> = {
   "toast.error.dataBlocked.title": "Нет обязательных данных",
   "toast.error.dataBlocked.detail":
     "Рынок, сектор, новости или отчёты отсутствуют или устарели. Ордер не отправлялся.",
+  "toast.error.dataBlocked.sectorDetail":
+    "Не удалось подтвердить сектор или состояние его биржевого фонда. Ордер не отправлялся.",
   "toast.error.paperBroker.title": "Нужен бумажный брокер",
   "toast.error.paperBroker.detail":
     "Вход отклонён: окружение брокера не является бумажным.",

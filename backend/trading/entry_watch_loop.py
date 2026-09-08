@@ -490,7 +490,12 @@ async def _publish_admitted_watch(
             candidate=forced,
         )
         published = await publish_opportunity(
-            result, risk, settings=settings, admission=admission, quote=q
+            result,
+            risk,
+            settings=settings,
+            admission=admission,
+            quote=q,
+            market_data=ctx.market_data,
         )
         if published.opportunity is not None:
             ENTRY_WATCHES.mark(
@@ -521,8 +526,28 @@ async def _publish_admitted_watch(
             # Auto-buy lives in publish_opportunity — one click path for scanner
             # and watch conversion alike.
         else:
-            ENTRY_WATCHES.mark(current.id, EntryWatchStatus.ADMITTED, reason="PUBLISH_DEFERRED")
-            stats["still_waiting"] += 1
+            reason = ",".join(published.errors[:4]) or "PUBLISH_DEFERRED"
+            if published.status == "data_blocked":
+                await _block_watch_on_missing_data(
+                    current,
+                    reason=reason,
+                    audit=audit,
+                    stats=stats,
+                )
+            elif published.status == "no_trade":
+                ENTRY_WATCHES.mark(
+                    current.id,
+                    EntryWatchStatus.INVALIDATED,
+                    reason=f"SECTOR_NO_TRADE:{reason}",
+                )
+                stats["invalidated"] += 1
+            else:
+                ENTRY_WATCHES.mark(
+                    current.id,
+                    EntryWatchStatus.ADMITTED,
+                    reason="PUBLISH_DEFERRED",
+                )
+                stats["still_waiting"] += 1
 
 
 def _defer_to_recovery_revalidation(watch: EntryWatch, *, stats: dict[str, int]) -> None:

@@ -670,6 +670,8 @@ export const en = {
   "toast.error.dataBlocked.title": "Required data missing",
   "toast.error.dataBlocked.detail":
     "Market, sector, news, or earnings facts are missing or stale. No order was sent.",
+  "toast.error.dataBlocked.sectorDetail":
+    "The sector or its benchmark ETF could not be verified. No order was sent.",
   "toast.error.paperBroker.title": "Paper broker required",
   "toast.error.paperBroker.detail":
     "Entry was refused because the broker environment is not paper.",

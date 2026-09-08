@@ -4,6 +4,7 @@ from __future__ import annotations
 
 CLASSIFICATION_VERSION = "sector_classification@1"
 CLASSIFICATION_PROVIDER = "metadata_sector_map@1"
+DYNAMIC_CLASSIFICATION_VERSION = "sector_resolver@1"
 
 SECTOR_ASSESSMENT_VERSION = "sector_assessment@1"
 SECTOR_MARKET_DATA_PROVIDER = "ohlcv_benchmark@1"

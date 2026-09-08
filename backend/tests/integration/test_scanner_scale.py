@@ -113,7 +113,12 @@ def desk(monkeypatch: pytest.MonkeyPatch) -> Desk:
     async def _publish(result: PipelineResult, _risk: object, **_kw: object) -> PipelineResult:
         board.published.append(result.symbol)
         board.queue.append(object())
-        return result
+        # Mirror the real publication contract: a successful publish returns
+        # the created opportunity. Returning the untouched ranking result made
+        # a failed/no-op publication indistinguishable from a successful one.
+        return result.model_copy(
+            update={"status": "awaiting_confirmation", "opportunity": object()}
+        )
 
     monkeypatch.setattr(scan_cycle, "publish_opportunity", _publish)
     return board
