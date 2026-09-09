@@ -4,25 +4,42 @@ Includes terminal intents, because older reconciliation marked FILLED before
 creating a position. No new entry orders are submitted by this module.
 """
 
+from __future__ import annotations
+
 from decimal import Decimal
+from typing import TYPE_CHECKING
+
+from core.ports import AuditPort, BrokerPort
+from core.schemas import Position
+from trading.intents import OrderIntentStorePort
+
+if TYPE_CHECKING:
+    from trading.reconcile import ReconciliationReport
 
 from broker.interface import resolve_broker_identity
 from core.enums import IntentPurpose, OrderSide, OrderType
 from trading.admission_records import ADMISSION_RECORDS
 from trading.entry_activity import entry_active
 from trading.geometry_hash import compute_geometry_hash
-from trading.ledger import DuplicateOpenPosition
+from trading.ledger import DuplicateOpenPosition, PositionLedger
 from trading.opportunities import OPPORTUNITIES
-from trading.order_intent import locate_broker_order
+from trading.order_intent import OrderIntent, locate_broker_order
 
 
-async def recover_entry_positions(broker, intents, ledger, positions, report, audit=None):
+async def recover_entry_positions(
+    broker: BrokerPort,
+    intents: OrderIntentStorePort,
+    ledger: PositionLedger,
+    positions: dict[str, Position],
+    report: ReconciliationReport,
+    audit: AuditPort | None = None,
+) -> None:
     try:
         name, account, environment = resolve_broker_identity(broker)
     except RuntimeError:
         report.unresolved.append("entry_recovery:broker_identity_unverified")
         return
-    candidates = {}
+    candidates: dict[str, list[OrderIntent]] = {}
     for intent in intents.list_by_key_prefix("entry:"):
         if intent.purpose != IntentPurpose.ENTRY or intent.side != OrderSide.BUY:
             continue
@@ -89,9 +106,9 @@ async def recover_entry_positions(broker, intents, ledger, positions, report, au
             report.unresolved.append(prefix + "timeframe_unverified")
             continue
         geometry = compute_geometry_hash(
-            entry=c.entry,
-            stop=c.stop,
-            target=c.target,
+            entry=str(c.entry),
+            stop=str(c.stop),
+            target=str(c.target),
             exec_timeframe=c.exec_timeframe.value,
             strategy_version=c.strategy_version,
         )

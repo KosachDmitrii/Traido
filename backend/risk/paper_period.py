@@ -8,11 +8,13 @@ is deliberately no reset/resume endpoint that could erase an accumulated loss.
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from threading import RLock
-from typing import Literal
+from typing import Any, Literal, Self, cast
 from uuid import UUID, uuid4
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import update
+from sqlalchemy.engine import CursorResult
+from sqlalchemy.orm import Session
 
 from core.clock import ET
 from database.models.desk import AuditEventRow
@@ -46,7 +48,7 @@ class PaperPeriod(BaseModel):
     source: Literal["ibkr_paper_observed_net_liquidation_v1"]
 
     @model_validator(mode="after")
-    def consistent(self):
+    def consistent(self) -> Self:
         if self.high_water < max(
             self.initial_equity, self.last_equity, self.week_baseline, self.day_baseline
         ):
@@ -56,7 +58,7 @@ class PaperPeriod(BaseModel):
         _key(self.account_id, self.currency)
         return self
 
-    def metrics(self) -> dict:
+    def metrics(self) -> dict[str, Any]:
         return {
             "risk_period_id": str(self.id),
             "risk_period_started_at": self.started_at,
@@ -99,7 +101,7 @@ def _validate_equity(equity: Decimal, now: datetime) -> None:
         raise RiskPeriodError("RISK_TIMESTAMP_INVALID")
 
 
-def _audit(session, event: str, period: PaperPeriod, actor: str) -> None:
+def _audit(session: Session, event: str, period: PaperPeriod, actor: str) -> None:
     session.add(
         AuditEventRow(
             event_type=event,
@@ -189,7 +191,7 @@ def observe(account: str, currency: str, equity: Decimal, now: datetime) -> Pape
             )
             .values(version=row.version + 1, payload=period.model_dump(mode="json"))
         )
-        if changed.rowcount != 1:
+        if cast(CursorResult[Any], changed).rowcount != 1:
             raise RiskPeriodError("RISK_PERIOD_CONCURRENT_UPDATE")
         _audit(session, "PaperRiskObserved", period, "risk")
         session.commit()
@@ -212,7 +214,7 @@ def suspend_period(account: str, currency: str) -> PaperPeriod:
             )
             .values(version=row.version + 1, payload=period.model_dump(mode="json"))
         )
-        if changed.rowcount != 1:
+        if cast(CursorResult[Any], changed).rowcount != 1:
             raise RiskPeriodError("RISK_PERIOD_CONCURRENT_UPDATE")
         _audit(session, "PaperRiskPeriodSuspended", period, "user")
         session.commit()

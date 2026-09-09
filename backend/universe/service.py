@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from core.freshness import Cached, FreshnessCache
 from universe.eligibility import EligibilityOutcome, EligibilityPolicy, screen_universe
 from universe.models import Instrument, UniverseTier
+from universe.provider import UniverseProvider
 
 DEFAULT_REFRESH_SEC = 6 * 3600.0
 """How long a reference snapshot is good for.
@@ -104,7 +105,7 @@ def _policy_version(policy: EligibilityPolicy, tier: UniverseTier, max_size: int
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def _quality_key(instrument: Instrument) -> tuple:
+def _quality_key(instrument: Instrument) -> tuple[int, int, int, str]:
     """Cheapest available proxy for "worth a scan slot" without market data.
 
     Real ADV / liquidity is Stage 1's job and needs bars. At universe build we
@@ -197,9 +198,9 @@ class UniverseService:
 
     def __init__(
         self,
-        provider,  # UniverseProvider; untyped to keep the protocol import optional
+        provider: UniverseProvider,
         *,
-        curated_provider=None,
+        curated_provider: UniverseProvider | None = None,
         policy: EligibilityPolicy | None = None,
         refresh_sec: float = DEFAULT_REFRESH_SEC,
     ) -> None:
