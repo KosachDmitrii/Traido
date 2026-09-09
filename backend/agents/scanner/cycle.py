@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -482,9 +483,13 @@ def _record_deep_outcome(
 ) -> None:
     status = outcome.status
     admission = getattr(outcome, "trade_admission", None)
-    reasons = set(getattr(outcome, "errors", []) or [])
+    # Free-form diagnostics include positive facts and numeric context. Keep
+    # them in the trace; aggregate only stable codes as rejection reasons.
+    reasons = {
+        r for r in (getattr(outcome, "errors", []) or []) if re.fullmatch(r"[A-Z][A-Z0-9_]*", r)
+    }
     if status in {"no_trade", "data_blocked", "operational_blocked"}:
-        reasons.update(getattr(admission, "reason_codes", []) or [])
+        reasons.update(getattr(admission, "vetoes", []) or [])
     if status == "risk_rejected":
         reasons.update(getattr(outcome.risk, "reasons", []) or [])
     for reason in reasons:

@@ -175,3 +175,20 @@ async def test_completed_outcomes_are_visible_before_cycle_finishes(monkeypatch)
     assert completed_seen == [0, 1]
     assert result.funnel.deep_analysis_completed == 2
     assert result.funnel.reconciles()
+
+
+def test_rejection_breakdown_excludes_positive_admission_facts():
+    funnel = ScanFunnel(universe_total=1)
+    outcome = SimpleNamespace(
+        status="no_trade",
+        candidate=object(),
+        errors=["entry=100", "D1 uptrend"],
+        risk=None,
+        trade_admission=SimpleNamespace(
+            vetoes=["STRUCTURAL_DAMAGE"],
+            reason_codes=["IN_ZONE_ORDERLY", "BUY_READY_CANDIDATE", "STRUCTURAL_DAMAGE"],
+        ),
+    )
+    cycle._record_deep_outcome(outcome, funnel, [])
+    assert funnel.rejection_reasons == {"STRUCTURAL_DAMAGE": 1}
+    assert funnel.reconciles()
