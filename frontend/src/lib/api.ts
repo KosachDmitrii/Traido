@@ -74,6 +74,7 @@ export type ScanFunnel = {
   quant_outranked: number;
 
   deep_analysis_started: number;
+  deep_analysis_completed?: number;
   /** Shortlisted then cut by deep_analysis_top_k before analysis. */
   deep_analysis_outranked: number;
   deep_analysis_passed: number;
@@ -383,6 +384,13 @@ export type DeskLight = {
       quant_top_k: number;
       deep_analysis_top_k: number;
       max_llm_candidates: number;
+    };
+    rotation?: {
+      coverage?: {
+        session_unique_market_selected?: number;
+        structural_pool_size?: number;
+        session_unique_completed?: number;
+      };
     };
     stage_seconds?: ScanStageSeconds;
     schedule?: ScanSchedule;

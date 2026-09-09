@@ -13,7 +13,7 @@ cache is not merely stale, it is *wrong*, and must not be served.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from core.freshness import Cached, FreshnessCache
 from universe.eligibility import EligibilityOutcome, EligibilityPolicy, screen_universe
@@ -70,6 +70,7 @@ class UniverseSnapshot:
     rejected_count: int = 0
     rejection_reasons: dict[str, int] = field(default_factory=dict)
     capped_out: int = 0
+    curated_keys: frozenset[str] = field(default_factory=frozenset)
 
     @property
     def symbols(self) -> list[str]:
@@ -216,6 +217,33 @@ class UniverseService:
         """For reporting how old the universe is. Never used to decide."""
         return self._cache.peek(tier.value)
 
+    async def get_scan_universe(
+        self,
+        *,
+        tier: UniverseTier,
+        max_size: int,
+        last_seen: dict[str, float] | None = None,
+    ) -> UniverseSnapshot:
+        """Rotate budget after retrieving the full screened reference cache.
+
+        Half retains ranking, half visits least-recently selected names.
+        All selected names still require every market and trading gate.
+        """
+        full = await self.get_universe(tier=tier, max_size=0)
+        ranked = sorted(
+            full.eligible, key=lambda i: (i.key not in full.curated_keys, _quality_key(i))
+        )
+        if max_size > 0 and len(ranked) > max_size:
+            if last_seen:
+                core = max_size // 2
+                ranked = ranked[:core] + sorted(
+                    ranked[core:], key=lambda i: last_seen.get(i.key, 0)
+                )
+            selected = ranked[:max_size]
+        else:
+            selected = ranked
+        return replace(full, eligible=selected, capped_out=len(full.eligible) - len(selected))
+
     async def get_universe(
         self,
         *,
@@ -263,6 +291,7 @@ class UniverseService:
             rejected_count=len(outcome.rejected),
             rejection_reasons=outcome.reason_counts,
             capped_out=capped_out,
+            curated_keys=curated_keys,
         )
         self._cache.put(
             tier.value,

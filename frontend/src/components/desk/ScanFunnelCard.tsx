@@ -39,6 +39,10 @@ export function ScanFunnelCard() {
   const funnel = scanner?.funnel;
   const running = Boolean(scanner?.running);
   const caps = scanner?.caps;
+  const coverage = scanner?.rotation?.coverage;
+  const reasons = Object.entries(funnel?.rejection_reasons ?? {}).sort(
+    ([a, x], [b, y]) => y - x || a.localeCompare(b),
+  );
 
   if (!funnel || !funnel.universe_total) {
     return (
@@ -67,6 +71,7 @@ export function ScanFunnelCard() {
       value: funnel.deep_analysis_started,
       note: t("funnel.note.expensive", { n: caps?.deep_analysis_top_k ?? funnel.deep_analysis_started }),
     },
+    { labelKey: "funnel.row.completed", value: funnel.deep_analysis_completed ?? 0 },
     {
       labelKey: "funnel.row.wait",
       value: funnel.wait_for_entry ?? 0,
@@ -75,6 +80,7 @@ export function ScanFunnelCard() {
     { labelKey: "funnel.row.dataBlocked", value: funnel.data_blocked ?? 0 },
     { labelKey: "funnel.row.opsBlocked", value: funnel.operational_blocked ?? 0 },
     { labelKey: "funnel.row.noSetup", value: funnel.deep_analysis_no_candidate },
+    { labelKey: "funnel.row.riskRejected", value: funnel.risk_rejected },
     { labelKey: "funnel.row.risk", value: funnel.risk_passed, note: t("funnel.note.buyCard") },
     { labelKey: "funnel.row.published", value: funnel.published, note: t("funnel.note.buyCard") },
     { labelKey: "funnel.row.outranked", value: funnel.final_outranked, dim: true },
@@ -109,6 +115,13 @@ export function ScanFunnelCard() {
       </div>
 
       <p className="sub">{t("funnel.activePlans", { n: desk?.entry_watches?.length ?? 0 })}</p>
+      {coverage?.session_unique_market_selected != null ? (
+        <p className="sub">{t("funnel.coverage", {
+          n: coverage.session_unique_market_selected,
+          pool: coverage.structural_pool_size ?? "—",
+          deep: coverage.session_unique_completed ?? 0,
+        })}</p>
+      ) : null}
       <div className="scan-funnel__rows">
         {rows.map((row) => (
           <div
@@ -133,6 +146,15 @@ export function ScanFunnelCard() {
             </span>
           ))}
         </div>
+      ) : null}
+
+      {reasons.length ? (
+        <details className="scan-funnel__aside">
+          <summary>{t("funnel.reasons")}</summary>
+          {reasons.map(([reason, count]) => (
+            <div key={reason}>{reason}: <b className="mono">{count}</b></div>
+          ))}
+        </details>
       ) : null}
 
       {/* Mid-cycle the ledger is unfinished on purpose. After the walk, an

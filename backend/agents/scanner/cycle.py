@@ -24,6 +24,8 @@ reach them, and that the funnel can now say where all the others went.
 
 from __future__ import annotations
 
+import json
+import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -40,12 +42,24 @@ from core.activity import BOARD
 from core.config import Settings, get_settings
 from core.enums import UniverseMode
 from core.ports import MarketDataPort
+from core.redaction import redact_secrets
 from core.schemas import PipelineResult
 from trading.opportunities import OPPORTUNITIES, withdraw_unactionable
 from trading.pipeline import publish_opportunity, run_symbol_pipeline
 from trading.scan_context import ScanContext, open_scan_context
 from universe.models import Instrument, UniverseTier
 from universe.service import UniverseService
+
+logger = logging.getLogger(__name__)
+
+
+def _trace(ctx: ScanContext, stage: str, **facts: object) -> None:
+    message = redact_secrets(
+        json.dumps({"scan_id": str(ctx.scan_id), "stage": stage, **facts}, default=str)
+    )
+    logger.info("ScannerTrace %s", message)
+    BOARD.log("scanner", f"ScannerTrace {message}")
+
 
 PRERANK_LOOKBACK_DAYS = 200
 """Daily history fetched for Stage 2.
@@ -169,6 +183,15 @@ async def run_cycle(
         result.provider_stats = ctx.concurrency.as_dict()
         result.ai_budget = ctx.ai_budget.as_dict()
         funnel.ai_budget_exhausted = len(ctx.ai_budget.exhausted_candidates)
+        _trace(
+            ctx,
+            "cycle_finished",
+            funnel=funnel.as_dict(),
+            coverage=result.coverage,
+            deep_symbols=result.deep_symbols,
+            published=result.published,
+            seconds=result.timings.as_dict(),
+        )
     return result
 
 
@@ -194,9 +217,14 @@ async def _run_stages(
     # ── Stage 0: what may we look at at all ────────────────────────────────
     t0 = time.monotonic()
     tier = _TIER_FOR_MODE.get(settings.universe_mode, UniverseTier.CORE)
+    history = load_history()
     snapshot = await ctx.concurrency.run(
         "reference",
-        lambda: universe_service.get_universe(tier=tier, max_size=settings.universe_max_size),
+        lambda: universe_service.get_scan_universe(
+            tier=tier,
+            max_size=settings.universe_max_size,
+            last_seen=history.get("universe_selected"),
+        ),
     )
     result.timings.universe = time.monotonic() - t0
 
@@ -222,10 +250,19 @@ async def _run_stages(
         )
         return
 
+    record_selection("universe_selected", snapshot.symbols)
+
     # Symbols the book already holds are terminal here, not analysed. One
     # position per symbol is enforced at the click regardless; asking now saves
     # the most expensive stage from producing a card that cannot be acted on.
-    held = _held_symbols()
+    try:
+        broker_positions = await ctx.concurrency.run("broker", ctx.broker.list_positions)
+    except Exception as exc:  # noqa: BLE001 — broker read must fail closed
+        funnel.operational_blocked = len(snapshot.eligible)
+        result.error = "broker_positions_unavailable"
+        _trace(ctx, "broker_positions_unavailable", error_type=type(exc).__name__)
+        return
+    held = _held_symbols() | {p.symbol.upper() for p in broker_positions if p.qty != 0}
     carded = _carded_symbols()
     watched = _watched_symbols()
     candidates: list[Instrument] = []
@@ -242,6 +279,21 @@ async def _run_stages(
     # ── Stage 1: one batched snapshot read over everything left ────────────
     t0 = time.monotonic()
     funnel.market_filter_evaluated = len(candidates)
+    selected = [i.key for i in candidates]
+    record_selection("market_selected", selected)
+    from core.clock import market_date
+
+    result.coverage = {
+        "market_date": market_date().isoformat(),
+        "policy": "rank-half-lru-half-v2",
+        "structural_pool_size": len(snapshot.eligible) + snapshot.capped_out,
+        "session_unique_selected": len(history.get("deep", {})),
+        "session_unique_completed": len(history.get("deep_completed", {})),
+        "current_universe_size": len(snapshot.eligible),
+        "session_unique_market_selected": len(
+            set(history.get("market_selected", {})) | set(selected)
+        ),
+    }
     try:
         snapshots = await ctx.snapshots([i.key for i in candidates])
     except Exception as exc:  # noqa: BLE001
@@ -254,7 +306,6 @@ async def _run_stages(
         result.timings.market_filter = time.monotonic() - t0
         return
 
-    history = load_history()
     stage1 = apply_market_filter(
         candidates,
         snapshots,
@@ -316,14 +367,35 @@ async def _run_stages(
     result.deep_symbols = [candidate.symbol for candidate in finalists]
     record_selection("deep", result.deep_symbols)
 
+    passed: list[PipelineResult] = []
+
     async def _analyse(candidate: QuantCandidate) -> PipelineResult:
-        return await run_symbol_pipeline(
+        outcome = await run_symbol_pipeline(
             candidate.symbol,
             timeframes=timeframes,
             settings=settings,
             publish=False,
             context=ctx,
         )
+        funnel.deep_analysis_completed += 1
+        _record_deep_outcome(outcome, funnel, passed)
+        bundle = getattr(outcome, "entry_decision", None)
+        target_plan = getattr(bundle, "target", None)
+        _trace(
+            ctx,
+            "deep_outcome",
+            symbol=candidate.symbol,
+            pipeline_run_id=getattr(outcome, "pipeline_run_id", None),
+            status=outcome.status,
+            target_plan=target_plan.model_dump(mode="json") if target_plan else None,
+            facts=bundle.facts.model_dump(mode="json") if bundle else None,
+            errors=getattr(outcome, "errors", []),
+            risk_reasons=getattr(outcome.risk, "reasons", []),
+            admission_reasons=getattr(
+                getattr(outcome, "trade_admission", None), "reason_codes", []
+            ),
+        )
+        return outcome
 
     outcomes = await ctx.concurrency.map("deep", finalists, _analyse)
     completed = [
@@ -334,22 +406,25 @@ async def _run_stages(
     record_selection("deep_completed", completed)
     from core.clock import market_date
 
-    result.coverage = {
-        "market_date": market_date().isoformat(),
-        "policy": "rank-half-lru-half-v1",
-        "session_unique_selected": len(set(history.get("deep", {})) | set(result.deep_symbols)),
-        "session_unique_completed": len(set(history.get("deep_completed", {})) | set(completed)),
-        "current_universe_size": len(result.universe_symbols),
-    }
+    result.coverage.update(
+        {
+            "market_date": market_date().isoformat(),
+            "session_unique_selected": len(set(history.get("deep", {})) | set(result.deep_symbols)),
+            "session_unique_completed": len(
+                set(history.get("deep_completed", {})) | set(completed)
+            ),
+            "current_universe_size": len(result.universe_symbols),
+        }
+    )
     BOARD.log("scanner", f"Deep coverage: {result.coverage}; selected={result.deep_symbols}")
     result.timings.deep_analysis = time.monotonic() - t0
 
-    passed: list[PipelineResult] = []
     for candidate, outcome in zip(finalists, outcomes, strict=True):
         if isinstance(outcome, BaseException):
             # One symbol's provider error must not kill the scan, and must not
             # vanish either.
             funnel.deep_analysis_failed += 1
+            _trace(ctx, "deep_failed", symbol=candidate.symbol, error_type=type(outcome).__name__)
             BOARD.log(
                 "scanner",
                 f"{candidate.symbol} failed: {outcome!r}",
@@ -357,7 +432,6 @@ async def _run_stages(
                 level="error",
             )
             continue
-        _record_deep_outcome(outcome, funnel, passed)
 
     if not passed:
         return
@@ -371,6 +445,7 @@ async def _run_stages(
         settings=settings,
         max_open=max_open,
         market_data=ctx.market_data,
+        context=ctx,
     )
     result.timings.publish = time.monotonic() - t0
 
@@ -406,6 +481,20 @@ def _record_deep_outcome(
     passed: list[PipelineResult],
 ) -> None:
     status = outcome.status
+    admission = getattr(outcome, "trade_admission", None)
+    reasons = set(getattr(outcome, "errors", []) or [])
+    if status in {"no_trade", "data_blocked", "operational_blocked"}:
+        reasons.update(getattr(admission, "reason_codes", []) or [])
+    if status == "risk_rejected":
+        reasons.update(getattr(outcome.risk, "reasons", []) or [])
+    for reason in reasons:
+        funnel.rejection_reasons[reason] = funnel.rejection_reasons.get(reason, 0) + 1
+    if status == "data_blocked":
+        funnel.data_blocked += 1
+        return
+    if status == "operational_blocked":
+        funnel.operational_blocked += 1
+        return
     if status == "position_open":
         # Raced with a fill that landed mid-cycle.
         funnel.position_open += 1
@@ -429,20 +518,12 @@ def _record_deep_outcome(
     if status == "wait_for_entry":
         funnel.wait_for_entry += 1
         return
-    if status == "data_blocked":
-        funnel.data_blocked += 1
-        return
-    if status == "operational_blocked":
-        funnel.operational_blocked += 1
-        return
     if status == "no_trade":
         funnel.deep_analysis_no_candidate += 1
         return
     if status == "risk_rejected":
         funnel.deep_analysis_passed += 1
         funnel.risk_rejected += 1
-        for reason in getattr(outcome.risk, "reasons", []) or []:
-            funnel.rejection_reasons[reason] = funnel.rejection_reasons.get(reason, 0) + 1
         return
     if status == "risk_passed":
         funnel.deep_analysis_passed += 1
@@ -460,6 +541,7 @@ async def _rank_and_publish(
     settings: Settings,
     max_open: int,
     market_data: MarketDataPort,
+    context: ScanContext,
 ) -> None:
     """Rank everything, then spend capacity, then re-check, then publish.
 
@@ -476,6 +558,29 @@ async def _rank_and_publish(
     """
     ranked = sorted(passed, key=rank_key)
     free_at_start = max(0, max_open - len(OPPORTUNITIES.list_open()))
+    broker_held: set[str] = set()
+    try:
+        positions = await context.concurrency.run("broker", context.broker.list_positions)
+        broker_held = {p.symbol.upper() for p in positions if p.qty != 0}
+    except Exception as exc:  # noqa: BLE001 — broker read must fail closed
+        funnel.operational_blocked += len(ranked)
+        _trace(
+            context,
+            "publish_blocked",
+            status="broker_positions_unavailable",
+            symbols=[p.candidate.symbol for p in ranked],
+            error_type=type(exc).__name__,
+        )
+        return
+
+    def terminal(entry: PipelineResult, status: str) -> None:
+        _trace(
+            context,
+            "publication",
+            symbol=entry.candidate.symbol,
+            pipeline_run_id=entry.pipeline_run_id,
+            status=status,
+        )
 
     for entry in ranked:
         assert entry.candidate is not None
@@ -490,13 +595,17 @@ async def _rank_and_publish(
             # cannot tell a backlog from a good day.
             if free_at_start <= 0:
                 funnel.capacity_rejected += 1
+                terminal(entry, "queue_full")
             else:
                 funnel.final_outranked += 1
+                terminal(entry, "outranked")
             continue
-        if symbol in _held_symbols():
+        if symbol in (_held_symbols() | broker_held):
+            terminal(entry, "position_open")
             funnel.position_open += 1
             continue
         if symbol in _carded_symbols():
+            terminal(entry, "duplicate_symbol")
             funnel.duplicate_symbol_rejected += 1
             continue
 
@@ -510,8 +619,18 @@ async def _rank_and_publish(
             )
         except Exception as exc:  # noqa: BLE001
             funnel.deep_analysis_failed += 1
+            terminal(entry, "publish_failed")
             BOARD.log("scanner", f"{symbol} publish failed: {exc!r}", symbol=symbol, level="error")
             continue
+        _trace(
+            context,
+            "publication",
+            symbol=symbol,
+            pipeline_run_id=getattr(entry, "pipeline_run_id", None),
+            status=published.status,
+            errors=published.errors,
+            opportunity_id=getattr(published.opportunity, "id", None),
+        )
         if published.opportunity is None:
             if published.status == "data_blocked":
                 funnel.data_blocked += 1

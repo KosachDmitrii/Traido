@@ -64,6 +64,8 @@ class ScanFunnel:
     """
 
     deep_analysis_started: int = 0
+    deep_analysis_completed: int = 0
+    """Returned a pipeline outcome; does not imply admission or risk passed."""
     deep_analysis_passed: int = 0
     deep_analysis_failed: int = 0
     wait_for_entry: int = 0

@@ -287,7 +287,17 @@ async def run_symbol_pipeline(
             symbol=symbol,
             admission=admission,
             pipeline_run_id=result.pipeline_run_id,
-            context={"source": "pipeline"},
+            context={
+                "source": "pipeline",
+                "scan_id": str(context.scan_id),
+                "entry": str(adm_entry),
+                "stop": str(adm_stop),
+                "target": str(adm_target),
+                "target_plan": adm_target_plan.model_dump(mode="json") if adm_target_plan else None,
+                "stop_model": stop_model,
+                "stop_source": stop_source,
+                "stop_level": str(stop_level) if stop_level is not None else None,
+            },
         )
         snap = admission.snapshot
         candidate = candidate.model_copy(
@@ -298,7 +308,7 @@ async def run_symbol_pipeline(
                 "admission_snapshot": snap.model_dump(mode="json") if snap else {},
             }
         )
-        result = result.model_copy(update={"candidate": candidate})
+        result = result.model_copy(update={"candidate": candidate, "trade_admission": admission})
 
     # F3: shadow OLD (legacy would publish a BUY card) vs NEW entry decision.
     # Never places a second broker order.

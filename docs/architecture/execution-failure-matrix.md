@@ -362,3 +362,18 @@ Discovery and deep analysis share the default USD 5–10000 price band from
 bounds on rejection; missing/non-finite prices remain rejected as unavailable.
 This removes the conflicting hardcoded USD 2000 ceiling, without changing
 liquidity, sizing, admission, or portfolio risk gates.
+
+### Scanner discovery and attribution — 2026-09-09
+
+| Condition | Behaviour | Evidence |
+|---|---|---|
+| Eligible universe exceeds scan budget | Full screened reference pool stays cached; half the scan budget retains ranking, half visits least-recently selected names. Persisted daily history survives restart. Market, admission and risk gates remain mandatory. | `ScannerSelectionV1`, stage `universe_selected`; session coverage |
+| Broker position without local ledger row | Exclude held symbol before market/deep work; re-read positions before publication. Does not fabricate or repair the ledger. | `position_open` terminal bucket |
+| Broker positions cannot be read | Stop new candidate scan/publication with operational-blocked counts; protection and reconciliation continue independently. | `broker_positions_unavailable`, scan identity |
+| Deep outcome completes during the batch | Update completed and terminal counts immediately. Started and completed are separate. | Live funnel, per-symbol `ScannerTrace` |
+| Admission/risk rejects or publication loses a slot | Preserve rejected admission results, show risk rejection counts and reasons, trace deep/publication outcomes with pipeline and scan IDs. | `ScannerTrace`, admission record geometry and target provenance |
+
+Coverage counts selections, not successful market-data reads or trade permissions.
+Deep completion means the pipeline returned an outcome, possibly a rejection.
+Session unique counts and current pool size are different populations if eligibility
+changes intraday; they are not presented as a completion percentage.
