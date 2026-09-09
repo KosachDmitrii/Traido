@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -380,6 +381,12 @@ class AlpacaMarketData:
                 params = {"symbols": ",".join(chunk)}
                 if working_feed is None:
                     working_feed, resp = await self._resolve_feed(client, url, params=params)
+                    logging.getLogger(__name__).info(
+                        "Snapshot feed: configured=%s actual=%s requested_symbols=%d",
+                        self._feed,
+                        working_feed,
+                        len(wanted),
+                    )
                 else:
                     resp = await _paced_get(
                         client,

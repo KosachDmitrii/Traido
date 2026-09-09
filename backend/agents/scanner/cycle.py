@@ -307,10 +307,13 @@ async def _run_stages(
         result.timings.market_filter = time.monotonic() - t0
         return
 
+    filter_now = datetime.now(UTC)
+    filter_policy = MarketFilterPolicy()
     stage1 = apply_market_filter(
         candidates,
         snapshots,
-        policy=MarketFilterPolicy(),
+        policy=filter_policy,
+        now=filter_now,
         limit=settings.market_prefilter_limit,
         last_seen=history.get("daily_bars"),
     )
@@ -319,6 +322,33 @@ async def _run_stages(
     funnel.market_filter_rejected = len(stage1.rejected)
     funnel.market_filter_reasons = stage1.reason_counts
     funnel.data_stale = stage1.reason_counts.get("STALE_DATA", 0)
+
+    # Bounded evidence for replaying real screening decisions. Aggregate counts
+    # alone cannot distinguish thin trading from a stale or partial data feed.
+    sampled: dict[str, int] = {}
+    for item in [*stage1.passed, *stage1.rejected]:
+        reasons = list(item.reasons) or ["PASSED"]
+        if not any(sampled.get(reason, 0) < 3 for reason in reasons):
+            continue
+        for reason in reasons:
+            sampled[reason] = sampled.get(reason, 0) + 1
+        _trace(
+            ctx,
+            "market_filter_sample",
+            symbol=item.symbol,
+            evaluated_at=filter_now.isoformat(),
+            snapshot=item.snapshot.model_dump(mode="json") if item.snapshot else None,
+            measured=item.measured,
+            reasons=reasons,
+            policy={
+                "min_price": str(filter_policy.min_price),
+                "max_price": str(filter_policy.max_price),
+                "min_dollar_volume": str(filter_policy.min_dollar_volume),
+                "max_spread_bps": filter_policy.max_spread_bps,
+                "max_data_age_sec": filter_policy.max_data_age_sec,
+                "require_quote": filter_policy.require_quote,
+            },
+        )
 
     if not stage1.passed:
         return
