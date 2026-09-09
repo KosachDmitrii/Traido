@@ -16,7 +16,7 @@ def _swings(values: list[float], mode: str, left: int = 2, right: int = 2) -> li
     return levels
 
 
-def _cluster(levels: list[float], tolerance: float = 0.01, keep: int = 3) -> list[Decimal]:
+def _cluster(levels: list[float], tolerance: float = 0.01, keep: int | None = 3) -> list[Decimal]:
     if not levels:
         return []
     levels = sorted(levels)
@@ -27,8 +27,8 @@ def _cluster(levels: list[float], tolerance: float = 0.01, keep: int = 3) -> lis
         else:
             clusters.append([level])
     means = [sum(c) / len(c) for c in clusters]
-    # prefer levels near latest price — caller sorts; here take last swings' means
-    means = means[-keep:]
+    if keep is not None:
+        means = means[-keep:]
     return [Decimal(str(round(m, 4))) for m in means]
 
 
@@ -36,7 +36,22 @@ def support_resistance(
     highs: list[float],
     lows: list[float],
     keep: int = 3,
+    *,
+    reference_price: float | None = None,
 ) -> tuple[list[Decimal], list[Decimal]]:
-    support = _cluster(_swings(lows, "low"), keep=keep)
-    resistance = _cluster(_swings(highs, "high"), keep=keep)
+    # Keep the old unanchored API for callers without a close, but production
+    # features must select proximity BEFORE truncating the level population.
+    if reference_price is None:
+        return _cluster(_swings(lows, "low"), keep=keep), _cluster(
+            _swings(highs, "high"), keep=keep
+        )
+    if keep <= 0:
+        return [], []
+    anchor = Decimal(str(reference_price))
+    if not anchor.is_finite() or anchor <= 0:
+        raise ValueError("INVALID_LEVEL_REFERENCE_PRICE")
+    supports = _cluster(_swings(lows, "low"), keep=None)
+    resistances = _cluster(_swings(highs, "high"), keep=None)
+    support = [p for p in supports if p < anchor][-keep:]
+    resistance = [p for p in resistances if p > anchor][:keep]
     return support, resistance

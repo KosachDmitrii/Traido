@@ -71,3 +71,32 @@ No profitable strategy conclusion is supported yet. A complete future observatio
 | PG | no_candidate | STRUCTURE_REJECT |
 | RSP | no_candidate | STRUCTURE_H4_CONFLICT, STRUCTURE_REJECT |
 | BKNG | no_candidate | STRUCTURE_H4_CONFLICT, STRUCTURE_REJECT |
+
+
+## Production follow-up: completed observation cycle and nearest levels
+
+Deployment `1d7ad1c` completed cycle `b811d0ce-14b8-41c2-9af9-8df7733fe83a`
+at 19:49:37 UTC: 40 deep candidates completed, 5 WAIT (CNQ, HCA, AAPL,
+XLE, MSFT), zero operational failures. All 40 input audits passed numerical
+replay. This is discovery evidence, not evidence of profitable executions.
+
+Inspecting the actual levels exposed a separate semantic defect that a same-code
+replay cannot catch: support/resistance truncation retained the highest three
+clusters before filtering against current price. SMCI at 39.16 had reported D1
+supports 50.34, 51.635, 52.59; B at 44.62 had H1 supports above price too.
+Downstream filtering discarded those levels, losing nearer valid supports.
+Production features now select supports below and resistances above the latest
+close BEFORE keeping the nearest three. No missing level is fabricated.
+
+AAPL screenshots with `ZONE_ARRIVAL_QUALITY_LOW:17<35` concern BUY confirmation,
+not WAIT admission. In arrival@1, UNKNOWN/no pullback path starts at 32 and
+the volume/red-bar penalty subtracts 15. The threshold 35 is a configurable
+internal policy, not an exchange requirement. A tolerance-band touch alone
+does not certify arrival quality. Logs subsequently show AAPL BUY_ALLOWED at
+19:57:54 UTC; that cycle still reports account risk history unavailable.
+Arrival confirmation and account readiness are separate gates.
+
+WAIT store refreshes can replace geometry on a new scanner plan while WAITING;
+TRIGGERED/REVALIDATING records are not replaced by that path. The two screenshots
+lack watch IDs and revision timestamps, so they cannot establish whether they
+show one record changing or two successive plans.

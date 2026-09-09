@@ -114,7 +114,7 @@ def compute_features(symbol: str, timeframe: Timeframe, bars: list[Bar]) -> Feat
     for flag, flag_value in pa.as_flags().items():
         indicators[f"pa_{flag}"] = flag_value
     indicators["pa_reasons"] = "|".join(pa.reasons)
-    support, resistance = support_resistance(h, l)
+    support, resistance = support_resistance(h, l, reference_price=c[-1])
 
     notes: list[str] = []
     if indicators["ema50_above_ema200"] is True:

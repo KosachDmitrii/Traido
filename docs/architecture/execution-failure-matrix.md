@@ -410,3 +410,13 @@ WAIT is an observation proposal, never a capital approval.
 
 Evidence and limitations: [observation-policy-audit-2026-09-09.md](observation-policy-audit-2026-09-09.md).
 Paper testing only; quote excursions are not broker fills or proven returns.
+
+
+### Nearest market levels (2026-09-09 audit follow-up)
+
+Production Quant features cluster the available swing population, filter support
+below / resistance above latest close, then retain the nearest three on each
+side. Previously selecting the highest three first could erase valid nearby
+levels in downstream entry geometry. Empty sides remain empty; no synthetic
+stop or target is introduced. Regression fixtures cover truncation order,
+strict side boundaries, and invalid reference prices.
