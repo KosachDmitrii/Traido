@@ -257,12 +257,17 @@ class IBKRLiveTransport:
 
     async def positions(self) -> list[dict[str, Any]]:
         ib = await self._ready()
+        valuations = {
+            (p.account, p.contract.conId): p.marketPrice
+            for p in ib.portfolio(account=self._config.account or "")
+        }
         return [
             {
                 "symbol": p.contract.symbol,
                 "conId": p.contract.conId,
                 "position": float(p.position),
                 "avgCost": float(p.avgCost),
+                "marketPrice": valuations.get((p.account, p.contract.conId)),
             }
             for p in ib.positions(account=self._config.account or "")
         ]

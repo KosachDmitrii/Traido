@@ -110,27 +110,12 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                 { key: "qty", label: t("desk.positions.stat.qty"), value: String(p.qty) },
                 { key: "entry", label: t("desk.positions.stat.entry"), value: fmtPx(p.avg_entry) },
               ];
-              if (p.mark) {
-                metrics.push({
-                  key: "mark",
-                  label: t("desk.positions.stat.mark"),
-                  value: fmtPx(p.mark),
-                });
-              }
-              if (p.stop) {
-                metrics.push({
-                  key: "stop",
-                  label: t("desk.positions.stat.stop"),
-                  value: fmtPx(p.stop),
-                });
-              }
-              if (p.target) {
-                metrics.push({
-                  key: "tgt",
-                  label: t("desk.positions.stat.tgt"),
-                  value: fmtPx(p.target),
-                });
-              }
+              metrics.push(
+                { key: "mark", label: t("desk.positions.stat.mark"), value: fmtPx(p.mark) },
+                { key: "stop", label: t("desk.positions.stat.stop"), value: fmtPx(p.stop) },
+                { key: "tgt", label: t("desk.positions.stat.tgt"), value: fmtPx(p.target) },
+                { key: "value", label: t("desk.positions.stat.value"), value: p.mark ? fmtPx(Number(p.mark) * Number(p.qty)) : "—" },
+              );
               return (
                 <div className="pos-row" key={p.symbol}>
                   <div className="pos-row__head">
@@ -167,6 +152,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                       </div>
                     )}
                   </div>
+                  {p.ledger_linked === false && <p role="status">{t("desk.positions.unlinked")}</p>}
                   <div className="pos-row__body">
                     <dl className="pos-row__metrics">
                       {metrics.map((m) => (
@@ -199,7 +185,9 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
         <div className="sub" style={{ marginTop: 16 }}>
           {t("desk.orders.sub", { broker: brokerName })}
         </div>
-        {openOrders.length === 0 ? (
+        {desk?.open_orders_verified !== true ? (
+          <p role="status">{t("desk.orders.unverified")}</p>
+        ) : openOrders.length === 0 ? (
           <p className="empty-hint" style={{ marginTop: 8 }}>
             {t("desk.orders.empty")}
           </p>

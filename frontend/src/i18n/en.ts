@@ -1,8 +1,13 @@
 /** English UI copy — source of truth for message keys. */
 
 export const en = {
+  "desk.positions.unlinked": "Broker position has no linked trade record. Target and protection require reconciliation.",
+  "desk.positions.stat.value": "Position value",
+  "desk.orders.unverified": "Open orders could not be verified. Protection is unknown.",
+  "funnel.activePlans": "Active plans across all cycles: {n}",
+
   "riskPeriod.title": "IBKR Paper risk period",
-  "riskPeriod.description": "Observe equity from now, not reconstructed weekly history. Start requires no positions, open orders or unresolved local intents.",
+  "riskPeriod.description": "Observe equity from now, including existing positions. This is not reconstructed weekly history. Starting observation does not clear execution or reconciliation blocks.",
   "riskPeriod.account": "Account {account} · current equity ${equity}",
   "riskPeriod.status": "Accounting status: {status}",
   "riskPeriod.started": "Observation started: {date}",
@@ -148,7 +153,7 @@ export const en = {
   "session.strip.admitted": "Admitted",
   "session.strip.sell": "SELL",
   "session.strip.scanned": "Deep → pub",
-  "session.strip.waitingNote": "No BUY yet — plans wait for the zone, not a forced entry.",
+  "session.strip.waitingNote": "No actionable buy proposals — plans await entry conditions.",
   "session.strip.emptyNote": "No decisions this cycle yet.",
 
   "recon.title": "Broker reconciliation failing",
@@ -182,7 +187,7 @@ export const en = {
   "funnel.note.liquidity": "liquidity",
   "funnel.note.topk": "top-{n}",
   "funnel.note.expensive": "cap {n}",
-  "funnel.note.watch": "plan",
+  "funnel.note.watch": "this cycle",
   "funnel.note.buyCard": "BUY card",
   "funnel.problem.provider": "Provider failed",
   "funnel.problem.stale": "Stale data",

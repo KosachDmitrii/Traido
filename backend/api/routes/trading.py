@@ -59,10 +59,9 @@ async def get_risk_period() -> PortfolioSnapshot:
 
 @router.post("/risk-period/start", response_model=PortfolioSnapshot)
 async def start_risk_period(body: PaperRiskStartBody) -> PortfolioSnapshot:
-    from broker.switch_guard import broker_switch_blocked_reason
     from risk.paper_period import RiskPeriodError, start_period
 
-    broker, snapshot = await _ibkr_risk_snapshot()
+    _, snapshot = await _ibkr_risk_snapshot()
     if snapshot.risk_account_id != body.account_id:
         raise HTTPException(status_code=409, detail="RISK_ACCOUNT_CHANGED")
     if snapshot.risk_period_id:
@@ -73,11 +72,11 @@ async def start_risk_period(body: PaperRiskStartBody) -> PortfolioSnapshot:
         return snapshot  # A retry is not a request to erase intervening losses.
     if snapshot.risk_history_status != "not_started":
         raise HTTPException(status_code=409, detail="RISK_HISTORY_UNAVAILABLE")
-    if snapshot.open_positions or await broker.list_open_orders() or broker_switch_blocked_reason():
-        raise HTTPException(status_code=409, detail="RISK_START_REQUIRES_FLAT_RECONCILED_ACCOUNT")
-    # Awaiting broker orders could have taken time. Read the baseline again.
-    fresh = await broker.get_portfolio()
-    if fresh.risk_account_id != body.account_id or fresh.open_positions:
+    # Starting observation does not authorize execution or reconcile positions.
+    # Existing exposure is already included in NetLiquidation. Entry gates remain
+    # independent; an orphan/UNKNOWN is not resolved by recording this baseline.
+    _, fresh = await _ibkr_risk_snapshot()
+    if fresh.risk_account_id != body.account_id:
         raise HTTPException(status_code=409, detail="RISK_ACCOUNT_CHANGED")
     try:
         period = start_period(

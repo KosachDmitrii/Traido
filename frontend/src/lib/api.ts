@@ -265,6 +265,7 @@ export type SellOpportunity = {
 };
 
 export type DeskPosition = {
+  ledger_linked?: boolean;
   symbol: string;
   /** Full company name from Finnhub profile2, when available. */
   name?: string | null;
@@ -423,6 +424,7 @@ export type BrokerSnapshot = {
   } | null;
   positions: DeskPosition[];
   open_orders: DeskOpenOrder[];
+  open_orders_verified?: boolean;
   /** Whether the desk is still able to check its book against the broker. */
   reconciliation?: {
     ok: boolean | null;
@@ -440,6 +442,7 @@ export type BrokerSnapshot = {
 /** Merged view for existing desk components. */
 export type DeskResponse = DeskLight & {
   open_orders?: DeskOpenOrder[];
+  open_orders_verified?: boolean;
   portfolio?: BrokerSnapshot["portfolio"];
   reconciliation?: BrokerSnapshot["reconciliation"];
   broker_ttl_seconds?: number | null;
@@ -464,6 +467,7 @@ export function mergeDesk(light: DeskLight, broker: BrokerSnapshot | null): Desk
     portfolio: broker?.portfolio ?? null,
     positions: broker?.positions?.length ? broker.positions : light.positions,
     open_orders: broker?.open_orders ?? [],
+    open_orders_verified: broker?.open_orders_verified ?? false,
     reconciliation: broker?.reconciliation,
     broker_ttl_seconds: broker?.ttl_seconds ?? null,
   };

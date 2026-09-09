@@ -3,8 +3,13 @@ import type { MessageKey } from "./en";
 /** Russian UI copy — must cover every MessageKey. */
 
 export const ru: Record<MessageKey, string> = {
+  "desk.positions.unlinked": "Позиция есть у брокера, но не связана с записью сделки. Цель и защита требуют сверки.",
+  "desk.positions.stat.value": "Стоимость позиции",
+  "desk.orders.unverified": "Не удалось подтвердить открытые ордера. Наличие защиты неизвестно.",
+  "funnel.activePlans": "Активных планов из всех циклов: {n}",
+
   "riskPeriod.title": "Период риска IBKR Paper",
-  "riskPeriod.description": "Учёт капитала с момента запуска — не восстановленная история недели. Для запуска нужны отсутствие позиций, открытых ордеров и незавершённых локальных намерений.",
+  "riskPeriod.description": "Учёт капитала с момента запуска, включая стоимость существующих позиций. Это не восстановленная история недели. Запуск не снимает блокировки исполнения и сверки.",
   "riskPeriod.account": "Счёт {account} · текущий капитал ${equity}",
   "riskPeriod.status": "Статус учёта: {status}",
   "riskPeriod.started": "Начало наблюдения: {date}",
@@ -150,7 +155,7 @@ export const ru: Record<MessageKey, string> = {
   "session.strip.admitted": "Допущено",
   "session.strip.sell": "ПРОДАЖА",
   "session.strip.scanned": "Глубокий → публ.",
-  "session.strip.waitingNote": "Покупок пока нет — планы ждут зону, а не принудительный вход.",
+  "session.strip.waitingNote": "Нет доступных предложений на покупку — планы ожидают условия входа.",
   "session.strip.emptyNote": "За этот цикл решений ещё нет.",
 
   "recon.title": "Сверка с брокером не проходит",
@@ -184,7 +189,7 @@ export const ru: Record<MessageKey, string> = {
   "funnel.note.liquidity": "ликвидность",
   "funnel.note.topk": "top-{n}",
   "funnel.note.expensive": "лимит {n}",
-  "funnel.note.watch": "план",
+  "funnel.note.watch": "в этом цикле",
   "funnel.note.buyCard": "карточка BUY",
   "funnel.problem.provider": "Сбой провайдера",
   "funnel.problem.stale": "Устаревшие данные",

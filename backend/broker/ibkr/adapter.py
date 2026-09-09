@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 from uuid import uuid4
 
@@ -59,6 +59,14 @@ _ORDER_TYPE_TO_IB = {
 }
 
 _IB_TO_ORDER_TYPE = {v: k for k, v in _ORDER_TYPE_TO_IB.items()}
+
+
+def _positive_mark(value: Any) -> Decimal | None:
+    try:
+        mark = Decimal(str(value))
+        return mark if mark.is_finite() and mark > 0 else None
+    except (InvalidOperation, ValueError, TypeError):
+        return None
 
 
 def _dec(value: Any) -> Decimal | None:
@@ -170,6 +178,7 @@ class IBKRBroker:
                 symbol=str(row["symbol"]).upper(),
                 qty=_dec(row.get("position")) or Decimal(0),
                 avg_entry=_dec(row.get("avgCost")) or Decimal(0),
+                mark=_positive_mark(row.get("marketPrice")),
                 stop_price=None,
                 target_price=None,
                 status=PositionStatus.OPEN,

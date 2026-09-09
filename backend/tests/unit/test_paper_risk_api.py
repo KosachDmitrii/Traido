@@ -55,7 +55,7 @@ async def test_start_endpoint_and_retry_are_not_orders_or_reset(broker):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("block", ["orders", "positions", "intents", "account"])
+@pytest.mark.parametrize("block", ["account"])
 async def test_start_fails_without_changing_store(broker, monkeypatch, block):
     if block == "orders":
         broker.list_open_orders = AsyncMock(return_value=[object()])
@@ -251,3 +251,69 @@ def test_migration_creates_and_removes_only_its_table(tmp_path):
         ]
         migration.downgrade()
         assert "risk_periods" not in inspect(connection).get_table_names()
+
+
+@pytest.mark.asyncio
+async def test_observation_with_existing_exposure_does_not_resolve_intents(broker, monkeypatch):
+    broker.list_positions = AsyncMock(
+        return_value=[SimpleNamespace(qty=Decimal(1), avg_entry=Decimal(50))]
+    )
+    broker.list_open_orders = AsyncMock(return_value=[object()])
+    guard = lambda: "unknown_intents:1"
+    monkeypatch.setattr("broker.switch_guard.broker_switch_blocked_reason", guard)
+    result = await trading.start_risk_period(body())
+    assert result.risk_period_id
+    assert result.week_pnl == 0
+    assert guard() == "unknown_intents:1"
+    broker.place_order.assert_not_called()
+    broker.cancel_order.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mark,expected", [("63.5", Decimal("63.5")), (None, None), ("nan", None), ("-1", None)]
+)
+async def test_ibkr_position_mark_is_optional_and_never_synthetic(broker, mark, expected):
+    broker._transport.positions = AsyncMock(
+        return_value=[{"symbol": "BAC", "position": 793, "avgCost": "62.65", "marketPrice": mark}]
+    )
+    position = (await broker.list_positions())[0]
+    assert position.mark == expected
+    assert position.target_price is None
+
+
+@pytest.mark.asyncio
+async def test_transport_valuation_matches_account_and_contract(monkeypatch):
+    from broker.ibkr.config import IBKRTransportConfig
+    from broker.ibkr.live_transport import IBKRLiveTransport
+
+    transport = IBKRLiveTransport(IBKRTransportConfig())
+    contract = SimpleNamespace(conId=123, symbol="BAC")
+    ib = SimpleNamespace(
+        positions=lambda **kw: [
+            SimpleNamespace(account=ACCOUNT, contract=contract, position=793, avgCost=62.65)
+        ],
+        portfolio=lambda **kw: [
+            SimpleNamespace(account="DUOTHER", contract=contract, marketPrice=999),
+            SimpleNamespace(account=ACCOUNT, contract=contract, marketPrice=63),
+        ],
+    )
+    monkeypatch.setattr(transport, "_ready", AsyncMock(return_value=ib))
+    assert (await transport.positions())[0]["marketPrice"] == 63
+
+
+@pytest.mark.asyncio
+async def test_order_read_failure_is_not_verified_empty(broker, monkeypatch):
+    from api.routes import desk
+
+    monkeypatch.setattr(desk, "create_broker", lambda _: broker)
+    monkeypatch.setattr(desk.RECONCILE, "run_if_stale", AsyncMock())
+    monkeypatch.setattr(desk, "attach_company_names", AsyncMock())
+    broker.list_open_orders = AsyncMock(side_effect=RuntimeError("offline"))
+    snapshot = await desk._build_broker_snapshot(force=True)
+    assert snapshot["open_orders_verified"] is False
+    assert snapshot["portfolio"]["open_orders"] is None
+    broker.list_open_orders = AsyncMock(return_value=[])
+    snapshot = await desk._build_broker_snapshot(force=True)
+    assert snapshot["open_orders_verified"] is True
+    assert snapshot["portfolio"]["open_orders"] == 0

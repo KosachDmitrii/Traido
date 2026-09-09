@@ -323,3 +323,20 @@ Migration: `0016_risk_periods` (`alembic upgrade head`) before backend startup.
 Activation after deployment: Settings → IBKR Paper → Start risk accounting,
 verify displayed account/equity and confirm. No orders are sent by activation.
 The period starts when that request succeeds, not when code is deployed.
+
+
+## Observed IBKR Paper period with existing exposure
+
+Decision: an explicitly confirmed first observed period may include existing
+positions and resting orders in the broker's current USD NetLiquidation.
+This is an observation baseline, not reconstructed weekly performance and not
+an admission or reconciliation action. It does not resolve UNKNOWN intents,
+adopt external positions, place/cancel orders or reset an existing/suspended
+period. Account identity and READY state are rechecked before persistence.
+Existing execution/reconciliation gates remain responsible for trading access.
+
+Desk order-read failure is exposed as `open_orders_verified=false`, never as
+verified absence. Position valuation uses broker portfolio marketPrice keyed by
+account and contract; missing/invalid prices remain unknown. Stop/target fields
+remain visible as unknown when the ledger has no evidence. Scanner cycle WAIT
+counts are distinguished from active plans across cycles.

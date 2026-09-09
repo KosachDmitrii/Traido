@@ -108,6 +108,7 @@ export function ScanFunnelCard() {
         </div>
       </div>
 
+      <p className="sub">{t("funnel.activePlans", { n: desk?.entry_watches?.length ?? 0 })}</p>
       <div className="scan-funnel__rows">
         {rows.map((row) => (
           <div

@@ -141,6 +141,7 @@ class BrokerSnapshot(BaseModel):
     portfolio: dict | None = None
     positions: list = Field(default_factory=list)
     open_orders: list = Field(default_factory=list)
+    open_orders_verified: bool = False
     reconciliation: dict = Field(default_factory=dict)
     rev: int = 0
     cached: bool = False
@@ -515,8 +516,10 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
 
     positions_out = []
     open_orders_records: list = []
+    open_orders_verified = False
     try:
         open_orders_records = await broker.list_open_orders()
+        open_orders_verified = True
     except Exception:  # noqa: BLE001
         open_orders_records = []
 
@@ -545,6 +548,7 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
                     "stop": _tick(stop_px),
                     "target": _tick(meta.target_price) if meta else None,
                     "strategy_version": meta.strategy_version if meta else None,
+                    "ledger_linked": meta is not None,
                     **_mark_to_market(p),
                 }
             )
@@ -582,7 +586,10 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
         open_orders_out = (_broker_cache or {}).get("open_orders") or []
 
     if portfolio_dict is not None:
-        portfolio_dict = {**portfolio_dict, "open_orders": len(open_orders_out)}
+        portfolio_dict = {
+            **portfolio_dict,
+            "open_orders": len(open_orders_out) if open_orders_verified else None,
+        }
 
     await attach_company_names(positions_out, get_settings().finnhub_api_key)
 
@@ -590,6 +597,7 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
         "portfolio": portfolio_dict,
         "positions": positions_out,
         "open_orders": open_orders_out,
+        "open_orders_verified": open_orders_verified,
         "reconciliation": RECONCILE.status.as_dict(),
         "rev": DESK_BUS.broker_rev,
         "cached": False,
