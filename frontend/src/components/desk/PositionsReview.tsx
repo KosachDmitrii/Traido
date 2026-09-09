@@ -112,6 +112,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
               ];
               metrics.push(
                 { key: "mark", label: t("desk.positions.stat.mark"), value: fmtPx(p.mark) },
+                { key: "stop", label: t("desk.positions.stat.stop"), value: fmtPx(p.stop) },
                 { key: "tgt", label: t("desk.positions.stat.tgt"), value: fmtPx(p.target) },
               );
               return (
