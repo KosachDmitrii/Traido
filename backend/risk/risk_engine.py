@@ -263,6 +263,15 @@ class RiskEngine:
             earnings_check=ctx.earnings,
         )
 
+    def observation_reasons(self, candidate: TradeCandidate, ctx: RiskContext) -> list[str]:
+        """Instrument/event prerequisites only. Never a capital approval or sizing."""
+        reasons = self._event_risk(candidate, ctx)
+        if ctx.regime_tradable is not True:
+            reasons.append(
+                "REGIME_NOT_TRADABLE" if ctx.regime_tradable is False else "REGIME_MISSING"
+            )
+        return reasons
+
     def _event_risk(self, candidate: TradeCandidate, ctx: RiskContext) -> list[str]:
         """Refuse to hold through a scheduled binary event — or through an unread
         calendar, which is the same exposure with none of the warning."""

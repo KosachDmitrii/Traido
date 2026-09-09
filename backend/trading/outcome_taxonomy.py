@@ -24,6 +24,9 @@ class OutcomeClass(StrEnum):
 
 DATA_BLOCKED_CODES = frozenset(
     {
+        "WEEKLY_PNL_UNAVAILABLE",
+        "PORTFOLIO_DRAWDOWN_UNAVAILABLE",
+        "OBSERVATION_CONFIRMATION_DATA_MISSING",
         "STALE_DATA",
         "MARKET_DATA_UNHEALTHY",
         "QUOTE_INCOMPLETE",

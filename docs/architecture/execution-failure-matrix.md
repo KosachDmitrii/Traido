@@ -391,3 +391,22 @@ These are observation-policy corrections, not evidence of profitability or a
 guaranteed increase in WAIT count. D1/H4 structural filters and broker execution
 controls are unchanged. A zone touch must still undergo fresh revalidation and
 final pre-trade admission; an existing WAIT is never permission to send an order.
+
+### Observation policy v2 (2026-09-09, user-authorized)
+
+This section supersedes the previous pre-watch *account-risk* prerequisite.
+WAIT is an observation proposal, never a capital approval.
+
+| Condition | Observation | Execution |
+|---|---|---|
+| Account weekly PnL/drawdown unavailable | A valid market/event plan may remain WAIT; no account values are synthesized | RiskEngine rejects. Triggered watch stays BLOCKED_DATA for recovery, no order |
+| D1 uptrend without bullish EMA, or constructive D1 with bearish H4 | Observe with durable DESK_STRUCTURE_CONFIRMATION | Fresh D1/H4 strict structure check at conversion and final approval; missing bars fail closed |
+| Known D1 downtrend, unknown D1 structure, range without bullish EMA | Rejected | Rejected |
+| Defensible zone geometry has gross RR 1.45–2.0 | Observation with DESK_RR_CONFIRMATION | Prior 2.0 desk requirement plus current effective-RR gates must pass |
+| Invalid geometry, target, stale market facts, event-risk failure | No watch | No order |
+| WAIT news has not been read | NOT_CHECKED, fetch real news for observation prerequisites | Fresh news/risk check again before exposure |
+| Restart/retry with deferred observation requirements | Requirements persist in the candidate/watch JSON | Fresh confirmation required; direct final_pretrade without confirmation rejects |
+| Every deep candidate, including early structure failure | Archive original candles, feature recomputation and same-input policy comparison | Comparison cannot create an OrderIntent |
+
+Evidence and limitations: [observation-policy-audit-2026-09-09.md](observation-policy-audit-2026-09-09.md).
+Paper testing only; quote excursions are not broker fills or proven returns.

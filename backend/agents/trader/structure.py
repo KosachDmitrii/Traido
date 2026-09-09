@@ -72,6 +72,16 @@ def run_structure(bundle: TraderBundle) -> StepResult:
     if not h4_ok:
         ok = False
         gate_reasons = [*gate_reasons, "STRUCTURE_H4_CONFLICT"]
+    # A constructive D1 can be observed while its slow EMA or H4 confirms.
+    # No rescue of D1 downtrend, unknown structure, or range without bullish EMA.
+    if (
+        not ok
+        and bundle.observation_mode
+        and (structure == "uptrend" or (structure == "range" and ema_ok))
+    ):
+        bundle.observation_requirements.append("DESK_STRUCTURE_CONFIRMATION")
+        gate_reasons = [*gate_reasons, "OBSERVE_HTF_CONFIRMATION"]
+        ok = True
     reasons = [*reasons, *[r for r in gate_reasons if r not in reasons]]
     score = max(0, min(100, score))
     trend = "bullish" if ok else "bearish" if structure == "downtrend" else "neutral"

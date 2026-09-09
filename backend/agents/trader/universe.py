@@ -50,6 +50,7 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
 
     try:
         bars = await md.get_bars(symbol, Timeframe.D1, start, end)
+        bundle.source_bars[Timeframe.D1.value] = bars
     except Exception as exc:  # noqa: BLE001
         result = StepResult(
             step=TraderStep.UNIVERSE,
@@ -127,6 +128,7 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
     h1_bars = None
     try:
         h1_bars = await md.get_bars(symbol, Timeframe.H1, end - timedelta(days=60), end)
+        bundle.source_bars[Timeframe.H1.value] = h1_bars
         if len(h1_bars) >= MIN_H1_BARS:
             h1_fresh = check_bar_freshness(symbol, h1_bars, now=end)
             if not h1_fresh.passed:
@@ -139,6 +141,7 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
             reasons.append("tf=H1")
             # Stage 8: 4H from H1 aggregation (same series, no extra vendor call).
             h4_bars = aggregate_bars(h1_bars, Timeframe.H4, source_label="agg:1h")
+            bundle.source_bars[Timeframe.H4.value] = h4_bars
             if len(h4_bars) >= 30:
                 bundle.features[Timeframe.H4] = compute_features(symbol, Timeframe.H4, h4_bars)
                 reasons.append("tf=H4")
@@ -148,6 +151,7 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
     # 15m — entry timing context when available.
     try:
         m15_bars = await md.get_bars(symbol, Timeframe.M15, end - timedelta(days=14), end)
+        bundle.source_bars[Timeframe.M15.value] = m15_bars
         if len(m15_bars) >= MIN_M15_BARS:
             m15_fresh = check_bar_freshness(symbol, m15_bars, now=end)
             if m15_fresh.passed:

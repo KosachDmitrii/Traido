@@ -12,6 +12,7 @@ from enum import StrEnum
 
 from core.enums import SetupType, Timeframe
 from core.schemas import (
+    Bar,
     EntryDecisionBundle,
     EntryTimingFacts,
     FeatureSnapshot,
@@ -69,6 +70,10 @@ class TraderBundle:
     _planned: tuple[float, float, float] | None = field(default=None, repr=False)
     _entry_decision: EntryDecisionBundle | None = field(default=None, repr=False)
     _target_plan: TargetPlan | None = field(default=None, repr=False)
+    observation_mode: bool = False
+    observation_requirements: list[str] = field(default_factory=list)
+    source_bars: dict[str, list[Bar]] = field(default_factory=dict, repr=False)
+    original_plan: tuple[float, float, float] | None = None
 
     def record(self, result: StepResult) -> None:
         self.steps.append(result)

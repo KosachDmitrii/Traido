@@ -282,7 +282,10 @@ async def run_symbol_pipeline(
             last_bar_ts=last_bar_ts,
             require_bars=True,
         )
-        if candidate.entry_decision is EntryDecision.WAIT_FOR_ENTRY:
+        if (
+            candidate.entry_decision is EntryDecision.WAIT_FOR_ENTRY
+            or candidate.observation_requirements
+        ):
             from trading.pre_watch_eligibility import admission_for_wait_plan
 
             admission = admission_for_wait_plan(admission)
@@ -367,24 +370,27 @@ async def run_symbol_pipeline(
         watch = None
         if bundle is not None:
             broker = context.broker
-            portfolio = await context.portfolio()
             built = await build_risk_context(
                 symbol,
                 broker=broker,
                 market_data=context.market_data,
                 finnhub_api_key=settings.finnhub_api_key,
+                observation_only=True,
                 regime_tradable=regime_allows_long(result.market, now=datetime.now(UTC)),
-                news=result.news.status if result.news else None,
+                news=(
+                    result.news.status
+                    if result.news and result.news.status.value != "not_checked"
+                    else None
+                ),
             )
             for note in built.notes:
                 BOARD.log("risk", note, symbol=symbol, level="warn")
-            risk_preview = RiskEngine(default_risk_limits()).evaluate(
-                candidate, portfolio, context=built.context
+            observation_reasons = RiskEngine(default_risk_limits()).observation_reasons(
+                candidate, built.context
             )
             elig = evaluate_pre_watch_eligibility(
                 admission,
-                risk_verdict=risk_preview.verdict,
-                risk_reasons=list(risk_preview.reasons),
+                observation_risk_reasons=observation_reasons,
                 context=built.context,
             )
             DECISION_OUTCOMES.record(
@@ -395,7 +401,7 @@ async def run_symbol_pipeline(
                 reason_codes=elig.reason_codes,
                 admission=admission.decision if admission else None,
                 entry_decision=EntryDecision.WAIT_FOR_ENTRY,
-                risk_verdict=risk_preview.verdict,
+                risk_verdict=None,
                 pipeline_run_id=result.pipeline_run_id,
             )
             if not elig.eligible:
@@ -469,7 +475,7 @@ async def run_symbol_pipeline(
                 admission=admission.decision if admission else None,
                 entry_decision=EntryDecision.WAIT_FOR_ENTRY,
                 watch_status=EntryWatchStatus.WAITING,
-                risk_verdict=risk_preview.verdict,
+                risk_verdict=None,
                 pipeline_run_id=result.pipeline_run_id,
                 watch_id=watch.id,
             )

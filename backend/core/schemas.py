@@ -240,6 +240,9 @@ class TradeCandidate(StrictModel):
     setup_quality_breakdown: dict[str, int] = Field(default_factory=dict)
     admission_version: str | None = None
     policy_version: str | None = None
+    observation_requirements: list[str] = Field(default_factory=list)
+    observation_comparison: dict[str, Any] = Field(default_factory=dict)
+    """Deferred desk confirmations; re-read before watch conversion and approval."""
     aggressiveness_at_creation: int | None = Field(default=None, ge=0, le=100)
     effective_rr_at_creation: float | None = None
     admission_snapshot: dict[str, Any] = Field(default_factory=dict)
@@ -1114,6 +1117,7 @@ class ShadowOutcomeRecord(StrictModel):
     shadow_until: datetime
     status: str = "active"  # active | complete
     origin: str  # pipeline | watch_revalidate | watch_terminal
+    policy_comparison: dict[str, Any] = Field(default_factory=dict)
     entry_decision: EntryDecision
     admission_decision: AdmissionDecision
     setup_type: SetupType = SetupType.UNKNOWN

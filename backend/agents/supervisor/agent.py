@@ -44,6 +44,7 @@ class Supervisor:
             market_data=self.market_data,
             audit=self.audit,
             settings=self.settings,
+            observation=True,
         )
 
 

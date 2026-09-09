@@ -44,3 +44,31 @@ async def list_log_events(
         "retention_days": get_settings().audit_retention_days,
         "has_more": len(events) >= limit,
     }
+
+
+@router.get("/observation-policy")
+def observation_policy_report(limit: int = Query(default=40, ge=1, le=200)) -> dict:
+    """Read-only policy comparison; no broker connection or trading side effect."""
+    from trading.observation_policy import OBSERVATION_POLICY_VERSION
+    from trading.wait_engine_metrics import compute_wait_engine_metrics
+
+    audit = create_audit()
+    events = (
+        audit.list_events(limit=limit, event_type="ObservationPolicyEvidence")
+        if isinstance(audit, DbAudit)
+        else []
+    )
+    return {
+        "policy": OBSERVATION_POLICY_VERSION,
+        "candidates": [
+            {
+                key: value
+                for key, value in event["payload"].items()
+                if key not in {"source_bars", "features", "entry_decision", "market"}
+            }
+            for event in events
+        ],
+        "forward_metrics": compute_wait_engine_metrics().model_dump(mode="json"),
+        "measurement": "sampled_price_excursions_not_executed_trade_pnl",
+        "raw_evidence_endpoint": "/api/v1/logs/events?event_type=ObservationPolicyEvidence",
+    }

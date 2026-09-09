@@ -83,6 +83,14 @@ async def build_and_evaluate_final_admission(
         evaluated_at = evaluated_at.astimezone(UTC)
 
     tf = _resolve_timeframe(candidate)
+    from trading.final_pretrade import PretradeRejection
+    from trading.observation_policy import observation_execution_reasons
+
+    observation_reasons = await observation_execution_reasons(
+        candidate, market_data, now=evaluated_at
+    )
+    if observation_reasons:
+        raise PretradeRejection("OBSERVATION_NOT_CONFIRMED", ",".join(observation_reasons))
     end = evaluated_at
     bars = await market_data.get_bars(candidate.symbol, tf, end - timedelta(days=60), end)
     bars_count = len(bars) if bars else 0
@@ -172,6 +180,7 @@ async def build_and_evaluate_final_admission(
         opportunity_id=opportunity_id,
         decision_version=decision_version,
         tape_last=tape_last,
+        observation_confirmed=True,
     )
 
     return FinalAdmissionEvaluation(

@@ -50,6 +50,7 @@ async def build_risk_context(
     finnhub_api_key: str | None = None,
     regime_tradable: bool | None = None,
     news: NewsCheck | None = None,
+    observation_only: bool = False,
     now: datetime | None = None,
 ) -> ContextBuildResult:
     """Assemble everything outside the candidate that can veto a trade.
@@ -70,7 +71,7 @@ async def build_risk_context(
     unresolved_intents_trusted = True
 
     try:
-        positions = await broker.list_positions()
+        positions = [] if observation_only else await broker.list_positions()
     except Exception as exc:  # noqa: BLE001 — report unreadable, never pretend empty
         positions = []
         positions_trusted = False
@@ -126,7 +127,7 @@ async def build_risk_context(
         if news is not NewsCheck.CHECKED and news_assessment.reasons:
             notes.append(news_assessment.reasons[0])
 
-    unresolved = _unresolved_symbols(notes)
+    unresolved = frozenset() if observation_only else _unresolved_symbols(notes)
     if any("unresolved intents unavailable" in n for n in notes):
         unresolved_intents_trusted = False
     else:

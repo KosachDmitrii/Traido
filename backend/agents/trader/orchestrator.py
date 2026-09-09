@@ -26,7 +26,7 @@ from agents.trader.universe import PROMPT_VERSION as UNIVERSE_PV
 from agents.trader.universe import run_universe
 from core.activity import BOARD
 from core.config import Settings, get_settings
-from core.enums import AssessmentKind, InstrumentThesis, NewsCheck, TradeAction
+from core.enums import AssessmentKind, EntryDecision, InstrumentThesis, NewsCheck, TradeAction
 from core.ports import AuditPort, MarketDataPort
 from core.redaction import redact_secrets
 from core.schemas import NewsAssessment, PipelineResult, TradeCandidate
@@ -93,6 +93,9 @@ def _mark(
 
 
 def _build_candidate(bundle: TraderBundle, *, run_id: UUID) -> TradeCandidate:
+    from trading.observation_audit import compare_structure
+    from trading.observation_policy import OBSERVATION_POLICY_VERSION
+
     plan = bundle.risk_plan
     tech = bundle.technical
     market = bundle.market
@@ -114,6 +117,15 @@ def _build_candidate(bundle: TraderBundle, *, run_id: UUID) -> TradeCandidate:
         risk_reward=plan.risk_reward,
         reasons=reasons or ["trader_desk_pass"],
         strategy_version=DESK_VERSION,
+        observation_requirements=list(dict.fromkeys(bundle.observation_requirements)),
+        observation_comparison={
+            "policy": OBSERVATION_POLICY_VERSION,
+            "structure": compare_structure(bundle),
+            "original_plan": bundle.original_plan,
+            "account_risk_at_trigger": True,
+        }
+        if bundle.observation_mode
+        else {},
         technical_score=tech.score,
         quant_score=tech.score,
         news_label=news.sentiment,
@@ -142,17 +154,19 @@ def _build_candidate(bundle: TraderBundle, *, run_id: UUID) -> TradeCandidate:
     )
 
 
-async def run_trader_desk(
+async def _run_trader_desk(
     symbol: str,
     *,
     market_data: MarketDataPort,
     audit: AuditPort,
     settings: Settings | None = None,
+    observation: bool = False,
+    captured_bundle: TraderBundle | None = None,
 ) -> PipelineResult:
     settings = settings or get_settings()
     run_id = uuid4()
     symbol = symbol.upper()
-    bundle = TraderBundle(symbol=symbol)
+    bundle = captured_bundle or TraderBundle(symbol=symbol, observation_mode=observation)
     prompt_versions = {
         "desk": DESK_VERSION,
         "context": CONTEXT_PV,
@@ -255,6 +269,12 @@ async def run_trader_desk(
     if not step.ok:
         return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_trade")
 
+    # Plan the actual observation geometry BEFORE enforcing its R:R floor.
+    if observation:
+        from trading.observation_policy import prepare_observation_plan
+
+        prepare_observation_plan(bundle)
+
     # 6 Risk plan (geometry for BUY card and WAIT watch alike)
     _mark(TraderStep.RISK_PLAN, status="working", detail="Stop / target / R:R", symbol=symbol)
     step = run_risk_plan(bundle)
@@ -268,6 +288,16 @@ async def run_trader_desk(
     if not step.ok:
         return _fail(run_id, symbol, bundle, prompt_versions, default_status="no_candidate")
 
+    entry_bundle = bundle._entry_decision
+    if observation and bundle.observation_requirements and entry_bundle is not None:
+        bundle._entry_decision = entry_bundle.model_copy(
+            update={"entry_decision": EntryDecision.WAIT_FOR_ENTRY}
+        )
+    wait_path = wait_path or bool(
+        bundle._entry_decision
+        and bundle._entry_decision.entry_decision is EntryDecision.WAIT_FOR_ENTRY
+    )
+
     if wait_path:
         # WAIT plans do not need a live BUY checklist; news is re-checked on trigger.
         if bundle.news is None:
@@ -277,7 +307,7 @@ async def run_trader_desk(
                 sentiment="neutral",
                 score=50,
                 reasons=["WAIT_PATH_NEWS_AT_TRIGGER"],
-                status=NewsCheck.CHECKED,
+                status=NewsCheck.NOT_CHECKED,
             )
         entry_bundle = getattr(bundle, "_entry_decision", None)
         # Align desk geometry with the zone wait plan the pipeline will publish.
@@ -410,3 +440,27 @@ def _fail(
         errors=errors,
         prompt_versions=prompt_versions,
     )
+
+
+async def run_trader_desk(
+    symbol: str,
+    *,
+    market_data: MarketDataPort,
+    audit: AuditPort,
+    settings: Settings | None = None,
+    observation: bool = False,
+) -> PipelineResult:
+    """Capture every deep candidate, including those rejected before entry planning."""
+    from trading.observation_audit import record_observation_evidence
+
+    bundle = TraderBundle(symbol=symbol.upper(), observation_mode=observation)
+    result = await _run_trader_desk(
+        symbol,
+        market_data=market_data,
+        audit=audit,
+        settings=settings,
+        observation=observation,
+        captured_bundle=bundle,
+    )
+    await record_observation_evidence(bundle, result, audit)
+    return result

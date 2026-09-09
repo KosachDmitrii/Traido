@@ -465,6 +465,25 @@ async def _publish_admitted_watch(
 
     forced = revalidation.candidate
 
+    from trading.observation_policy import observation_execution_reasons
+
+    deferred: list[str] = []
+    if forced.observation_requirements:
+        async with open_scan_context(settings) as observation_ctx:
+            deferred = await observation_execution_reasons(forced, observation_ctx.market_data)
+    if deferred:
+        # Release CONVERTING via legal transitions; keep the observed plan.
+        ENTRY_WATCHES.mark(current.id, EntryWatchStatus.ADMITTED, reason=",".join(deferred))
+        ENTRY_WATCHES.mark(current.id, EntryWatchStatus.TRIGGERED, reason="CONFIRMATION_PENDING")
+        target_status = (
+            EntryWatchStatus.BLOCKED_DATA
+            if "OBSERVATION_CONFIRMATION_DATA_MISSING" in deferred
+            else EntryWatchStatus.WAITING
+        )
+        ENTRY_WATCHES.mark(current.id, target_status, reason=",".join(deferred))
+        stats["still_waiting"] += 1
+        return
+
     from agents.market.agent import assess_market
     from trading.market_gate import evaluate_market_gate_for_candidate
 
@@ -491,6 +510,18 @@ async def _publish_admitted_watch(
             forced, await ctx.portfolio(), context=risk_ctx.context
         )
         if risk.verdict != RiskVerdict.PASS:
+            if set(risk.reasons) <= {"WEEKLY_PNL_UNAVAILABLE", "PORTFOLIO_DRAWDOWN_UNAVAILABLE"}:
+                ENTRY_WATCHES.mark(
+                    current.id, EntryWatchStatus.ADMITTED, reason="ACCOUNT_RISK_PENDING"
+                )
+                ENTRY_WATCHES.mark(
+                    current.id, EntryWatchStatus.TRIGGERED, reason="ACCOUNT_RISK_PENDING"
+                )
+                ENTRY_WATCHES.mark(
+                    current.id, EntryWatchStatus.BLOCKED_DATA, reason=",".join(risk.reasons)
+                )
+                stats["still_waiting"] += 1
+                return
             ENTRY_WATCHES.mark(
                 current.id,
                 EntryWatchStatus.INVALIDATED,

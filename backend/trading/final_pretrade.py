@@ -162,6 +162,7 @@ def final_pretrade_validation(
     opportunity_id: UUID | None = None,
     decision_version: int = 0,
     tape_last: float | None = None,
+    observation_confirmed: bool = False,
 ) -> tuple[TradeAdmissionResult, AdmissionInput, ZoneArrivalFacts | None]:
     """Re-run admission-side gates with live quote before Risk Engine.
 
@@ -169,6 +170,8 @@ def final_pretrade_validation(
     ``evaluate_from_admission_input``. ``now`` is decision_time / evaluated_at.
     Never invents sector_tradable from FRED MarketAssessment.
     """
+    if candidate.observation_requirements and not observation_confirmed:
+        raise PretradeRejection("OBSERVATION_NOT_CONFIRMED", "FRESH_DESK_CONFIRMATION_REQUIRED")
     evaluated_at = now or datetime.now(UTC)
     if evaluated_at.tzinfo is None:
         evaluated_at = evaluated_at.replace(tzinfo=UTC)

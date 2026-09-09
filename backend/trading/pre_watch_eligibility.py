@@ -48,6 +48,7 @@ def evaluate_pre_watch_eligibility(
     risk_verdict: RiskVerdict | None = None,
     risk_reasons: list[str] | None = None,
     context: RiskContext | None = None,
+    observation_risk_reasons: list[str] | None = None,
 ) -> PreWatchEligibility:
     """WAIT may only be created when stable mandatory gates are provably passable."""
     reasons: list[str] = []
@@ -89,6 +90,15 @@ def evaluate_pre_watch_eligibility(
 
     if hard & TERMINAL_NO_TRADE_CODES:
         return PreWatchEligibility(False, "NO_TRADE", tuple(sorted(hard & TERMINAL_NO_TRADE_CODES)))
+
+    if observation_risk_reasons is not None:
+        if observation_risk_reasons:
+            outcome = classify_codes(observation_risk_reasons)
+            label = "DATA_BLOCKED" if outcome is OutcomeClass.DATA_BLOCKED else "NO_TRADE"
+            return PreWatchEligibility(False, label, tuple(observation_risk_reasons))
+        # No account approval is implied. Full RiskEngine.evaluate is mandatory
+        # at conversion and approval, including missing history and sizing.
+        return PreWatchEligibility(True, "WAIT", ("PRE_WATCH_ELIGIBLE", "ACCOUNT_RISK_AT_TRIGGER"))
 
     if context is not None:
         if not context.positions_trusted:

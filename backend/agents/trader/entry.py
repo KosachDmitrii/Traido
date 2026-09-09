@@ -188,6 +188,7 @@ def run_entry(bundle: TraderBundle) -> StepResult:
         float(target_plan.price),
     )
     bundle._entry_decision = decision
+    bundle.original_plan = bundle._planned
     bundle._target_plan = target_plan
 
     if facts.session_cohort is not SessionCohort.RTH:

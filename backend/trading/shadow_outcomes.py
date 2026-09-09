@@ -110,6 +110,9 @@ class ShadowOutcomeStore:
             shadow_until=_shadow_until(now),
             status="active",
             origin=origin,
+            policy_comparison=dict(watch.candidate.observation_comparison)
+            if watch.candidate
+            else {},
             entry_decision=entry_decision,
             admission_decision=admission_decision,
             setup_type=watch.setup_type or SetupType.UNKNOWN,

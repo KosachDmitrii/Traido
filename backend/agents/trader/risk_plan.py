@@ -6,6 +6,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from agents.trader.types import RiskPlan, StepResult, TraderBundle, TraderStep
 from core.enums import Timeframe
+from trading.buy_confirmation import BASE_RR_FLOOR
 
 PROMPT_VERSION = "trader.risk_plan@1.0.0"
 MIN_RR = 2.0
@@ -70,16 +71,20 @@ def run_risk_plan(bundle: TraderBundle) -> StepResult:
         f"rr={rr:.2f}",
     ]
 
-    if rr + _RR_EPS < MIN_RR:
+    floor = BASE_RR_FLOOR if bundle.observation_mode else MIN_RR
+    if rr + _RR_EPS < floor:
         result = StepResult(
             step=TraderStep.RISK_PLAN,
             ok=False,
-            detail=f"R:R {rr:.2f} < {MIN_RR:g}",
+            detail=f"R:R {rr:.2f} < {floor:g}",
             reasons=[*reasons, "RISK_PLAN_RR_LOW"],
             score=25,
         )
         bundle.record(result)
         return result
+
+    if rr + _RR_EPS < MIN_RR:
+        bundle.observation_requirements.append("DESK_RR_CONFIRMATION")
 
     bundle.risk_plan = RiskPlan(
         entry=_q(entry_f),
