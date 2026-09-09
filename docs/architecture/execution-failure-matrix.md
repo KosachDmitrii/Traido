@@ -354,3 +354,11 @@ future passes. A matching resting stop is linked, never blindly duplicated.
 An executing approval is tracked process-wide and excluded from recovery until
 it finishes; the tracker is deliberately empty after process restart. The
 single-worker deployment invariant remains required. Recovery submits no BUY.
+
+
+## Price eligibility consistency
+Discovery and deep analysis share the default USD 5–10000 price band from
+`universe.price_policy`. Deep analysis reports the measured daily close and
+bounds on rejection; missing/non-finite prices remain rejected as unavailable.
+This removes the conflicting hardcoded USD 2000 ceiling, without changing
+liquidity, sizing, admission, or portfolio risk gates.

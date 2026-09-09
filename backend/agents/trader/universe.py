@@ -7,7 +7,7 @@ available. Same path for paper and live market-data ports.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from agents.trader.types import StepResult, TraderBundle, TraderStep
 from core.enums import Timeframe
@@ -16,11 +16,10 @@ from core.vendor_http import describe_http_error
 from quant.aggregate import aggregate_bars
 from quant.engine import compute_features
 from trading.gates import check_bar_freshness
+from universe.price_policy import MAX_PRICE, MIN_PRICE
 
 PROMPT_VERSION = "trader.universe@1.2.0"
 
-MIN_PRICE = Decimal(5)
-MAX_PRICE = Decimal(2000)
 MIN_ADV_USD = 20_000_000.0
 MIN_BARS = 60
 MIN_H1_BARS = 40
@@ -84,14 +83,27 @@ async def run_universe(bundle: TraderBundle, md: MarketDataPort) -> StepResult:
 
     close = d1.indicators.get("close")
     adv = d1.indicators.get("avg_dollar_volume")
-    price = Decimal(str(close)) if isinstance(close, (int, float)) else None
+    try:
+        price = (
+            Decimal(str(close))
+            if isinstance(close, (int, float, Decimal)) and not isinstance(close, bool)
+            else None
+        )
+    except InvalidOperation:
+        price = None
+    if price is not None and not price.is_finite():
+        price = None
 
     if price is None or price < MIN_PRICE or price > MAX_PRICE:
         reasons.append(f"price_out_of_band={price}")
         result = StepResult(
             step=TraderStep.UNIVERSE,
             ok=False,
-            detail="Price filter failed",
+            detail=(
+                f"Price unavailable or invalid; allowed USD {MIN_PRICE}–{MAX_PRICE}"
+                if price is None
+                else f"Price USD {price} outside allowed USD {MIN_PRICE}–{MAX_PRICE}"
+            ),
             reasons=["UNIVERSE_PRICE", *reasons],
             score=0,
         )

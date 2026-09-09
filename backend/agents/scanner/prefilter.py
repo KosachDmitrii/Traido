@@ -24,6 +24,7 @@ from enum import StrEnum
 
 from core.schemas import Snapshot
 from universe.models import Instrument
+from universe.price_policy import MAX_PRICE, MIN_PRICE
 
 
 class MarketFilterReason(StrEnum):
@@ -55,8 +56,8 @@ class MarketFilterReason(StrEnum):
 class MarketFilterPolicy:
     """Stage 1 thresholds. Every one configurable; none of them business truth."""
 
-    min_price: Decimal = Decimal(5)
-    max_price: Decimal | None = Decimal(10000)
+    min_price: Decimal = MIN_PRICE
+    max_price: Decimal | None = MAX_PRICE
     min_dollar_volume: Decimal = Decimal(20_000_000)
     """Today's traded value floor.
 

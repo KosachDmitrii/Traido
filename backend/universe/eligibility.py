@@ -25,6 +25,7 @@ from universe.models import (
     Instrument,
     UniverseEligibilityResult,
 )
+from universe.price_policy import MAX_PRICE, MIN_PRICE
 
 TRADABLE_ASSET_CLASSES = frozenset({AssetClass.STOCK, AssetClass.ETF})
 
@@ -61,8 +62,8 @@ class EligibilityPolicy:
     liquidity test on printed volume and has no book to exit into.
     """
 
-    min_price: Decimal = Decimal(5)
-    max_price: Decimal | None = Decimal(10000)
+    min_price: Decimal = MIN_PRICE
+    max_price: Decimal | None = MAX_PRICE
     allow_otc: bool = False
     allowed_asset_classes: frozenset[AssetClass] = TRADABLE_ASSET_CLASSES
     allowed_exchanges: frozenset[str] = SUPPORTED_EXCHANGES
