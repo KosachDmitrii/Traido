@@ -303,6 +303,8 @@ def evaluate_buy_ready(
         reasons.append("CANDIDATE_SETUP_BELOW_FLOOR")
     if entry_quality < BUY_READY_ENTRY_FLOOR:
         reasons.append("CANDIDATE_ENTRY_BELOW_FLOOR")
+        # Current entry quality can improve while an otherwise valid plan waits.
+        # It still prevents BUY; it is not a terminal setup/geometry failure.
 
     if reasons:
         blocked = AdmissionDecision.DATA_BLOCKED if not data_fresh else None
@@ -313,7 +315,6 @@ def evaluate_buy_ready(
             or not target_valid
             or hard_veto
             or "CANDIDATE_SETUP_BELOW_FLOOR" in reasons
-            or "CANDIDATE_ENTRY_BELOW_FLOOR" in reasons
             or "PLANNED_RR_BELOW_BASE_FLOOR" in reasons
         ):
             blocked = AdmissionDecision.NO_TRADE
@@ -336,6 +337,17 @@ def _vwap_holds(
     if distance_from_vwap_pct is not None and distance_from_vwap_pct < policy.vwap_hold_min_pct:
         return False
     return not (anchor_price is not None and price < anchor_price * policy.vwap_anchor_hold_frac)
+
+
+def terminal_confirmation_reason(
+    momentum_pct: float | None, pullback_vol_ratio: float | None
+) -> str | None:
+    """Existing invalidation rules also apply to a weak-entry WAIT candidate."""
+    if momentum_pct is not None and momentum_pct <= MATERIAL_NEGATIVE_MOMENTUM_PCT:
+        return MATERIAL_NEGATIVE_MOMENTUM
+    if pullback_vol_ratio is not None and pullback_vol_ratio >= HEAVY_SELL_VOLUME_RATIO:
+        return HEAVY_SELL_VOLUME
+    return None
 
 
 def evaluate_buy_confirmation(
@@ -361,14 +373,9 @@ def evaluate_buy_confirmation(
     warnings: list[str] = []
     relaxed = False
 
-    if momentum_pct is not None and momentum_pct <= MATERIAL_NEGATIVE_MOMENTUM_PCT:
-        reasons.append(MATERIAL_NEGATIVE_MOMENTUM)
-        return ConfirmationResult(
-            passed=False, relaxed=False, reason_codes=reasons, warnings=warnings
-        )
-
-    if pullback_vol_ratio is not None and pullback_vol_ratio >= HEAVY_SELL_VOLUME_RATIO:
-        reasons.append(HEAVY_SELL_VOLUME)
+    terminal = terminal_confirmation_reason(momentum_pct, pullback_vol_ratio)
+    if terminal is not None:
+        reasons.append(terminal)
         return ConfirmationResult(
             passed=False, relaxed=False, reason_codes=reasons, warnings=warnings
         )

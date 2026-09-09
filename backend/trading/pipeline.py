@@ -217,13 +217,10 @@ async def run_symbol_pipeline(
         stop_source = None
         stop_level = None
         # WAIT cards are scored on zone-coherent plan levels, not the live ask.
-        if (
-            candidate.entry_decision is EntryDecision.WAIT_FOR_ENTRY
-            and bundle.entry_zone_low is not None
-            and bundle.entry_zone_high is not None
-        ):
-            from trading.wait_plan import derive_wait_levels
+        from trading.wait_plan import derive_wait_levels, needs_wait_plan
 
+        if needs_wait_plan(bundle, candidate):
+            assert bundle.entry_zone_low is not None and bundle.entry_zone_high is not None
             wait_levels = derive_wait_levels(bundle, candidate)
             adm_entry = wait_levels.entry
             adm_stop = wait_levels.stop
@@ -235,6 +232,7 @@ async def run_symbol_pipeline(
             stop_level = float(bundle.entry_zone_low)
             candidate = candidate.model_copy(
                 update={
+                    "entry_decision": EntryDecision.WAIT_FOR_ENTRY,
                     "entry": wait_levels.entry,
                     "stop": wait_levels.stop,
                     "target": adm_target,
@@ -243,7 +241,10 @@ async def run_symbol_pipeline(
                     "target_reachability": adm_target_plan.reachability,
                 }
             )
-            result = result.model_copy(update={"candidate": candidate})
+            bundle = bundle.model_copy(
+                update={"entry_decision": EntryDecision.WAIT_FOR_ENTRY, "target": adm_target_plan}
+            )
+            result = result.model_copy(update={"candidate": candidate, "entry_decision": bundle})
         bars_h1: list[Bar] = []
         last_bar_ts: datetime | None = None
         zone_arrival: ZoneArrivalFacts | None = None
@@ -281,6 +282,10 @@ async def run_symbol_pipeline(
             last_bar_ts=last_bar_ts,
             require_bars=True,
         )
+        if candidate.entry_decision is EntryDecision.WAIT_FOR_ENTRY:
+            from trading.pre_watch_eligibility import admission_for_wait_plan
+
+            admission = admission_for_wait_plan(admission)
         from trading.admission_records import persist_admission
 
         persist_admission(
@@ -394,6 +399,9 @@ async def run_symbol_pipeline(
                 pipeline_run_id=result.pipeline_run_id,
             )
             if not elig.eligible:
+                result = result.model_copy(
+                    update={"errors": list(dict.fromkeys([*result.errors, *elig.reason_codes]))}
+                )
                 if elig.outcome == "DATA_BLOCKED":
                     BOARD.set_agent(
                         "risk",

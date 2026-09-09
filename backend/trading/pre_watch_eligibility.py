@@ -23,6 +23,25 @@ class PreWatchEligibility:
     reason_codes: tuple[str, ...]
 
 
+def admission_for_wait_plan(admission: TradeAdmissionResult) -> TradeAdmissionResult:
+    """A prospective zone-plan pass only permits observation, not execution."""
+    if admission.decision is not AdmissionDecision.BUY_ALLOWED:
+        return admission
+    return admission.model_copy(
+        update={
+            "decision": AdmissionDecision.WAIT,
+            "admitted": False,
+            "buy_ready": False,
+            "reason_codes": list(
+                dict.fromkeys(
+                    [c for c in admission.reason_codes if c != "BUY_READY_CANDIDATE"]
+                    + ["WAITING_CONFIRMATION"]
+                )
+            ),
+        }
+    )
+
+
 def evaluate_pre_watch_eligibility(
     admission: TradeAdmissionResult | None,
     *,

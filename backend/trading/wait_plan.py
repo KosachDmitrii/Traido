@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from core.enums import EntryDecision, InstrumentThesis, SetupType
 from core.schemas import EntryDecisionBundle, EntryWatch, TargetPlan, TradeCandidate
 from trading.entry_watches import REWARD_RISK_DROPPED
 from trading.historical_mfe import lookup_mfe
@@ -18,6 +19,36 @@ class WaitPlanLevels:
     target: Decimal
     risk_reward: float
     target_plan: TargetPlan
+
+
+def needs_wait_plan(bundle: EntryDecisionBundle, candidate: TradeCandidate) -> bool:
+    """Plan an intact bullish pullback at its zone, never at a chased price.
+
+    This only selects geometry for admission. It does not pass structure,
+    target, data, risk or execution gates, and never rescues a NO_TRADE thesis.
+    """
+    if bundle.entry_zone_low is None or bundle.entry_zone_high is None:
+        return False
+    if candidate.entry_decision is EntryDecision.WAIT_FOR_ENTRY:
+        return True
+    if (
+        candidate.entry_decision is EntryDecision.NO_TRADE
+        or bundle.entry_decision is EntryDecision.NO_TRADE
+        or bundle.thesis is not InstrumentThesis.BULLISH
+        or candidate.setup_type is not SetupType.PULLBACK_CONTINUATION
+        or bundle.facts.current_price <= float(bundle.entry_zone_high)
+    ):
+        return False
+    from trading.trade_admission import entry_allowed_for_setup_type
+
+    allowed, reasons = entry_allowed_for_setup_type(
+        candidate.setup_type,
+        bundle.facts.current_price,
+        float(bundle.entry_zone_low),
+        float(bundle.entry_zone_high),
+        bundle.facts.atr,
+    )
+    return not allowed and reasons == ["ENTRY_OUTSIDE_ALLOWED_ZONE"]
 
 
 def derive_wait_levels(

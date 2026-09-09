@@ -377,3 +377,17 @@ Coverage counts selections, not successful market-data reads or trade permission
 Deep completion means the pipeline returned an outcome, possibly a rejection.
 Session unique counts and current pool size are different populations if eligibility
 changes intraday; they are not presented as a completion percentage.
+
+### WAIT admission versus current entry readiness (2026-09-09)
+
+| Condition | Behaviour | Evidence |
+|---|---|---|
+| Bullish pullback candidate is above its allowed entry zone, but its initial label was BUY | Derive the existing zone-based WAIT plan before admission; require all stop/target/data and pre-watch risk checks. Never promote it directly to BUY. | Candidate and bundle both carry WAIT; admitted plan geometry is persisted |
+| Zone-plan admission passes while candidate is waiting | Persist WAIT with admitted=false and buy_ready=false; pre-watch no longer rejects it solely as ADMISSION_NOT_WAIT. | Admission record and watch share observation-only decision |
+| Current entry quality below the BUY floor, with otherwise valid setup and geometry | WAIT for improvement; the BUY floor itself remains unchanged. Invalid setup, stop, target, stale data and risk failures still block. | CANDIDATE_ENTRY_BELOW_FLOOR; regression at all slider levels |
+| Pre-watch eligibility rejects | Copy final reason codes into the pipeline outcome and scanner counters. | Deep trace contains admission decision, full reason codes and candidate decision |
+
+These are observation-policy corrections, not evidence of profitability or a
+guaranteed increase in WAIT count. D1/H4 structural filters and broker execution
+controls are unchanged. A zone touch must still undergo fresh revalidation and
+final pre-trade admission; an existing WAIT is never permission to send an order.

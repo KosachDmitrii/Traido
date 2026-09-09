@@ -412,12 +412,18 @@ async def _run_stages(
         _record_deep_outcome(outcome, funnel, passed)
         bundle = getattr(outcome, "entry_decision", None)
         target_plan = getattr(bundle, "target", None)
+        admission = getattr(outcome, "trade_admission", None)
         _trace(
             ctx,
             "deep_outcome",
             symbol=candidate.symbol,
             pipeline_run_id=getattr(outcome, "pipeline_run_id", None),
             status=outcome.status,
+            admission_decision=admission.decision if admission else None,
+            admission_reason_codes=list(admission.reason_codes) if admission else [],
+            candidate_entry_decision=outcome.candidate.entry_decision
+            if outcome.candidate
+            else None,
             target_plan=target_plan.model_dump(mode="json") if target_plan else None,
             facts=bundle.facts.model_dump(mode="json") if bundle else None,
             errors=getattr(outcome, "errors", []),

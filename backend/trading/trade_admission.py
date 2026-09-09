@@ -588,6 +588,18 @@ def evaluate_trade_admission(
         if NOT_BUY_READY not in reason_codes:
             reason_codes.append(NOT_BUY_READY)
         blocked = ready.blocked_decision or AdmissionDecision.WAIT
+        if (
+            blocked is AdmissionDecision.WAIT
+            and "CANDIDATE_ENTRY_BELOW_FLOOR" in ready.reason_codes
+        ):
+            from trading.buy_confirmation import terminal_confirmation_reason
+
+            terminal = terminal_confirmation_reason(
+                facts.short_term_momentum_pct, facts.pullback_vol_ratio
+            )
+            if terminal is not None:
+                reason_codes.append(terminal)
+                blocked = AdmissionDecision.NO_TRADE
         return finish(
             _result(
                 blocked,
