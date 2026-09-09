@@ -13,6 +13,7 @@ from database.models.desk import (
 )
 from database.models.journal import BacktestRunRow, TradeJournalRow
 from database.models.positions import OpenPositionRow
+from database.models.risk_period import RiskPeriodRow
 from database.models.strategy import StrategyEvaluationRunRow, StrategyVersionRow
 
 __all__ = [
@@ -28,6 +29,7 @@ __all__ = [
     "OpenPositionRow",
     "OpportunityRow",
     "OrderIntentRow",
+    "RiskPeriodRow",
     "ShadowOutcomeRow",
     "StrategyEvaluationRunRow",
     "StrategyVersionRow",

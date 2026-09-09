@@ -173,8 +173,13 @@ class RiskEngine:
         assert portfolio.week_pnl is not None
         assert portfolio.drawdown_pct is not None
         day_loss_pct = float((-portfolio.day_pnl / equity) * 100) if portfolio.day_pnl < 0 else 0.0
+        week_base = portfolio.risk_week_baseline_equity
+        if week_base is None:
+            week_base = equity
+        if not week_base.is_finite() or week_base <= 0:
+            return self._reject(["RISK_BASELINE_INVALID"], portfolio, candidate_id, ctx.earnings)
         week_loss_pct = (
-            float((-portfolio.week_pnl / equity) * 100) if portfolio.week_pnl < 0 else 0.0
+            float((-portfolio.week_pnl / week_base) * 100) if portfolio.week_pnl < 0 else 0.0
         )
         if day_loss_pct >= self.limits.max_daily_loss_pct:
             reasons.append("MAX_DAILY_LOSS")

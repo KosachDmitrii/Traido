@@ -12,6 +12,7 @@ never spoken to an IB Gateway — see `docs/architecture/vendor-lock.md`.
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -35,6 +36,8 @@ from core.enums import (
 )
 from core.schemas import OrderRecord, OrderRequest, PortfolioSnapshot, Position
 from risk.kill_switch import is_kill_switch_on
+
+logger = logging.getLogger(__name__)
 
 IB_STATUS_MAP: dict[str, OrderStatus] = {
     "PendingSubmit": OrderStatus.SUBMITTED,
@@ -115,7 +118,7 @@ class IBKRBroker:
             day_pnl = realized_pnl or Decimal(0)
             day_pnl_source = "realized_pnl_fallback"
         exposure = sum((p.qty * p.avg_entry for p in positions), Decimal(0))
-        return PortfolioSnapshot(
+        snapshot = PortfolioSnapshot(
             equity=equity,
             cash=cash,
             buying_power=_dec(summary.get("BuyingPower")) or cash,
@@ -136,6 +139,28 @@ class IBKRBroker:
             base_currency=str(summary.get("BaseCurrency") or "") or None,
             day_pnl_source=day_pnl_source,
         )
+        # Broker-reported identity, never merely the configured account label.
+        account = str(summary.get("Account") or "")
+        if not account or (self.account_id and self.account_id != account):
+            return snapshot.model_copy(update={"risk_history_status": "account_unverified"})
+        self.account_id = account
+        snapshot = snapshot.model_copy(update={"risk_account_id": account})
+        try:
+            from risk.paper_period import observe
+
+            period = observe(account, snapshot.base_currency or "", equity, datetime.now(UTC))
+            return snapshot.model_copy(
+                update=period.metrics()
+                if period
+                else {
+                    "risk_history_status": "not_started",
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 — fail closed for entries, preserve exits
+            # Risk-store failure blocks entries, not portfolio reads needed by
+            # exits/reconciliation. Never fall back to a cached permissive risk.
+            logger.warning("IBKR risk history unavailable: %s", type(exc).__name__)
+            return snapshot.model_copy(update={"risk_history_status": "unavailable"})
 
     async def list_positions(self) -> list[Position]:
         rows = await self._call(self._transport.positions())

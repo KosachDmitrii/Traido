@@ -1,6 +1,8 @@
 """Opportunity confirmation + portfolio + kill switch."""
 
+from datetime import UTC, datetime
 from decimal import Decimal
+from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -22,6 +24,85 @@ from trading.approval_errors import StaleDecisionError
 from trading.opportunities import OPPORTUNITIES
 
 router = APIRouter(prefix="/api/v1", tags=["trading"])
+
+
+class PaperRiskStartBody(BaseModel):
+    account_id: str = Field(min_length=1)
+    confirmation: Literal["START_NEW_OBSERVED_PAPER_PERIOD"]
+
+
+class PaperRiskSuspendBody(BaseModel):
+    account_id: str = Field(min_length=1)
+    confirmation: Literal["SUSPEND_PAPER_PERIOD"]
+
+
+async def _ibkr_risk_snapshot():
+    from broker.ibkr import IBKRBroker
+    from core.enums import BrokerConnectionState
+
+    broker = create_broker(get_settings())
+    if not isinstance(broker, IBKRBroker) or broker.environment != "paper":
+        raise HTTPException(status_code=409, detail="IBKR_PAPER_REQUIRED")
+    snapshot = await broker.get_portfolio()
+    if broker.connection_state() is not BrokerConnectionState.READY:
+        raise HTTPException(status_code=409, detail="IBKR_NOT_READY")
+    if not snapshot.risk_account_id or snapshot.base_currency != "USD":
+        raise HTTPException(status_code=409, detail="IBKR_PAPER_ACCOUNT_UNVERIFIED")
+    return broker, snapshot
+
+
+@router.get("/risk-period", response_model=PortfolioSnapshot)
+async def get_risk_period() -> PortfolioSnapshot:
+    _, snapshot = await _ibkr_risk_snapshot()
+    return snapshot
+
+
+@router.post("/risk-period/start", response_model=PortfolioSnapshot)
+async def start_risk_period(body: PaperRiskStartBody) -> PortfolioSnapshot:
+    from broker.switch_guard import broker_switch_blocked_reason
+    from risk.paper_period import RiskPeriodError, start_period
+
+    broker, snapshot = await _ibkr_risk_snapshot()
+    if snapshot.risk_account_id != body.account_id:
+        raise HTTPException(status_code=409, detail="RISK_ACCOUNT_CHANGED")
+    if snapshot.risk_period_id:
+        if snapshot.risk_history_status == "suspended":
+            raise HTTPException(
+                status_code=409, detail="RISK_PERIOD_SUSPENDED_RECONCILIATION_REQUIRED"
+            )
+        return snapshot  # A retry is not a request to erase intervening losses.
+    if snapshot.risk_history_status != "not_started":
+        raise HTTPException(status_code=409, detail="RISK_HISTORY_UNAVAILABLE")
+    if snapshot.open_positions or await broker.list_open_orders() or broker_switch_blocked_reason():
+        raise HTTPException(status_code=409, detail="RISK_START_REQUIRES_FLAT_RECONCILED_ACCOUNT")
+    # Awaiting broker orders could have taken time. Read the baseline again.
+    fresh = await broker.get_portfolio()
+    if fresh.risk_account_id != body.account_id or fresh.open_positions:
+        raise HTTPException(status_code=409, detail="RISK_ACCOUNT_CHANGED")
+    try:
+        period = start_period(
+            body.account_id, fresh.base_currency or "", fresh.equity, datetime.now(UTC)
+        )
+    except RiskPeriodError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    DESK_BUS.bump_desk()
+    wake_scanner()
+    return fresh.model_copy(update=period.metrics())
+
+
+@router.post("/risk-period/suspend", response_model=PortfolioSnapshot)
+async def suspend_risk_period(body: PaperRiskSuspendBody) -> PortfolioSnapshot:
+    from risk.paper_period import RiskPeriodError, suspend_period
+
+    _, snapshot = await _ibkr_risk_snapshot()
+    if snapshot.risk_account_id != body.account_id:
+        raise HTTPException(status_code=409, detail="RISK_ACCOUNT_CHANGED")
+    try:
+        period = suspend_period(body.account_id, snapshot.base_currency or "")
+    except RiskPeriodError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    DESK_BUS.bump_desk()
+    return snapshot.model_copy(update=period.metrics())
 
 
 class DecisionBody(BaseModel):

@@ -1,6 +1,17 @@
 /** English UI copy — source of truth for message keys. */
 
 export const en = {
+  "riskPeriod.title": "IBKR Paper risk period",
+  "riskPeriod.description": "Observe equity from now, not reconstructed weekly history. Start requires no positions, open orders or unresolved local intents.",
+  "riskPeriod.account": "Account {account} · current equity ${equity}",
+  "riskPeriod.status": "Accounting status: {status}",
+  "riskPeriod.started": "Observation started: {date}",
+  "riskPeriod.metrics": "Change from observed weekly baseline: ${pnl} · sampled drawdown: {dd}%",
+  "riskPeriod.fundingWarning": "Suspend BEFORE funding or resetting the paper balance. These operations are NOT detected or adjusted automatically. Suspension blocks entries; restoring accounting requires separate reconciliation, not pressing Start again.",
+  "riskPeriod.confirmStart": "Start this account's period at current equity without importing earlier performance.",
+  "riskPeriod.confirmSuspend": "Suspend accounting and new entries, preserving history and position protection.",
+  "riskPeriod.start": "Start risk accounting",
+  "riskPeriod.suspend": "Suspend risk accounting",
   "meta.title": "Traido — Dashboard",
   "meta.description": "Analyze. Decide. Trade. Paper confirmation desk.",
 

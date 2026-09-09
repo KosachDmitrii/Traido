@@ -276,6 +276,14 @@ class PortfolioSnapshot(StrictModel):
     non_cash_equity: Decimal | None = None
     base_currency: str | None = None
     day_pnl_source: str | None = None
+    risk_account_id: str | None = None
+    risk_period_id: str | None = None
+    risk_period_started_at: datetime | None = None
+    risk_history_status: str | None = None
+    risk_history_source: str | None = None
+    risk_observed_at: datetime | None = None
+    risk_week_baseline_at: datetime | None = None
+    risk_week_baseline_equity: Decimal | None = None
 
 
 class RiskLimits(StrictModel):

@@ -1,5 +1,6 @@
 import { runScanner, invalidateDeskEtag, setAutoTrigger, setBrokerBackend, setEntryPolicy, setKillSwitch, fetchAutoTrigger, fetchBrokerBackend, fetchEntryPolicy } from "@/lib/api";
 import { executionBrokerLabelKey } from "@/lib/brokerLabel";
+import { PaperRiskPeriod } from "@/components/desk/PaperRiskPeriod";
 import { useDesk } from "@/context/DeskContext";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Locale, MessageKey } from "@/i18n";
@@ -514,6 +515,7 @@ export function SettingsPage() {
               }))}
             />
           </div>
+          {brokerBackend === "ibkr" && !controlsDisabled ? <PaperRiskPeriod /> : null}
         </div>
       </article>
 

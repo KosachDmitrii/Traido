@@ -290,3 +290,36 @@ exactly the one where the status update never happened.
 Regressions: `test_running_reconciliation_twice_does_not_sell_the_position_twice`,
 `test_a_fill_the_book_already_absorbed_is_not_absorbed_again`,
 `test_an_exit_that_keeps_filling_is_absorbed_as_it_goes`.
+# IBKR Paper observed risk period (2026-09-09)
+
+Operator-approved policy: begin a NEW observation period from current broker
+NetLiquidation; do not reconstruct or assert earlier weekly history. Alpaca's
+accounting is not changed by this feature. Paper-only, USD, verified DU account.
+
+| Condition | Behaviour |
+|---|---|
+| No period yet | Weekly/drawdown unknown; entries blocked; GET never initializes |
+| Explicit authenticated start | Requires matching broker account, flat broker, no open orders or unresolved local state; baseline and audit committed atomically |
+| Duplicate start / restart | Same durable account key; never resets losses or high water |
+| New exchange week | Last observed equity is carried as baseline, including gap movement on first read; actual baseline timestamp disclosed |
+| Missing/corrupt risk store or changed account | Unknown metrics; entries blocked; portfolio remains readable for exits |
+| Period suspended | Unknown metrics; entries blocked, exits/protection unaffected; Start cannot reactivate/reset |
+| Funding / paper reset planned | Operator MUST suspend first; automatic cash-flow detection/adjustment is NOT implemented |
+
+This is sampled net-liquidation accounting, not cash-flow-adjusted trading P&L
+or a complete historical intraday high-water mark. Unobserved peaks cannot be
+recovered from Gateway. Do not fund/reset the paper account while this period
+is active: unreported funding can invalidate its metrics. Suspension preserves
+history; subsequent funding reconciliation/resumption requires a separate
+implementation, not deleting the row. No live use is authorized.
+
+During an active period, daily P&L also uses observed net liquidation (including
+unrealized changes) instead of the old realized-only fallback. Exchange-day
+and week boundaries carry the last observation; no automatic lifetime-peak
+reset. Unchanged observations are checkpointed at most once per minute;
+changed equity is persisted immediately on read. All changes have audit events.
+
+Migration: `0016_risk_periods` (`alembic upgrade head`) before backend startup.
+Activation after deployment: Settings → IBKR Paper → Start risk accounting,
+verify displayed account/equity and confirm. No orders are sent by activation.
+The period starts when that request succeeds, not when code is deployed.

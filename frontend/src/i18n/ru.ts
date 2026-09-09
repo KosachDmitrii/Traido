@@ -3,6 +3,17 @@ import type { MessageKey } from "./en";
 /** Russian UI copy — must cover every MessageKey. */
 
 export const ru: Record<MessageKey, string> = {
+  "riskPeriod.title": "Период риска IBKR Paper",
+  "riskPeriod.description": "Учёт капитала с момента запуска — не восстановленная история недели. Для запуска нужны отсутствие позиций, открытых ордеров и незавершённых локальных намерений.",
+  "riskPeriod.account": "Счёт {account} · текущий капитал ${equity}",
+  "riskPeriod.status": "Статус учёта: {status}",
+  "riskPeriod.started": "Начало наблюдения: {date}",
+  "riskPeriod.metrics": "Изменение от наблюдаемой базы недели: ${pnl} · наблюдаемая просадка: {dd}%",
+  "riskPeriod.fundingWarning": "Приостановите период ПЕРЕД пополнением или сбросом paper-баланса. Эти операции НЕ распознаются и не корректируются автоматически. Приостановка блокирует новые входы; восстановление требует отдельной сверки, а не повторного запуска.",
+  "riskPeriod.confirmStart": "Начать период по этому счёту с текущего капитала, без переноса прежних результатов.",
+  "riskPeriod.confirmSuspend": "Приостановить учёт и новые входы, сохранив историю и защиту позиций.",
+  "riskPeriod.start": "Начать учёт риска",
+  "riskPeriod.suspend": "Приостановить учёт риска",
   "meta.title": "Traido — Дашборд",
   "meta.description": "Анализируй. Решай. Торгуй. Бумажный стол подтверждений.",
 

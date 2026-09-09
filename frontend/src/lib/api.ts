@@ -700,6 +700,29 @@ export async function fetchBrokerBackend(): Promise<BrokerBackend> {
   return data as BrokerBackend;
 }
 
+export type PaperRiskSnapshot = {
+  equity: string;
+  risk_account_id: string | null;
+  risk_period_id: string | null;
+  risk_period_started_at: string | null;
+  risk_history_status: string | null;
+  week_pnl: string | null;
+  drawdown_pct: number | null;
+};
+
+export async function paperRiskPeriod(action?: "start" | "suspend", accountId?: string): Promise<PaperRiskSnapshot> {
+  const res = await fetch(apiUrl(`/api/v1/risk-period${action ? `/${action}` : ""}`), {
+    method: action ? "POST" : "GET",
+    headers: apiHeaders(Boolean(action)), cache: "no-store",
+    ...(action ? { body: JSON.stringify({ account_id: accountId,
+      confirmation: action === "start" ? "START_NEW_OBSERVED_PAPER_PERIOD" : "SUSPEND_PAPER_PERIOD",
+    }) } : {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(parseApiError(data, "risk_period_failed"));
+  return data as PaperRiskSnapshot;
+}
+
 export async function setBrokerBackend(backend: "alpaca" | "ibkr"): Promise<BrokerBackend> {
   const res = await fetch(apiUrl("/api/v1/broker-backend"), {
     method: "PUT",

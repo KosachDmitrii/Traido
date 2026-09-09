@@ -269,8 +269,22 @@ class IBKRLiveTransport:
 
     async def account_summary(self) -> dict[str, Any]:
         ib = await self._ready()
-        rows = await ib.accountSummaryAsync(self._config.account or "All")
+        # ib_async's argument is an account filter, not reqAccountSummary's
+        # group name. "All" filters for a nonexistent literal account.
+        rows = await ib.accountSummaryAsync(self._config.account or "")
+        # $LEDGER:ALL can include aggregate ledger rows. Those are not a
+        # second account and must never overwrite this account's balances.
+        identity_rows = [row for row in rows if row.tag == "NetLiquidation"]
+        accounts = {getattr(row, "account", "") for row in identity_rows}
+        accounts.discard("")
+        if len(accounts) != 1 or any(not getattr(row, "account", "") for row in identity_rows):
+            raise ValueError("IBKR_ACCOUNT_SUMMARY_AMBIGUOUS")
+        account = next(iter(accounts))
+        if self._config.account and account != self._config.account:
+            raise ValueError("IBKR_ACCOUNT_SUMMARY_MISMATCH")
+        rows = [row for row in rows if getattr(row, "account", "") == account]
         summary = {row.tag: row.value for row in rows}
+        summary["Account"] = account
         # Currency is metadata on the IB callback row, not a separate summary
         # tag. Preserve the base currency belonging to NetLiquidation so the
         # API never presents an unexplained number as implicitly USD.
