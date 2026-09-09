@@ -16,7 +16,7 @@ export function PaperRiskPeriod() {
     const refresh = async () => {
       try {
         const next = await paperRiskPeriod();
-        if (!stopped) { setSnapshot(next); }
+        if (!stopped) { setSnapshot(next); setError(""); }
       } catch (e) {
         if (!stopped) { setSnapshot(null); setError(String(e)); }
       } finally {

@@ -506,7 +506,6 @@ export function SettingsPage() {
               value={brokerBackend ?? "alpaca"}
               onChange={(v) => {
                 if (controlsDisabled) return;
-                setBrokerBackendState(v as "alpaca" | "ibkr");
                 void commitBrokerBackend(v);
               }}
               options={BROKER_STEPS.map((step) => ({
