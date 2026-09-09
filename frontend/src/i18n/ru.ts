@@ -337,7 +337,7 @@ export const ru: Record<MessageKey, string> = {
   "desk.positions.empty.detail": "Нет открытых позиций",
   "desk.positions.stat.qty": "Кол-во",
   "desk.positions.stat.entry": "Вход",
-  "desk.positions.stat.mark": "Рыночная",
+  "desk.positions.stat.mark": "Сейчас",
   "desk.positions.stat.stop": "Стоп",
   "desk.positions.stat.tgt": "Цель",
   "desk.positions.noMark": "Брокер не прислал цену",

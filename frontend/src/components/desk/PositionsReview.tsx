@@ -112,9 +112,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
               ];
               metrics.push(
                 { key: "mark", label: t("desk.positions.stat.mark"), value: fmtPx(p.mark) },
-                { key: "stop", label: t("desk.positions.stat.stop"), value: fmtPx(p.stop) },
                 { key: "tgt", label: t("desk.positions.stat.tgt"), value: fmtPx(p.target) },
-                { key: "value", label: t("desk.positions.stat.value"), value: p.mark ? fmtPx(Number(p.mark) * Number(p.qty)) : "—" },
               );
               return (
                 <div className="pos-row" key={p.symbol}>
@@ -152,7 +150,6 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                       </div>
                     )}
                   </div>
-                  {p.ledger_linked === false && <p role="status">{t("desk.positions.unlinked")}</p>}
                   <div className="pos-row__body">
                     <dl className="pos-row__metrics">
                       {metrics.map((m) => (
