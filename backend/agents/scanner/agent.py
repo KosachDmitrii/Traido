@@ -163,6 +163,11 @@ class ScannerStatus:
     ai_budget: dict[str, float | int] = field(default_factory=dict)
     schedule: dict[str, float | int | None] = field(default_factory=dict)
     shortlist: list[str] = field(default_factory=list)
+    deep_symbols: list[str] = field(default_factory=list)
+    previous_deep_symbols: list[str] = field(default_factory=list)
+    deep_unique_new: int = 0
+    deep_overlap: int = 0
+    deep_uniqueness_ratio: float = 0.0
 
 
 def cycle_provider_failed(status: ScannerStatus) -> bool:
@@ -435,6 +440,13 @@ def _attach_live_funnel(funnel: ScanFunnel) -> None:
 
 def _absorb(result: CycleResult) -> None:
     """Copy one cycle's report onto the status the desk reads."""
+    previous = set(STATUS.deep_symbols)
+    current = set(result.deep_symbols)
+    STATUS.previous_deep_symbols = list(STATUS.deep_symbols)
+    STATUS.deep_symbols = list(result.deep_symbols)
+    STATUS.deep_overlap = len(current & previous)
+    STATUS.deep_unique_new = len(current - previous)
+    STATUS.deep_uniqueness_ratio = STATUS.deep_unique_new / len(current) if current else 0.0
     STATUS.funnel = result.funnel
     STATUS.universe = result.universe_symbols
     STATUS.shortlist = result.shortlist
@@ -468,6 +480,9 @@ def _record_metrics(result: CycleResult) -> None:
     METRICS.gauge("traido_eligible_universe_size", funnel.structurally_eligible)
     METRICS.gauge("traido_quant_candidates", funnel.quant_shortlisted)
     METRICS.gauge("traido_deep_analysis_candidates", funnel.deep_analysis_started)
+    METRICS.gauge("traido_deep_analysis_unique_new", STATUS.deep_unique_new)
+    METRICS.gauge("traido_deep_analysis_overlap", STATUS.deep_overlap)
+    METRICS.gauge("traido_deep_analysis_uniqueness_ratio", STATUS.deep_uniqueness_ratio)
     METRICS.gauge("traido_published_opportunities", funnel.published)
 
     for stage, seconds in result.timings.as_dict().items():

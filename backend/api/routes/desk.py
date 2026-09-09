@@ -219,6 +219,13 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
             "universe": STATUS.universe or resolve_universe(load_watchlist()),
             "error": STATUS.error,
             "funnel": STATUS.funnel.as_dict(),
+            "rotation": {
+                "deep_symbols": STATUS.deep_symbols,
+                "previous_deep_symbols": STATUS.previous_deep_symbols,
+                "unique_new": STATUS.deep_unique_new,
+                "overlap": STATUS.deep_overlap,
+                "uniqueness_ratio": STATUS.deep_uniqueness_ratio,
+            },
             # The funnel says how many names survived each stage; these say what
             # it cost and when the next one is due. Together they are the answer
             # to the operator's actual question, which is never "how many were

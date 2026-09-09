@@ -55,6 +55,11 @@ def quiet_scanner(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(scanner, "WAKE_POLL_SECONDS", 0.01)
     scanner.STATUS.cycle = 0
     scanner.STATUS.error = None
+    scanner.STATUS.deep_symbols = []
+    scanner.STATUS.previous_deep_symbols = []
+    scanner.STATUS.deep_unique_new = 0
+    scanner.STATUS.deep_overlap = 0
+    scanner.STATUS.deep_uniqueness_ratio = 0.0
     from agents.scanner.funnel import ScanFunnel
 
     scanner.STATUS.funnel = ScanFunnel()
@@ -195,6 +200,42 @@ async def test_a_universe_larger_than_the_old_cap_is_not_truncated(
     assert status.funnel.universe_total == len(symbols) > 60
     assert status.funnel.market_filter_evaluated == len(symbols)
     assert status.funnel.deep_analysis_started == 5, "expensive work must stay bounded"
+
+
+@pytest.mark.asyncio
+async def test_active_waits_do_not_reconsume_fresh_deep_slots(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    symbols = ["A", "B", "C", "D", "E", "F"]
+    cfg = _watchlist(symbols)
+    _install(monkeypatch, cfg, open_proposals=0)
+    monkeypatch.setattr(scan_cycle, "_watched_symbols", lambda: {"A", "B"})
+
+    status = await scanner.run_scan_cycle()
+
+    assert status.funnel.active_watch_excluded == 2
+    assert status.funnel.market_filter_evaluated == 4
+    assert status.funnel.reconciles()
+    assert {"A", "B"}.isdisjoint(status.deep_symbols)
+
+
+def test_deep_rotation_is_measured_between_adjacent_cycles() -> None:
+    from agents.scanner.cycle import CycleResult
+
+    first = CycleResult(deep_symbols=["A", "B", "C", "D"])
+    scanner._absorb(first)
+    assert scanner.STATUS.deep_unique_new == 4
+    assert scanner.STATUS.deep_overlap == 0
+    assert scanner.STATUS.deep_uniqueness_ratio == 1.0
+
+    second = CycleResult(deep_symbols=["C", "D", "E", "F"])
+    scanner._absorb(second)
+
+    assert scanner.STATUS.previous_deep_symbols == ["A", "B", "C", "D"]
+    assert scanner.STATUS.deep_symbols == ["C", "D", "E", "F"]
+    assert scanner.STATUS.deep_unique_new == 2
+    assert scanner.STATUS.deep_overlap == 2
+    assert scanner.STATUS.deep_uniqueness_ratio == 0.5
 
 
 async def _waits_of_one_cycle(monkeypatch: pytest.MonkeyPatch) -> list[float]:

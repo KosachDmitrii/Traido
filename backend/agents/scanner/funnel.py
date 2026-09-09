@@ -89,6 +89,13 @@ class ScanFunnel:
     final_outranked: int = 0
     capacity_rejected: int = 0
     duplicate_symbol_rejected: int = 0
+    active_watch_excluded: int = 0
+    """Already owned by the dedicated EntryWatch loop.
+
+    These names remain actively revalidated, but do not consume a fresh deep-
+    analysis slot on every universe pass.  Keeping this terminal bucket makes
+    the rotation visible without pretending the symbol failed a trade gate.
+    """
 
     # ── Things that went wrong rather than being decided ────────────────────
     provider_failed: int = 0
@@ -153,6 +160,7 @@ class ScanFunnel:
             + self.final_outranked
             + self.capacity_rejected
             + self.duplicate_symbol_rejected
+            + self.active_watch_excluded
         )
 
     def reconciles(self) -> bool:

@@ -84,6 +84,7 @@ class CycleResult:
     timings: StageTimings = field(default_factory=StageTimings)
     published: list[str] = field(default_factory=list)
     shortlist: list[str] = field(default_factory=list)
+    deep_symbols: list[str] = field(default_factory=list)
     universe_symbols: list[str] = field(default_factory=list)
     provider_stats: dict[str, dict[str, float]] = field(default_factory=dict)
     ai_budget: dict[str, float | int] = field(default_factory=dict)
@@ -113,6 +114,13 @@ def _held_symbols() -> set[str]:
 
 def _carded_symbols() -> set[str]:
     return {opp.candidate.symbol.upper() for opp in OPPORTUNITIES.list_open()}
+
+
+def _watched_symbols() -> set[str]:
+    """Symbols whose entry timing is already owned by the watch loop."""
+    from trading.entry_watches import ENTRY_WATCHES
+
+    return {watch.symbol.upper() for watch in ENTRY_WATCHES.list_actionable()}
 
 
 async def run_cycle(
@@ -217,12 +225,15 @@ async def _run_stages(
     # the most expensive stage from producing a card that cannot be acted on.
     held = _held_symbols()
     carded = _carded_symbols()
+    watched = _watched_symbols()
     candidates: list[Instrument] = []
     for instrument in snapshot.eligible:
         if instrument.key in held:
             funnel.position_open += 1
         elif instrument.key in carded:
             funnel.duplicate_symbol_rejected += 1
+        elif instrument.key in watched:
+            funnel.active_watch_excluded += 1
         else:
             candidates.append(instrument)
 
@@ -295,6 +306,7 @@ async def _run_stages(
 
     t0 = time.monotonic()
     funnel.deep_analysis_started = len(finalists)
+    result.deep_symbols = [candidate.symbol for candidate in finalists]
 
     async def _analyse(candidate: QuantCandidate) -> PipelineResult:
         return await run_symbol_pipeline(
