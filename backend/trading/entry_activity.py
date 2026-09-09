@@ -4,7 +4,7 @@ from collections import Counter
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from threading import RLock
-from typing import Concatenate
+from typing import Concatenate, cast
 from uuid import UUID
 
 _lock = RLock()
@@ -20,7 +20,7 @@ def track_entry[S, R, **P](
     function: Callable[Concatenate[S, UUID, P], Awaitable[R]],
 ) -> Callable[Concatenate[S, UUID, P], Awaitable[R]]:
     @wraps(function)
-    async def wrapped(self: S, opportunity_id: UUID, /, *args: P.args, **kwargs: P.kwargs) -> R:
+    async def wrapped(self: S, opportunity_id: UUID, *args: P.args, **kwargs: P.kwargs) -> R:
         with _lock:
             _active[opportunity_id] += 1
         try:
@@ -31,4 +31,5 @@ def track_entry[S, R, **P](
                 if not _active[opportunity_id]:
                     del _active[opportunity_id]
 
-    return wrapped
+    # Preserve keyword calls; Concatenate describes the positional protocol.
+    return cast(Callable[Concatenate[S, UUID, P], Awaitable[R]], wrapped)
