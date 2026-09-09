@@ -18,6 +18,9 @@ export function StatsRow({ desk }: { desk: DeskResponse | null }) {
   const openCount = desk?.positions?.length ?? pf?.open_positions ?? 0;
   const openOrders = desk?.open_orders?.length ?? pf?.open_orders ?? 0;
   const day = Number(pf?.day_pnl);
+  const nonCashEquity = Number(pf?.non_cash_equity);
+  const showEquityComponents =
+    Number.isFinite(nonCashEquity) && Math.abs(nonCashEquity) >= 0.5;
   const wr =
     rev && rev.trade_count ? `${(rev.win_rate * 100).toFixed(0)}%` : "—";
 
@@ -28,6 +31,13 @@ export function StatsRow({ desk }: { desk: DeskResponse | null }) {
         <div className="row">
           <div className="value mono">{money(pf?.equity)}</div>
         </div>
+        {showEquityComponents ? (
+          <div className="stat__explanation">
+            {t("stats.nonCashEquity", {
+              value: `${nonCashEquity >= 0 ? "+" : "-"}${money(Math.abs(nonCashEquity))}`,
+            })}
+          </div>
+        ) : null}
       </div>
       <div className="stat">
         <div className="label">{t("stats.cash")}</div>
@@ -42,7 +52,7 @@ export function StatsRow({ desk }: { desk: DeskResponse | null }) {
         </div>
       </div>
       <div className="stat">
-        <div className="label">{t("stats.todayPnl")}</div>
+        <div className="label" title={t("stats.todayPnlTip")}>{t("stats.todayPnl")}</div>
         <div className="row">
           <div
             className={`value mono ${

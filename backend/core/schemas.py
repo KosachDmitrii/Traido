@@ -266,6 +266,16 @@ class PortfolioSnapshot(StrictModel):
     week_pnl: Decimal
     drawdown_pct: float
     kill_switch: bool = False
+    # Broker-account components used to explain why net liquidation can move
+    # without a Traido trade. Optional keeps non-IBKR adapters compatible.
+    accrued_cash: Decimal | None = None
+    gross_position_value: Decimal | None = None
+    unrealized_pnl: Decimal | None = None
+    realized_pnl: Decimal | None = None
+    previous_equity: Decimal | None = None
+    non_cash_equity: Decimal | None = None
+    base_currency: str | None = None
+    day_pnl_source: str | None = None
 
 
 class RiskLimits(StrictModel):

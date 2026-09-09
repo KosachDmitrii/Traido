@@ -410,6 +410,14 @@ export type BrokerSnapshot = {
     cash: string;
     buying_power?: string;
     day_pnl: string;
+    accrued_cash?: string | null;
+    gross_position_value?: string | null;
+    unrealized_pnl?: string | null;
+    realized_pnl?: string | null;
+    previous_equity?: string | null;
+    non_cash_equity?: string | null;
+    base_currency?: string | null;
+    day_pnl_source?: string | null;
     open_positions: number;
     open_orders?: number;
   } | null;
@@ -868,4 +876,3 @@ export const approveStrategy = (id: string) => strategyAction(id, "approve");
 export const promoteStrategy = (id: string) => strategyAction(id, "promote");
 export const rejectStrategy = (id: string, reason: string) =>
   strategyAction(id, "reject", { actor: "operator", reason });
-

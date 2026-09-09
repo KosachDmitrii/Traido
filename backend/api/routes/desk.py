@@ -480,6 +480,26 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
             "cash": str(portfolio.cash),
             "buying_power": str(portfolio.buying_power),
             "day_pnl": str(portfolio.day_pnl),
+            "accrued_cash": str(portfolio.accrued_cash)
+            if portfolio.accrued_cash is not None
+            else None,
+            "gross_position_value": str(portfolio.gross_position_value)
+            if portfolio.gross_position_value is not None
+            else None,
+            "unrealized_pnl": str(portfolio.unrealized_pnl)
+            if portfolio.unrealized_pnl is not None
+            else None,
+            "realized_pnl": str(portfolio.realized_pnl)
+            if portfolio.realized_pnl is not None
+            else None,
+            "previous_equity": str(portfolio.previous_equity)
+            if portfolio.previous_equity is not None
+            else None,
+            "non_cash_equity": str(portfolio.non_cash_equity)
+            if portfolio.non_cash_equity is not None
+            else None,
+            "base_currency": portfolio.base_currency,
+            "day_pnl_source": portfolio.day_pnl_source,
             "open_positions": portfolio.open_positions,
         }
     except Exception:  # noqa: BLE001

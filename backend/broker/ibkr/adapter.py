@@ -102,6 +102,18 @@ class IBKRBroker:
         positions = await self.list_positions()
         equity = _dec(summary.get("NetLiquidation")) or Decimal(0)
         cash = _dec(summary.get("TotalCashValue")) or Decimal(0)
+        previous_equity = _dec(summary.get("PreviousEquityWithLoanValue"))
+        realized_pnl = _dec(summary.get("RealizedPnL"))
+        # RealizedPnL is only the closed-trade component. Using it as the
+        # account's daily P&L produced the contradictory desk state
+        # "equity changed / P&L $0". PreviousEquityWithLoanValue is IBKR's
+        # previous-session account baseline and therefore the stronger source.
+        if previous_equity is not None and previous_equity > 0:
+            day_pnl = equity - previous_equity
+            day_pnl_source = "net_liquidation_vs_previous_equity"
+        else:
+            day_pnl = realized_pnl or Decimal(0)
+            day_pnl_source = "realized_pnl_fallback"
         exposure = sum((p.qty * p.avg_entry for p in positions), Decimal(0))
         return PortfolioSnapshot(
             equity=equity,
@@ -109,10 +121,18 @@ class IBKRBroker:
             buying_power=_dec(summary.get("BuyingPower")) or cash,
             open_exposure=exposure,
             open_positions=len(positions),
-            day_pnl=_dec(summary.get("RealizedPnL")) or Decimal(0),
+            day_pnl=day_pnl,
             week_pnl=Decimal(0),
             drawdown_pct=0.0,
             kill_switch=is_kill_switch_on(),
+            accrued_cash=_dec(summary.get("AccruedCash")),
+            gross_position_value=_dec(summary.get("GrossPositionValue")),
+            unrealized_pnl=_dec(summary.get("UnrealizedPnL")),
+            realized_pnl=realized_pnl,
+            previous_equity=previous_equity,
+            non_cash_equity=equity - cash,
+            base_currency=str(summary.get("BaseCurrency") or "") or None,
+            day_pnl_source=day_pnl_source,
         )
 
     async def list_positions(self) -> list[Position]:

@@ -270,7 +270,14 @@ class IBKRLiveTransport:
     async def account_summary(self) -> dict[str, Any]:
         ib = await self._ready()
         rows = await ib.accountSummaryAsync(self._config.account or "All")
-        return {row.tag: row.value for row in rows}
+        summary = {row.tag: row.value for row in rows}
+        # Currency is metadata on the IB callback row, not a separate summary
+        # tag. Preserve the base currency belonging to NetLiquidation so the
+        # API never presents an unexplained number as implicitly USD.
+        net_liq = next((row for row in rows if row.tag == "NetLiquidation"), None)
+        if net_liq is not None and getattr(net_liq, "currency", None):
+            summary["BaseCurrency"] = net_liq.currency
+        return summary
 
 
 def _find_trade(ib: Any, order_id: str) -> Any:
