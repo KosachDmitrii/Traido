@@ -29,6 +29,7 @@ from risk.risk_engine import RiskEngine
 from tests.support import CLEARED_EARNINGS, LiquidMarketData
 from trading.execution import MAX_ENTRY_SLIPPAGE_R, ExecutionService
 from trading.exits import MemoryExitStore
+from trading.intents import INTENTS
 from trading.ledger import LEDGER
 from trading.opportunities import MemoryOpportunityStore
 
@@ -121,10 +122,14 @@ async def test_an_entry_that_no_longer_pays_for_its_risk_is_refused() -> None:
     """
     broker = MockPaperBroker()
 
-    with pytest.raises(RuntimeError, match="ENTRY_TOO_FAR_ABOVE_CARD"):
+    intents_before = len(INTENTS.list_by_key_prefix("entry:"))
+    # The current approval path checks the executable entry zone before the
+    # target/slippage guards. This quote fails that earlier, mandatory gate.
+    with pytest.raises(RuntimeError, match="^LIQUIDITY_GATE_REJECTED:ENTRY_OUTSIDE_ALLOWED_ZONE$"):
         await _approve(broker, ask=101.30)
 
     assert broker.orders == []
+    assert len(INTENTS.list_by_key_prefix("entry:")) == intents_before
 
 
 @pytest.mark.asyncio
@@ -157,7 +162,10 @@ async def test_the_live_oxy_entry_would_now_be_refused() -> None:
         exit_store=MemoryExitStore(),
     )
 
-    with pytest.raises(RuntimeError, match="ENTRY_TOO_FAR_ABOVE_CARD"):
+    intents_before = len(INTENTS.list_by_key_prefix("entry:"))
+    # The current approval path checks the executable entry zone before the
+    # target/slippage guards. This quote fails that earlier, mandatory gate.
+    with pytest.raises(RuntimeError, match="^LIQUIDITY_GATE_REJECTED:ENTRY_OUTSIDE_ALLOWED_ZONE$"):
         await service.decide(
             opp.id,
             UserDecision.APPROVE,
@@ -166,6 +174,7 @@ async def test_the_live_oxy_entry_would_now_be_refused() -> None:
         )
 
     assert broker.orders == []
+    assert len(INTENTS.list_by_key_prefix("entry:")) == intents_before
 
 
 @pytest.mark.asyncio

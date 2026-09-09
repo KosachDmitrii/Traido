@@ -30,6 +30,7 @@ from risk.risk_engine import RiskEngine
 from tests.support import CLEARED_EARNINGS, liquid_market_data
 from trading.execution import ENTRY_BUFFER_BPS, ExecutionService
 from trading.exits import MemoryExitStore
+from trading.intents import INTENTS
 from trading.opportunities import MemoryOpportunityStore
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.usefixtures("capital_path_ready")]
@@ -152,7 +153,11 @@ async def test_a_market_that_ran_past_the_target_is_refused() -> None:
     set_kill_switch(False)
     broker = MockPaperBroker()
 
-    with pytest.raises(RuntimeError, match="PRICE_MOVED_PAST_SETUP"):
+    intents_before = len(INTENTS.list_by_key_prefix("entry:"))
+    # The current approval path checks the executable entry zone before the
+    # target/slippage guards. This quote fails that earlier, mandatory gate.
+    with pytest.raises(RuntimeError, match="^LIQUIDITY_GATE_REJECTED:ENTRY_OUTSIDE_ALLOWED_ZONE$"):
         await _approve(broker, market_price=float(CARD_TARGET) + 1.0)
 
     assert not broker.orders, "an entry above its own target reached the broker"
+    assert len(INTENTS.list_by_key_prefix("entry:")) == intents_before

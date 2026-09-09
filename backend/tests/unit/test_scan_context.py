@@ -15,7 +15,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from core.concurrency import AIBudget, ConcurrencyManager
 from core.schemas import PortfolioSnapshot
 from trading import scan_context as ctx_mod
 
@@ -162,7 +161,7 @@ def test_the_scanner_opens_exactly_one_context_per_cycle(monkeypatch: pytest.Mon
     from agents.scanner import agent as scanner
     from agents.scanner import cycle as scan_cycle
     from tests.scanner_fakes import (
-        FakeMarketData,
+        fake_scan_context,
         scanner_settings,
         universe_service_for,
     )
@@ -170,41 +169,10 @@ def test_the_scanner_opens_exactly_one_context_per_cycle(monkeypatch: pytest.Mon
     opened = 0
     contexts: list[object] = []
 
-    class _Context:
-        """Enough of a `ScanContext` for the staged cycle to run through it.
-
-        The batched reads are delegated to a deterministic feed rather than
-        stubbed out: Stage 1 and Stage 2 stand between the cycle and the
-        per-symbol pipeline now, so a context that cannot answer them would
-        never reach the thing under test.
-        """
-
-        broker = None
-
-        def __init__(self) -> None:
-            self.market_data = FakeMarketData()
-            self.concurrency = ConcurrencyManager()
-            self.ai_budget = AIBudget()
-
-        async def snapshots(self, symbols):
-            return await self.market_data.get_snapshots(symbols)
-
-        async def daily_bars(self, symbols, start, end):
-            return await self.market_data.get_daily_bars_batch(symbols, start, end)
-
-        async def aclose(self):
-            return None
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_exc):
-            return None
-
     def _open(_settings=None, **_kwargs):
         nonlocal opened
         opened += 1
-        made = _Context()
+        made = fake_scan_context(_settings)
         contexts.append(made)
         return made
 
