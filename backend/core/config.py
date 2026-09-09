@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "Traido"
+    scanner_cycle_timeout_seconds: float = Field(
+        default=1800, gt=0, alias="TRAIDO_SCANNER_CYCLE_TIMEOUT_SECONDS"
+    )
     environment: str = Field(default="development", alias="TRAIDO_ENV")
 
     broker_env: BrokerEnvironment = Field(

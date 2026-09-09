@@ -129,4 +129,7 @@ async def build_readiness(settings: Settings) -> ReadinessReport:
         _timed("broker", False, _check_broker(settings)),
         _timed("market_data", False, _check_market_data(settings)),
     )
-    return ReadinessReport(checks=list(checks))
+    from agents.scanner.agent import scanner_health
+
+    scanner_ok, scanner_detail = scanner_health()
+    return ReadinessReport(checks=[*checks, Check("scanner", scanner_ok, False, scanner_detail)])

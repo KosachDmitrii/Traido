@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { BuyZoneDetails } from "@/components/desk/BuyZoneDetails";
 import type { BuyOpportunity } from "@/lib/api";
 import { decideBuy, decideSell } from "@/lib/api";
 import {
@@ -37,6 +38,8 @@ function viabilityView(
     return { buyable: false, label: t("opp.viability.outsideRth") };
   }
   const state = opp.viability?.state ?? "unverified";
+  if (state === "entry_unverified") return { buyable: false, label: t("opp.viability.entryUnverified") };
+  if (state === "outside_zone") return { buyable: false, label: t("opp.viability.outsideZone") };
   if (state === "live" && opp.viability?.buyable === true) {
     return { buyable: true, label: null };
   }
@@ -158,7 +161,7 @@ export function OpportunitiesPage() {
                       {c.name ? <div className="rail-opp__name">{c.name}</div> : null}
                     </div>
                     {c.risk_reward != null ? (
-                      <span className="rail-opp__age">{t("rail.buy.rr", { rr: c.risk_reward })}</span>
+                      <span className="rail-opp__age">{t("rail.buy.rr", { rr: c.risk_reward.toFixed(2) })}</span>
                     ) : null}
                   </div>
                 </header>
@@ -182,6 +185,7 @@ export function OpportunitiesPage() {
                   </div>
                 </dl>
 
+                <BuyZoneDetails viability={opp.viability} />
                 {statusNote ? (
                   <p className="opp-card__status opp-viability opp-viability--blocked">
                     {statusNote}

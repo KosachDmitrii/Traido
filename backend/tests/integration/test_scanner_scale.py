@@ -253,6 +253,9 @@ async def test_publication_order_follows_conviction_not_the_quant_shortlist(
     Separated from the regression above because there the two orders agree, so
     that test would pass even if the final sort were dropped entirely.
     """
+    # Compare identical selection histories; rotation across cycles is tested
+    # separately and is not a change in final conviction ranking.
+    monkeypatch.setattr("agents.scanner.cycle.load_history", dict)
     probe, _ = await _run(monkeypatch, desk, count=200)
     finalists = probe.shortlist[:20]
 
@@ -277,6 +280,8 @@ async def test_randomised_completion_order_gives_the_same_ranking(
     the result — a shortlist built by appending, a ranking without a total
     ordering — shows up here and nowhere else.
     """
+    # Arrival-order determinism requires the same history as well as data.
+    monkeypatch.setattr("agents.scanner.cycle.load_history", dict)
     baseline, _ = await _run(monkeypatch, desk, count=200)
     orders = [baseline.published]
     shortlists = [baseline.shortlist]
@@ -402,6 +407,7 @@ async def test_capacity_is_spent_after_ranking_not_during_analysis(
     """
     # Give the *last* names of the shortlist the highest confidence, so the
     # first five analysed are the weakest.
+    monkeypatch.setattr("agents.scanner.cycle.load_history", dict)
     result_probe, _ = await _run(monkeypatch, desk, count=200)
     # The finalists, not the whole shortlist: only the first `deep_analysis_top_k`
     # of Stage 2's ranking reach Stage 3, so a name past that point never

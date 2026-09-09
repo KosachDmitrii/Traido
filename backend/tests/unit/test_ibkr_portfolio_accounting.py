@@ -45,6 +45,8 @@ async def test_ibkr_explains_equity_above_cash_without_positions() -> None:
     assert portfolio.realized_pnl == Decimal(0)
     assert portfolio.day_pnl_source == "net_liquidation_vs_previous_equity"
     assert portfolio.base_currency == "USD"
+    assert portfolio.week_pnl is None
+    assert portfolio.drawdown_pct is None
 
 
 async def test_ibkr_marks_realized_pnl_as_fallback_without_previous_equity() -> None:

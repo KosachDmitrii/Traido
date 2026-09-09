@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -168,6 +169,7 @@ class ScannerStatus:
     deep_unique_new: int = 0
     deep_overlap: int = 0
     deep_uniqueness_ratio: float = 0.0
+    coverage: dict[str, str | int] = field(default_factory=dict)
 
 
 def cycle_provider_failed(status: ScannerStatus) -> bool:
@@ -440,13 +442,14 @@ def _attach_live_funnel(funnel: ScanFunnel) -> None:
 
 def _absorb(result: CycleResult) -> None:
     """Copy one cycle's report onto the status the desk reads."""
-    previous = set(STATUS.deep_symbols)
+    previous = set(STATUS.deep_symbols or STATUS.previous_deep_symbols)
     current = set(result.deep_symbols)
-    STATUS.previous_deep_symbols = list(STATUS.deep_symbols)
+    STATUS.previous_deep_symbols = sorted(previous)
     STATUS.deep_symbols = list(result.deep_symbols)
     STATUS.deep_overlap = len(current & previous)
     STATUS.deep_unique_new = len(current - previous)
     STATUS.deep_uniqueness_ratio = STATUS.deep_unique_new / len(current) if current else 0.0
+    STATUS.coverage = dict(result.coverage)
     STATUS.funnel = result.funnel
     STATUS.universe = result.universe_symbols
     STATUS.shortlist = result.shortlist
@@ -602,7 +605,39 @@ async def wait_before_next_cycle(delay: float) -> None:
         await asyncio.sleep(min(WAKE_POLL_SECONDS, left))
 
 
+_supervisor_error: str | None = None
+_supervisor_heartbeat: float | None = None
+
+
+def scanner_health() -> tuple[bool, str]:
+    """Expose task failure separately from API/process liveness."""
+    if _task is None or _task.done():
+        return False, "scanner task is not running"
+    if _supervisor_error:
+        return False, _supervisor_error
+    if _supervisor_heartbeat is None:
+        return False, "scanner is starting"
+    if STATUS.error and STATUS.error not in {"disabled_or_kill_switch", "superseded"}:
+        return False, "last scanner cycle failed"
+    return True, "scanner task is running"
+
+
 async def scanner_loop() -> None:
+    """Recover an unexpected cycle failure without overlapping another walker."""
+    global _supervisor_error, _schedule
+    while True:
+        try:
+            await _scanner_loop_inner()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — supervisor boundary
+            _supervisor_error = f"scanner recovering after {type(exc).__name__}"
+            logging.getLogger(__name__).error("%s", _supervisor_error)
+            _schedule = None
+            await asyncio.sleep(PAUSED_RETRY_SECONDS)
+
+
+async def _scanner_loop_inner() -> None:
     """Run cycles on a cadence, never overlapping, and say when one overran.
 
     Cycle *n* is due at a fixed offset from the first, so a slow cycle does not
@@ -610,8 +645,9 @@ async def scanner_loop() -> None:
     the full interval *after* finishing, which turned a four-minute cycle and a
     five-minute interval into a nine-minute period that nothing reported.
     """
-    global _wake_seen, _schedule
+    global _wake_seen, _schedule, _supervisor_heartbeat, _supervisor_error
     while True:
+        _supervisor_heartbeat = time.monotonic()
         cfg = load_watchlist()
         interval = max(30.0, float(cfg.get("scan_interval_seconds") or 90))
         if _schedule is None:
@@ -629,7 +665,13 @@ async def scanner_loop() -> None:
                 f"Cycle started {late:.0f}s after its slot",
                 level="warn",
             )
-        status = await run_scan_cycle()
+        # Cancellation is awaited before retry, retaining the single-walker
+        # guarantee even when a provider stalls. This is an operational limit,
+        # not a trading threshold (default: thirty minutes).
+        async with asyncio.timeout(get_settings().scanner_cycle_timeout_seconds):
+            status = await run_scan_cycle()
+        _supervisor_error = None
+        _supervisor_heartbeat = time.monotonic()
         overrun = _schedule.complete()
         if overrun > 0:
             from core.metrics import METRICS

@@ -263,8 +263,8 @@ class PortfolioSnapshot(StrictModel):
     open_exposure: Decimal
     open_positions: int
     day_pnl: Decimal
-    week_pnl: Decimal
-    drawdown_pct: float
+    week_pnl: Decimal | None
+    drawdown_pct: float | None
     kill_switch: bool = False
     # Broker-account components used to explain why net liquidation can move
     # without a Traido trade. Optional keeps non-IBKR adapters compatible.

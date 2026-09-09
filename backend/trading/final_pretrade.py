@@ -240,17 +240,9 @@ def final_pretrade_validation(
     if setup_type is SetupType.UNKNOWN:
         raise PretradeRejection("BUY_REJECTED_ADMISSION", "SETUP_TYPE_UNKNOWN")
 
-    zone_low = (
-        snap.entry_zone_low
-        if snap
-        else (float(candidate.entry_zone_low) if candidate.entry_zone_low else None)
-    )
-    zone_high = (
-        snap.entry_zone_high
-        if snap
-        else (float(candidate.entry_zone_high) if candidate.entry_zone_high else None)
-    )
-    atr = snap.atr_at_creation if snap else None
+    from trading.trade_admission import candidate_entry_zone
+
+    zone_low, zone_high, atr = candidate_entry_zone(candidate, snap)
 
     allowed, zone_reasons = entry_allowed_for_setup_type(setup_type, ask, zone_low, zone_high, atr)
     if not allowed:

@@ -225,6 +225,7 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
                 "unique_new": STATUS.deep_unique_new,
                 "overlap": STATUS.deep_overlap,
                 "uniqueness_ratio": STATUS.deep_uniqueness_ratio,
+                "coverage": STATUS.coverage,
             },
             # The funnel says how many names survived each stage; these say what
             # it cost and when the next one is due. Together they are the answer

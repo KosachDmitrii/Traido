@@ -174,7 +174,11 @@ async def run_watch_pass() -> dict[str, int]:
                     if current.admission_snapshot
                     else None
                 )
-                current = observe_price(current, price, atr=atr)
+                # Marks have already been refreshed for the UI. Transition
+                # detection must compare against the pre-refresh observation.
+                observed = current.model_copy(update={"last_price": prev_price})
+                current = observe_price(observed, price, atr=atr)
+                current = ENTRY_WATCHES.get(current.id) or current
                 if current.status is EntryWatchStatus.EXPIRED:
                     from trading.shadow_outcomes import maybe_begin_shadow_for_terminal_watch
 
@@ -308,11 +312,15 @@ async def run_watch_pass() -> dict[str, int]:
             ENTRY_WATCHES.update(cached)
             current = ENTRY_WATCHES.get(current.id) or current
 
+            from agents.market.agent import assess_market
+
+            fresh_market = await assess_market(settings.fred_api_key, now=datetime.now(UTC))
             revalidation = revalidate_triggered_watch_full(
                 current,
                 exec_snap=snap,
                 quote=q,
                 bars=bars_h1,
+                market=fresh_market,
             )
             if revalidation is None:
                 stats["invalidated"] += 1

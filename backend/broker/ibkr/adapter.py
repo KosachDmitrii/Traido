@@ -122,8 +122,10 @@ class IBKRBroker:
             open_exposure=exposure,
             open_positions=len(positions),
             day_pnl=day_pnl,
-            week_pnl=Decimal(0),
-            drawdown_pct=0.0,
+            # Account summary does not supply a cash-flow-adjusted weekly
+            # baseline or high-water mark. Unknown must not masquerade as zero.
+            week_pnl=None,
+            drawdown_pct=None,
             kill_switch=is_kill_switch_on(),
             accrued_cash=_dec(summary.get("AccruedCash")),
             gross_position_value=_dec(summary.get("GrossPositionValue")),

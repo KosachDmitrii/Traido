@@ -227,6 +227,7 @@ def apply_market_filter(
     policy: MarketFilterPolicy | None = None,
     limit: int = 0,
     now: datetime | None = None,
+    last_seen: dict[str, float] | None = None,
 ) -> MarketFilterOutcome:
     """Stage 1 over the whole universe, then cut to `limit` deterministically.
 
@@ -247,6 +248,9 @@ def apply_market_filter(
             outcome.rejected.append(candidate)
 
     outcome.passed.sort(key=lambda c: (-c.score, c.symbol))
+    from agents.scanner.rotation import fair_order
+
+    outcome.passed = fair_order(outcome.passed, limit, last_seen)
     if limit > 0 and len(outcome.passed) > limit:
         for cut in outcome.passed[limit:]:
             cut.passed = False

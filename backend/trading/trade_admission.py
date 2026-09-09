@@ -94,6 +94,23 @@ def build_admission_snapshot(
     )
 
 
+def candidate_entry_zone(
+    candidate: TradeCandidate,
+    snapshot: AdmissionSnapshot | None = None,
+) -> tuple[float | None, float | None, float | None]:
+    """Shared zone provenance for preview and final admission; snapshot wins."""
+    snap = snapshot
+    if snap is None and candidate.admission_snapshot:
+        snap = AdmissionSnapshot.model_validate(candidate.admission_snapshot)
+    if snap is not None:
+        return snap.entry_zone_low, snap.entry_zone_high, snap.atr_at_creation
+    return (
+        float(candidate.entry_zone_low) if candidate.entry_zone_low else None,
+        float(candidate.entry_zone_high) if candidate.entry_zone_high else None,
+        None,
+    )
+
+
 def entry_allowed_for_setup_type(
     setup_type: SetupType,
     price: float,

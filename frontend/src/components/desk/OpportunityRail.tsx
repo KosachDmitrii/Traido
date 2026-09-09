@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { BuyZoneDetails } from "./BuyZoneDetails";
 import type { BuyOpportunity, BuyViability, DeskResponse, EntryWatchCard } from "@/lib/api";
 import { decideBuy, decideSell } from "@/lib/api";
 import { useT } from "@/i18n/I18nProvider";
@@ -303,6 +304,12 @@ function viabilityView(
   className: string;
 } {
   const state = v?.state ?? "unverified";
+  if (state === "entry_unverified") {
+    return { buyable: false, label: t("opp.viability.entryUnverified"), className: "opp-viability--blocked" };
+  }
+  if (state === "outside_zone") {
+    return { buyable: false, label: t("opp.viability.outsideZone"), className: "opp-viability--blocked" };
+  }
   if (state === "live" && v?.buyable === true) {
     return { buyable: true, label: null, className: "" };
   }
@@ -490,7 +497,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh }: Props) {
                   {c.name ? <div className="rail-opp__name">{c.name}</div> : null}
                 </div>
                 {c.risk_reward != null ? (
-                  <span className="rail-opp__age">{t("rail.buy.rr", { rr: c.risk_reward })}</span>
+                  <span className="rail-opp__age">{t("rail.buy.rr", { rr: c.risk_reward.toFixed(2) })}</span>
                 ) : null}
               </div>
             </header>
@@ -514,6 +521,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh }: Props) {
               </div>
             </dl>
 
+            <BuyZoneDetails viability={opp.viability} />
             {statusNote ? (
               <p className="opp-card__status opp-viability opp-viability--blocked">{statusNote}</p>
             ) : null}

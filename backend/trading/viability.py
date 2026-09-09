@@ -29,6 +29,11 @@ from typing import Any
 from core.schemas import Quote, TradeCandidate
 from trading.gates import LiquidityPolicy, SpreadReading, SpreadSource, measure_spread
 from trading.pricing import ENTRY_BUFFER_BPS, marketable_buy_limit
+from trading.trade_admission import (
+    ZONE_ABOVE_BUFFER_ATR,
+    candidate_entry_zone,
+    entry_allowed_for_setup_type,
+)
 
 # Keep the decide-time constant in one place. Importing from execution would
 # pull the whole service graph into a desk poll; the number is the contract.
@@ -39,8 +44,14 @@ WIDE = "wide"
 DRIFTED = "drifted"
 PAST_SETUP = "past_setup"
 UNVERIFIED = "unverified"
+OUTSIDE_ZONE = "outside_zone"
 
 _STATE_FOR_REASON = {
+    "SETUP_TYPE_UNKNOWN": "entry_unverified",
+    "MISSING_ENTRY_ZONE": "entry_unverified",
+    "MISSING_ATR": "entry_unverified",
+    "INVALID_ADMISSION_SNAPSHOT": "entry_unverified",
+    "ENTRY_OUTSIDE_ALLOWED_ZONE": OUTSIDE_ZONE,
     "SPREAD_TOO_WIDE": WIDE,
     "ENTRY_TOO_FAR_ABOVE_CARD": DRIFTED,
     "PRICE_MOVED_PAST_SETUP": PAST_SETUP,
@@ -127,6 +138,27 @@ def assess_buy_viability(
     limit = marketable_buy_limit(quote.ask, buffer_bps=entry_buffer_bps)
     measured["ask"] = str(quote.ask)
     measured["limit_price"] = str(limit)
+
+    try:
+        zone_low, zone_high, atr = candidate_entry_zone(candidate)
+        allowed, reasons = entry_allowed_for_setup_type(
+            candidate.setup_type, float(quote.ask), zone_low, zone_high, atr
+        )
+    except (ValueError, TypeError):
+        allowed, reasons = False, ["INVALID_ADMISSION_SNAPSHOT"]
+        zone_low, zone_high, atr = None, None, None
+    measured.update({"entry_zone_low": zone_low, "entry_zone_high": zone_high})
+    if atr is not None and atr > 0 and zone_low is not None and zone_high is not None:
+        measured["allowed_zone_low"] = zone_low - atr * ZONE_ABOVE_BUFFER_ATR
+        measured["allowed_zone_high"] = zone_high + atr * ZONE_ABOVE_BUFFER_ATR
+    if not allowed:
+        return BuyViability(
+            state=state_for_reasons(reasons),
+            buyable=False,
+            reasons=tuple(reasons),
+            measured=measured,
+            as_of=as_of,
+        )
 
     if limit <= candidate.stop or limit >= candidate.target:
         return BuyViability(

@@ -240,6 +240,7 @@ def prerank(
     policy: PrerankPolicy | None = None,
     top_k: int = 30,
     now: datetime | None = None,
+    last_seen: dict[str, float] | None = None,
 ) -> PrerankOutcome:
     """Score everything, then keep the best `top_k`, deterministically.
 
@@ -280,7 +281,9 @@ def prerank(
         selected.extend(
             candidate for candidate in scored if candidate.symbol not in selected_symbols
         )
-        outcome.shortlist = selected[:top_k]
+        from agents.scanner.rotation import fair_order
+
+        outcome.shortlist = fair_order(selected, top_k, last_seen)[:top_k]
         shortlisted_symbols = {candidate.symbol for candidate in outcome.shortlist}
         for cut in scored:
             if cut.symbol in shortlisted_symbols:

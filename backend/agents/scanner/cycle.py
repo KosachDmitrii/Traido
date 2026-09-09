@@ -35,6 +35,7 @@ from agents.scanner.prefilter import (
     apply_market_filter,
 )
 from agents.scanner.prerank import PrerankPolicy, QuantCandidate, prerank
+from agents.scanner.rotation import fair_order, load_history, record_selection
 from core.activity import BOARD
 from core.config import Settings, get_settings
 from core.enums import UniverseMode
@@ -85,6 +86,7 @@ class CycleResult:
     published: list[str] = field(default_factory=list)
     shortlist: list[str] = field(default_factory=list)
     deep_symbols: list[str] = field(default_factory=list)
+    coverage: dict[str, str | int] = field(default_factory=dict)
     universe_symbols: list[str] = field(default_factory=list)
     provider_stats: dict[str, dict[str, float]] = field(default_factory=dict)
     ai_budget: dict[str, float | int] = field(default_factory=dict)
@@ -252,11 +254,13 @@ async def _run_stages(
         result.timings.market_filter = time.monotonic() - t0
         return
 
+    history = load_history()
     stage1 = apply_market_filter(
         candidates,
         snapshots,
         policy=MarketFilterPolicy(),
         limit=settings.market_prefilter_limit,
+        last_seen=history.get("daily_bars"),
     )
     result.timings.market_filter = time.monotonic() - t0
     funnel.market_filter_passed = len(stage1.passed)
@@ -270,6 +274,7 @@ async def _run_stages(
     # ── Stage 2: one batched daily-bar read, then deterministic scoring ────
     t0 = time.monotonic()
     survivors = [c.instrument for c in stage1.passed]
+    record_selection("daily_bars", [i.key for i in survivors])
     end = datetime.now(UTC)
     start = end - timedelta(days=PRERANK_LOOKBACK_DAYS)
     funnel.quant_evaluated = len(survivors)
@@ -288,6 +293,7 @@ async def _run_stages(
         policy=PrerankPolicy(),
         top_k=settings.quant_top_k,
         now=end,
+        last_seen=history.get("deep"),
     )
     result.timings.prerank = time.monotonic() - t0
     funnel.quant_shortlisted = len(stage2.shortlist)
@@ -300,13 +306,15 @@ async def _run_stages(
         return
 
     # ── Stage 3: deep analysis, on finalists only ──────────────────────────
-    finalists = _apply_ai_budget(ctx, stage2.shortlist, settings, funnel)
+    ordered = fair_order(stage2.shortlist, settings.deep_analysis_top_k, history.get("deep"))
+    finalists = _apply_ai_budget(ctx, ordered, settings, funnel)
     if not finalists:
         return
 
     t0 = time.monotonic()
     funnel.deep_analysis_started = len(finalists)
     result.deep_symbols = [candidate.symbol for candidate in finalists]
+    record_selection("deep", result.deep_symbols)
 
     async def _analyse(candidate: QuantCandidate) -> PipelineResult:
         return await run_symbol_pipeline(
@@ -318,6 +326,22 @@ async def _run_stages(
         )
 
     outcomes = await ctx.concurrency.map("deep", finalists, _analyse)
+    completed = [
+        c.symbol
+        for c, out in zip(finalists, outcomes, strict=True)
+        if not isinstance(out, BaseException)
+    ]
+    record_selection("deep_completed", completed)
+    from core.clock import market_date
+
+    result.coverage = {
+        "market_date": market_date().isoformat(),
+        "policy": "rank-half-lru-half-v1",
+        "session_unique_selected": len(set(history.get("deep", {})) | set(result.deep_symbols)),
+        "session_unique_completed": len(set(history.get("deep_completed", {})) | set(completed)),
+        "current_universe_size": len(result.universe_symbols),
+    }
+    BOARD.log("scanner", f"Deep coverage: {result.coverage}; selected={result.deep_symbols}")
     result.timings.deep_analysis = time.monotonic() - t0
 
     passed: list[PipelineResult] = []

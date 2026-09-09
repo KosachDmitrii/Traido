@@ -64,6 +64,40 @@ removes only durable facts (TTL, open position, irreproducible target plan). Tra
 previewed on the card via `trading.viability` — the same geometry decide
 enforces — so the operator does not have to press BUY to learn the book moved.
 
+## Scanner and watch observations
+
+- BUY previews and final admission share `candidate_entry_zone` and
+  `entry_allowed_for_setup_type`, including snapshot precedence and ask-based
+  ATR tolerance. Outside-zone cards remain visible but cannot be clicked;
+  incomplete entry evidence is distinct from an unverified quote. Preview
+  never replaces the final fresh admission check.
+
+- IBKR account summary has no verified weekly baseline/high-water history.
+  Weekly P&L and drawdown are therefore nullable, not fabricated zeroes. New
+  entries fail closed with `WEEKLY_PNL_UNAVAILABLE` /
+  `PORTFOLIO_DRAWDOWN_UNAVAILABLE`. Do not deploy this as a complete accounting
+  solution: a verified, cash-flow-adjusted account history source is still
+  required to make those checks operational. Exit paths are unchanged.
+
+- Budget rotation reserves half of each capped eligible shortlist for ranking
+  and half for least-recently selected names. Eligibility gates are unchanged.
+  `ScannerSelectionV1` audit rows persist exchange-day history. Scheduled deep
+  work and completed pipeline calls are counted separately; completion does not
+  imply BUY or successful provider data. The desk API exposes session coverage.
+
+- Unexpected outer scanner failures are retried after the existing paused retry
+  delay. Cancellation still stops the worker; no parallel replacement is launched.
+  Readiness reports a degraded scanner while it is missing or recovering.
+  `TRAIDO_SCANNER_CYCLE_TIMEOUT_SECONDS` bounds a cycle (default 1800 seconds);
+  timeout awaits cancellation before retrying, rather than launching a second
+  walker alongside unfinished work. It cannot recover a blocked Python event loop.
+- A newer last trade never updates the source timestamp of bid/ask. Stale book
+  data remains stale for admission, even when a fresh last price is displayed.
+- Zone transitions use the observation preceding the UI mark refresh. Repeated
+  observations inside the same zone are not additional touches.
+- Triggered watch scoring receives a freshly assessed market; publication still
+  independently checks its market gate before risk evaluation.
+
 ## EXIT
 
 | Failure | Local state | Action | Audit event | Trading blocked | Recovery |

@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from core.enums import TradeAction
+from core.enums import SetupType, TradeAction
 from core.schemas import Quote, TradeCandidate
 from trading.gates import SpreadReading, SpreadSource
 from trading.viability import (
@@ -46,6 +46,7 @@ def _candidate(
         risk_reward=2.0,
         reasons=["test"],
         strategy_version="test@1",
+        setup_type=SetupType.BREAKOUT_CONTINUATION,
     )
 
 

@@ -163,6 +163,15 @@ class RiskEngine:
             return self._reject(["NON_POSITIVE_EQUITY"], portfolio, candidate_id, ctx.earnings)
 
         # Daily / weekly loss & drawdown
+        missing_risk_history = []
+        if portfolio.week_pnl is None:
+            missing_risk_history.append("WEEKLY_PNL_UNAVAILABLE")
+        if portfolio.drawdown_pct is None:
+            missing_risk_history.append("PORTFOLIO_DRAWDOWN_UNAVAILABLE")
+        if missing_risk_history:
+            return self._reject(missing_risk_history, portfolio, candidate_id, ctx.earnings)
+        assert portfolio.week_pnl is not None
+        assert portfolio.drawdown_pct is not None
         day_loss_pct = float((-portfolio.day_pnl / equity) * 100) if portfolio.day_pnl < 0 else 0.0
         week_loss_pct = (
             float((-portfolio.week_pnl / equity) * 100) if portfolio.week_pnl < 0 else 0.0
