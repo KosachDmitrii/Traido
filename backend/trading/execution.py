@@ -51,6 +51,7 @@ from risk.context_builder import build_risk_context
 from risk.kill_switch import is_kill_switch_on
 from risk.risk_engine import RiskContext, RiskEngine
 from trading.decision_pipeline import NEW_EXPOSURE_GATE_ORDER
+from trading.entry_activity import track_entry
 from trading.exits import (
     EXIT_APPROVING,
     EXIT_AWAITING,
@@ -306,6 +307,7 @@ class ExecutionService:
         notes = [*built.notes, *gate.reason_codes]
         return built.context, notes
 
+    @track_entry
     async def decide(
         self,
         opportunity_id: UUID,

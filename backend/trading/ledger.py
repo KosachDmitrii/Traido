@@ -228,6 +228,16 @@ class PositionLedger:
             .first()
         )
 
+    def find_by_entry_order(self, broker_order_id: str):
+        """Include closed rows: recovery must never resurrect a closed trade."""
+        SessionLocal = _session_factory(self._engine)
+        with self._lock, SessionLocal() as session:
+            return (
+                session.query(OpenPositionRow)
+                .filter(OpenPositionRow.broker_entry_order_id == broker_order_id)
+                .all()
+            )
+
     def get_open(self, symbol: str | None = None) -> list[OpenPositionRow]:
         SessionLocal = _session_factory(self._engine)
         with SessionLocal() as session:

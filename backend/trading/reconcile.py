@@ -151,6 +151,12 @@ async def reconcile_positions(
 
     broker_pos = await broker.list_positions()
     by_sym = {p.symbol.upper(): p for p in broker_pos}
+    from trading.entry_recovery import recover_entry_positions
+
+    await recover_entry_positions(broker, intent_store, store, by_sym, report, audit)
+    for detail in report.unresolved:
+        if detail.startswith("entry_recovery:"):
+            logger.warning("%s", detail)
 
     closed = 0
     orphans: list[str] = []
@@ -198,6 +204,14 @@ async def reconcile_positions(
     ledger_syms = {r.symbol.upper() for r in store.get_open()}
     for sym, pos in by_sym.items():
         if sym not in ledger_syms:
+            from trading.entry_activity import entry_active
+
+            if any(
+                i.symbol.upper() == sym and entry_active(i.opportunity_id)
+                for i in intent_store.list_by_key_prefix("entry:")
+            ):
+                report.unresolved.append(f"entry_execution_in_progress:{sym}")
+                continue
             orphans.append(sym)
             report.unresolved.append(f"orphan_position:{sym}")
             # We hold something we cannot explain. Block the symbol rather than
@@ -279,7 +293,11 @@ async def reconcile_order_intents(
     """
     rep = report if report is not None else ReconciliationReport()
 
+    from trading.entry_activity import entry_active
+
     for intent in intents.list_unresolved():
+        if not intent.is_exit and entry_active(intent.opportunity_id):
+            continue
         if intent.idempotency_key.startswith(_ORPHAN_PREFIX):
             continue  # handled by the position sweep, which owns their lifetime
         rep.checked.append(f"intent:{intent.id}")

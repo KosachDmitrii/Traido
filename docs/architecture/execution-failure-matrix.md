@@ -340,3 +340,17 @@ verified absence. Position valuation uses broker portfolio marketPrice keyed by
 account and contract; missing/invalid prices remain unknown. Stop/target fields
 remain visible as unknown when the ledger has no evidence. Scanner cycle WAIT
 counts are distinguished from active plans across cycles.
+
+
+## Entry fill recovery before ledger creation
+
+Reconciliation scans durable entry intents including terminal FILLED records for
+currently held, unattributed positions. It restores a row only from one matching
+broker fill, the same broker account/environment, exact held quantity, and the
+persisted approval/geometry. Missing or conflicting evidence remains an orphan;
+no guessed targets or fresh approval are substituted. Closed entry rows are never
+resurrected. The existing protective sweep runs after restoration, including on
+future passes. A matching resting stop is linked, never blindly duplicated.
+An executing approval is tracked process-wide and excluded from recovery until
+it finishes; the tracker is deliberately empty after process restart. The
+single-worker deployment invariant remains required. Recovery submits no BUY.
