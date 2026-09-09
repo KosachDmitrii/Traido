@@ -123,6 +123,7 @@ async def test_alpaca_is_not_initialized_by_ibkr_endpoint(monkeypatch):
 @pytest.mark.asyncio
 async def test_disconnected_broker_cannot_start_from_cached_summary(broker, monkeypatch):
     from core.enums import BrokerConnectionState
+
     monkeypatch.setattr(broker, "connection_state", lambda: BrokerConnectionState.DEGRADED)
     with pytest.raises(HTTPException, match="IBKR_NOT_READY"):
         await trading.start_risk_period(body())
