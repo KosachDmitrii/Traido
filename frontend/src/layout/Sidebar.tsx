@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
@@ -10,10 +10,12 @@ import {
   Home,
   Inbox,
   Layers,
+  Menu,
+  X,
   Settings2,
   Workflow,
 } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import { useT } from "@/i18n/I18nProvider";
 import type { MessageKey } from "@/i18n";
 import { Button, HintTooltip } from "@/ui";
@@ -119,4 +121,70 @@ export function useNavCollapsed() {
     collapsed,
     onCollapsedChange: useCallback((next: boolean) => setCollapsed(next), []),
   };
+}
+
+
+export function MobileNavigation() {
+  const t = useT();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const location = useLocation();
+  const close = useCallback(() => dialog.current?.close(), []);
+
+  useEffect(close, [location.key, close]);
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1101px)");
+    const onResize = () => { if (desktop.matches) close(); };
+    desktop.addEventListener("change", onResize);
+    return () => desktop.removeEventListener("change", onResize);
+  }, [close]);
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = previous; };
+  }, [open]);
+
+  return (
+    <>
+      <button
+        ref={trigger}
+        type="button"
+        className="mobile-nav__trigger"
+        aria-label={t("nav.openMenu")}
+        aria-haspopup="dialog"
+        aria-controls="mobile-navigation"
+        aria-expanded={open}
+        onClick={() => { dialog.current?.showModal(); setOpen(true); }}
+      >
+        <Menu size={22} strokeWidth={1.75} aria-hidden />
+      </button>
+      <dialog
+        ref={dialog}
+        id="mobile-navigation"
+        className="mobile-nav"
+        aria-labelledby="mobile-navigation-title"
+        onClose={() => { setOpen(false); trigger.current?.focus(); }}
+        onClick={(event) => {
+          if (event.target !== event.currentTarget) return;
+          const rect = event.currentTarget.getBoundingClientRect();
+          if (event.clientX < rect.left || event.clientX > rect.right ||
+              event.clientY < rect.top || event.clientY > rect.bottom) close();
+        }}
+      >
+        <div className="mobile-nav__header">
+          <strong id="mobile-navigation-title">{t("nav.menu")}</strong>
+          <button type="button" className="mobile-nav__close" aria-label={t("nav.closeMenu")} onClick={close} autoFocus>
+            <X size={22} strokeWidth={1.75} aria-hidden />
+          </button>
+        </div>
+        <nav className="mobile-nav__links" aria-label={t("nav.aria")}
+          onClick={(event) => { if ((event.target as Element).closest("a")) close(); }}>
+          {PRIMARY.map((item) => <NavRow key={item.id} item={item} collapsed={false} />)}
+          <div className="mobile-nav__settings"><NavRow item={SETTINGS} collapsed={false} /></div>
+        </nav>
+      </dialog>
+    </>
+  );
 }

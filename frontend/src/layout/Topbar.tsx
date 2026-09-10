@@ -1,3 +1,4 @@
+import { MobileNavigation } from "@/layout/Sidebar";
 import { BrandLogo } from "@/layout/BrandLogo";
 import { CircleSlash, Clock, ShieldAlert } from "lucide-react";
 import type { CSSProperties } from "react";
@@ -120,6 +121,7 @@ export function Topbar() {
     <header className="topbar">
       <div className="topbar__left">
         <BrandLogo name={t("brand.name")} />
+        <MobileNavigation />
       </div>
 
       <div className="topbar__center">
