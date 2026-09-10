@@ -108,8 +108,8 @@ function usePageMeta(): PageMeta {
         title: t("strip.strategies.title"),
         sub: t("strip.strategies.sub"),
         chips: [
-          { label: t("strip.strategies.versions"), accent: true },
-          { label: t("strip.strategies.production") },
+          { label: "ORB", accent: true },
+          { label: "Paper" },
         ],
       };
     case "/logs": {

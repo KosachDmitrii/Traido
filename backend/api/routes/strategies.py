@@ -46,6 +46,28 @@ def strategies_list() -> dict:
     }
 
 
+@router.get("/active")
+def active_strategy() -> dict:
+    """Read-only passport of the policy actually used by the ORB runtime."""
+    from core.config import get_settings
+    from market_data.factory import resolve_alpaca_data_feed
+    from strategy.orb import PARAMETERS, VERSION
+    from strategy.orb.evaluation import paper_evaluation
+
+    settings = get_settings()
+    return {
+        "version": VERSION,
+        "parameters": dict(PARAMETERS),
+        "feed": resolve_alpaca_data_feed(settings),
+        "broker_env": settings.broker_env.value,
+        "trading_mode": settings.trading_mode.value,
+        "allow_live_trading": settings.allow_live_trading,
+        "paper": paper_evaluation(),
+        "historical_backtest": "not_implemented",
+        "live_readiness": "not_certified",
+    }
+
+
 @router.get("/{version_id}")
 def strategy_detail(version_id: UUID) -> dict:
     ensure_builtin_strategies()

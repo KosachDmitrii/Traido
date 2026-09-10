@@ -958,3 +958,15 @@ export async function fetchOrbSymbol(symbol: string, signal?: AbortSignal): Prom
   if (!response.ok) throw new Error("orb_symbol_unavailable");
   return response.json();
 }
+
+
+export type StrategyPassport = {
+  version: string; parameters: Record<string, string | number | string[]>;
+  feed: string; broker_env: string; trading_mode: string; allow_live_trading: boolean;
+  paper: OrbEvaluation; historical_backtest: string; live_readiness: string;
+};
+export async function fetchStrategyPassport(signal?: AbortSignal): Promise<StrategyPassport> {
+  const response = await fetch(apiUrl("/api/v1/strategies/active"), { headers: apiHeaders(), signal });
+  if (!response.ok) throw new Error("strategy_passport_unavailable");
+  return response.json();
+}

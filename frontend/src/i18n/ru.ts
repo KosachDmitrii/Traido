@@ -136,7 +136,7 @@ export const ru: Record<MessageKey, string> = {
   "strip.evaluation.bench": "Бенчмарк",
   "strip.evaluation.oos": "Вне выборки",
   "strip.strategies.title": "Стратегии",
-  "strip.strategies.sub": "Promotion gate · предложение → paper → человек → production",
+  "strip.strategies.sub": "Правила, параметры и проверки ORB",
   "strip.strategies.versions": "Версии",
   "strip.strategies.production": "Production",
   "strip.logs.title": "Логи",

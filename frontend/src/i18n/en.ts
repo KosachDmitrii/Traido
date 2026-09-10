@@ -134,7 +134,7 @@ export const en = {
   "strip.evaluation.bench": "Bench",
   "strip.evaluation.oos": "Out-of-sample",
   "strip.strategies.title": "Strategies",
-  "strip.strategies.sub": "Promotion gate · proposal → paper → human → production",
+  "strip.strategies.sub": "ORB rules, parameters and verification",
   "strip.strategies.versions": "Versions",
   "strip.strategies.production": "Production",
   "strip.logs.title": "Logs",

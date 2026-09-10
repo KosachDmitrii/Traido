@@ -1,195 +1,78 @@
-import { useCallback, useEffect, useState } from "react";
-import {
-  approveStrategy,
-  fetchStrategies,
-  promoteStrategy,
-  recomputeStrategy,
-  rejectStrategy,
-  type StrategiesPayload,
-  type StrategyVersion,
-} from "@/lib/api";
-import { useDesk } from "@/context/DeskContext";
-import { useT } from "@/i18n/I18nProvider";
-import type { MessageKey } from "@/i18n";
-import { Button } from "@/ui";
-import { humanizeError } from "@/lib/messages";
-
-const STAGE_KEYS: Record<string, MessageKey> = {
-  proposed: "strategies.stage.proposed",
-  backtest_passed: "strategies.stage.backtest",
-  oos_passed: "strategies.stage.oos",
-  walk_forward_passed: "strategies.stage.wf",
-  paper_passed: "strategies.stage.paper",
-  human_approved: "strategies.stage.approved",
-  production: "strategies.stage.production",
-  rejected: "strategies.stage.rejected",
-};
-
-function stageLabel(stage: string, t: (k: MessageKey) => string): string {
-  const key = STAGE_KEYS[stage];
-  return key ? t(key) : stage;
-}
-
-function evidenceLine(v: StrategyVersion, t: (k: MessageKey, vars?: Record<string, string | number>) => string): string {
-  const ev = v.evidence || {};
-  const paper = (ev.paper || {}) as Record<string, unknown>;
-  const oos = (ev.out_of_sample || {}) as Record<string, unknown>;
-  const bt = (ev.backtest || {}) as Record<string, unknown>;
-  if (!ev.recomputed_at) return t("strategies.evidence.none");
-  return t("strategies.evidence.summary", {
-    bt: Number(bt.trade_count ?? 0),
-    oos: Number(oos.oos_trades ?? 0),
-    paper: Number(paper.trade_count ?? 0),
-    exp:
-      paper.expectancy_usd == null || paper.expectancy_usd === undefined
-        ? "—"
-        : Number(paper.expectancy_usd).toFixed(2),
-  });
-}
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { RefreshCw, ShieldCheck, Target, Clock3 } from "lucide-react";
+import { fetchStrategyPassport, type StrategyPassport } from "@/lib/api";
+import { useI18n } from "@/i18n/I18nProvider";
+import { Button, LoadingDots } from "@/ui";
+import { px } from "@/components/desk/orbLabels";
+import styles from "./StrategiesPage.module.css";
 
 export function StrategiesPage() {
-  const t = useT();
-  const { showFlash } = useDesk();
-  const [payload, setPayload] = useState<StrategiesPayload | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    const next = await fetchStrategies();
-    setPayload(next);
-  }, []);
-
+  const { locale } = useI18n();
+  const ru = locale === "ru";
+  const [data, setData] = useState<StrategyPassport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
-    void load().catch((err) => {
-      showFlash(humanizeError(err instanceof Error ? err.message : String(err)));
-    });
-  }, [load, showFlash]);
-
-  async function run(
-    id: string,
-    action: "recompute" | "approve" | "promote" | "reject",
-  ) {
-    setBusy(`${id}:${action}`);
-    try {
-      if (action === "recompute") await recomputeStrategy(id);
-      else if (action === "approve") await approveStrategy(id);
-      else if (action === "promote") await promoteStrategy(id);
-      else {
-        const reason = window.prompt(t("strategies.reject.prompt"));
-        if (!reason || reason.trim().length < 3) return;
-        await rejectStrategy(id, reason.trim());
-      }
-      await load();
-      showFlash({
-        kind: "ok",
-        title: t("strategies.flash.ok"),
-        detail:
-          action === "recompute"
-            ? t("strategies.flash.recompute")
-            : action === "approve"
-              ? t("strategies.flash.approve")
-              : action === "promote"
-                ? t("strategies.flash.promote")
-                : t("strategies.flash.reject"),
-      });
-    } catch (err) {
-      showFlash(humanizeError(err instanceof Error ? err.message : String(err)));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  const versions = payload?.versions ?? [];
-
-  return (
-    <div className="strategies-page">
-      <section className="card">
-        <div className="card-head">
-          <div>
-            <h2>{t("strategies.title")}</h2>
-            <div className="sub">{t("strategies.sub")}</div>
-          </div>
-        </div>
-        <p className="strategies-chain">{t("strategies.chain")}</p>
-        {payload?.thresholds ? (
-          <p className="strategies-thresholds mono">
-            {t("strategies.thresholds", {
-              oos: payload.thresholds.min_oos_trades,
-              paper: payload.thresholds.min_paper_trades,
-              pf: payload.thresholds.min_profit_factor,
-              wfe: payload.thresholds.min_walk_forward_efficiency,
-            })}
-          </p>
-        ) : null}
-      </section>
-
-      {versions.map((v) => {
-        const canApprove = v.stage === "paper_passed";
-        const canPromote = v.stage === "human_approved";
-        const rejected = v.stage === "rejected";
-        const production = v.stage === "production";
-        return (
-          <section className="card strategies-card" key={v.id}>
-            <div className="card-head">
-              <div>
-                <h2 className="mono">{v.key}</h2>
-                <div className="sub">{v.notes || v.name}</div>
-              </div>
-              <span className={`strategies-stage strategies-stage--${v.stage}`}>
-                {stageLabel(v.stage, t)}
-              </span>
-            </div>
-            <p className="strategies-evidence">{evidenceLine(v, t)}</p>
-            <p className="strategies-hash mono">
-              {t("strategies.hash", { hash: v.parameter_hash.slice(0, 12) })}
-            </p>
-            {v.approved_by ? (
-              <p className="strategies-meta">
-                {t("strategies.approvedBy", {
-                  who: v.approved_by,
-                  when: v.approved_at ?? "—",
-                })}
-              </p>
-            ) : null}
-            {v.rejected_reason ? (
-              <p className="strategies-meta strategies-meta--bad">{v.rejected_reason}</p>
-            ) : null}
-            <div className="strategies-actions">
-              <Button
-                variant="light"
-                disabled={!!busy || rejected}
-                loading={busy === `${v.id}:recompute`}
-                onClick={() => void run(v.id, "recompute")}
-              >
-                {t("strategies.action.recompute")}
-              </Button>
-              <Button
-                variant="accent"
-                disabled={!!busy || !canApprove}
-                loading={busy === `${v.id}:approve`}
-                onClick={() => void run(v.id, "approve")}
-              >
-                {t("strategies.action.approve")}
-              </Button>
-              <Button
-                variant="accent"
-                disabled={!!busy || !canPromote}
-                loading={busy === `${v.id}:promote`}
-                onClick={() => void run(v.id, "promote")}
-              >
-                {t("strategies.action.promote")}
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={!!busy || rejected || production}
-                loading={busy === `${v.id}:reject`}
-                onClick={() => void run(v.id, "reject")}
-              >
-                {t("strategies.action.reject")}
-              </Button>
-            </div>
-          </section>
-        );
-      })}
-    </div>
-  );
+    const controller = new AbortController();
+    setLoading(true); setError(false);
+    fetchStrategyPassport(controller.signal).then(next => { if (!controller.signal.aborted) setData(next); })
+      .catch(() => { if (!controller.signal.aborted) setError(true); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [revision]);
+  const p = data?.parameters ?? {};
+  const v = (key: string) => p[key] == null ? "—" : String(p[key]);
+  const rules = [
+    [ru ? "Диапазон открытия" : "Opening range", `${v("opening_minutes")} ${ru ? "минут после открытия" : "minutes after open"}`],
+    [ru ? "История для сравнения" : "Lookback", `${v("lookback_sessions")} ${ru ? "сессий" : "sessions"}`],
+    [ru ? "Цена открытия" : "Opening price", `> $${v("min_price")}`],
+    [ru ? "Дневной ATR" : "Daily ATR", `> $${v("min_daily_atr")}`],
+    [data?.feed === "iex" ? (ru ? "Средний дневной оборот IEX" : "Average daily IEX turnover") : (ru ? "Средний дневной объём SIP" : "Average daily SIP volume"), data?.feed === "iex" ? `≥ $${v("iex_min_avg_dollar_volume")}` : `≥ ${v("sip_min_daily_volume")} ${ru ? "акций" : "shares"}`],
+    [ru ? "Относительный объём окна открытия" : "Opening relative volume", `≥ ${v("min_relative_volume")}×`],
+    [ru ? "Направление первой свечи" : "First candle direction", ru ? "Растущая: закрытие выше открытия" : "Bullish: close above open"],
+    [ru ? "Отбор по относительному объёму" : "Relative volume selection", `Top ${v("top_n")}`],
+  ];
+  return <div className={styles.page}>
+    <header className={styles.heading}><div><span className={styles.eyebrow}>ORB</span><h1>{ru ? "Паспорт стратегии" : "Strategy passport"}</h1><p>{ru ? "Действующие правила и состояние проверки стратегии." : "Active rules and strategy verification status."}</p></div><Button variant="ghost" loading={loading} onClick={()=>setRevision(n=>n+1)}>{!loading && <RefreshCw size={14} />}{ru ? "Обновить" : "Refresh"}</Button></header>
+    {loading ? <div className={styles.message}><LoadingDots ariaLabel={ru ? "Загрузка паспорта" : "Loading passport"} /></div> : error || !data ? <p className={styles.message} role="alert">{ru ? "Не удалось загрузить паспорт. Повторите обновление." : "Could not load the passport. Retry refresh."}</p> : <>
+      <div className={styles.summary}>{[
+        [ru ? "Версия" : "Version", data.version],
+        [ru ? "Котировки" : "Market data", `Alpaca ${data.feed.toUpperCase()}`],
+        [ru ? "Среда брокера" : "Broker environment", data.broker_env],
+        [ru ? "Режим решений" : "Decision mode", data.trading_mode],
+      ].map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+      <section className={styles.card}><h2><Target size={18} />{ru ? "Условия отбора" : "Selection rules"}</h2><p>{ru ? "Только покупки. Значения загружены из параметров действующей ORB." : "Long only. Values come from the active ORB parameters."}</p><dl className={styles.rules}>{rules.map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></section>
+      <div className={styles.columns}>
+        <section className={styles.card}><h2><Target size={18} />{ru ? "Вход и риск" : "Entry & risk"}</h2><ul>
+          <li>{ru ? "Триггер: максимум диапазона открытия + $0.01." : "Trigger: opening-range high + $0.01."}</li>
+          <li>{ru ? "Стоп ниже триггера на" : "Stop below trigger by"} {v("stop_atr_fraction")} ATR.</li>
+          <li>{ru ? "Максимальная доплата к триггеру" : "Maximum premium above trigger"}: {v("max_entry_drift_r")}R.</li>
+          <li>{ru ? "Количество акций определяется проверкой риска счёта; параметры плана фиксируются после отбора." : "Account risk checks determine quantity; plan parameters are fixed after selection."}</li>
+          <li>{ru ? "Перед отправкой проверяются котировка, цена, доступность входа и риск. Наличие плана ещё не разрешает покупку." : "Quote, price, entry availability and risk are checked before submission. A plan alone does not authorize a purchase."}</li>
+        </ul></section>
+        <section className={styles.card}><h2><Clock3 size={18} />{ru ? "Выход и время" : "Exit & timing"}</h2><ul>
+          <li>{ru ? "Вход после завершения диапазона открытия." : "Entry after the opening range is complete."}</li>
+          <li>{ru ? "Плановый выход за" : "Scheduled exit"} {v("exit_buffer_seconds")} {ru ? "секунд до закрытия сессии." : "seconds before session close."}</li>
+          <li>{ru ? "Новые входы прекращаются за" : "New entries end"} {v("entry_cutoff_minutes_before_exit")} {ru ? "минут до планового выхода." : "minutes before scheduled exit."}</li>
+          <li>{ru ? "Выход по стопу или времени. Фиксированной цели прибыли нет. Время учитывает сокращённые сессии." : "Exit by stop or time. No fixed profit target. Timing accounts for shortened sessions."}</li>
+        </ul></section>
+      </div>
+      <section className={styles.card}><h2><ShieldCheck size={18} />{ru ? "Состояние проверок" : "Verification status"}</h2><dl className={styles.rules}>
+        <div><dt>{ru ? "Правила ORB в приложении" : "ORB rules in the application"}</dt><dd>{ru ? "Реализованы" : "Implemented"}</dd></div>
+        <div><dt>{ru ? "Закрытые сделки этой версии" : "Closed trades for this version"}</dt><dd>{data.paper.trade_count}</dd></div>
+        <div><dt>{ru ? "Исторический тест ORB" : "Historical ORB backtest"}</dt><dd>{ru ? "Не реализован" : "Not implemented"}</dd></div>
+        <div><dt>{ru ? "Проверка вне выборки / walk-forward" : "Out-of-sample / walk-forward"}</dt><dd>{ru ? "Для ORB не проведена" : "Not performed for ORB"}</dd></div>
+        <div><dt>{ru ? "Готовность к Live" : "Live readiness"}</dt><dd>{ru ? "Не подтверждена" : "Not certified"}</dd></div>
+        <div><dt>allow_live_trading</dt><dd>{String(data.allow_live_trading)}</dd></div>
+      </dl><p>{ru ? "Реализация правил и наличие Paper-сделок не являются доказательством прибыльности." : "Implemented rules and Paper trades do not establish profitability."}</p></section>
+      <section className={styles.card}><div className={styles.sectionHead}><h2>{ru ? "Результаты Paper" : "Paper results"}</h2><Link to="/evaluation">{ru ? "Открыть оценку →" : "View evaluation →"}</Link></div><div className={styles.summary}>
+        <div><span>{ru ? "Сделки" : "Trades"}</span><strong>{data.paper.trade_count}</strong></div>
+        <div><span>P&L · USD</span><strong>{px(data.paper.pnl)}</strong></div>
+        <div><span>{ru ? "Прибыльных" : "Win rate"}</span><strong>{data.paper.win_rate == null ? "—" : `${(data.paper.win_rate*100).toFixed(1)}%`}</strong></div>
+        <div><span>{ru ? "Средняя сделка · USD" : "Average trade · USD"}</span><strong>{px(data.paper.expectancy)}</strong></div>
+      </div><p>{ru ? "Только текущая версия ORB; старые стратегии и бэктесты исключены. Результаты IEX/SIP здесь объединены." : "Current ORB version only; legacy strategies and backtests excluded. IEX/SIP results are combined here."}</p></section>
+    </>}
+  </div>;
 }
