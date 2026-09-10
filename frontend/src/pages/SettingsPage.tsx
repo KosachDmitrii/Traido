@@ -191,14 +191,14 @@ export function SettingsPage() {
       <article className={`settings-card ${panels.strategy}`}>
         <div className="settings-card__body">
           <div className="settings-card__head"><h3>Opening Range Breakout</h3><span className={panels.badge}>ORB · Paper</span></div>
-          <p className={panels.subtitle}>{locale === "ru" ? "План на сессию: от диапазона открытия до выхода из позиции." : "A session plan, from the opening range to the position exit."}</p>
+          <p className={panels.subtitle}>{locale === "ru" ? "Возврат к уровню после роста, подтверждение и ограниченная зона покупки." : "Retest after a breakout, confirmation and a capped entry zone."}</p>
           <dl className={panels.metrics}>
             <div><dt>{locale === "ru" ? "Диапазон открытия" : "Opening range"}</dt><dd>09:30–09:35 <small>ET</small></dd></div>
             <div><dt>{locale === "ru" ? "Отбор" : "Selection"}</dt><dd>{locale === "ru" ? "Относительный объём" : "Relative volume"}</dd></div>
             <div><dt>{locale === "ru" ? "Вход" : "Entry"}</dt><dd>{!trigger ? "—" : trigger.enabled ? (locale === "ru" ? "Автоматический" : "Automatic") : (locale === "ru" ? "С подтверждением" : "Confirmation")}</dd></div>
-            <div><dt>{locale === "ru" ? "Выход" : "Exit"}</dt><dd>{locale === "ru" ? "Стоп / конец сессии" : "Stop / session close"}</dd></div>
+            <div><dt>{locale === "ru" ? "Выход" : "Exit"}</dt><dd>{locale === "ru" ? "Цель / стоп / время" : "Target / stop / time"}</dd></div>
           </dl>
-          <p className={panels.note}>{locale === "ru" ? "Параметры плана фиксируются на сессию. Цена и риск проверяются перед каждым ордером." : "Plan parameters are fixed for the session. Price and risk are checked before every order."}</p>
+          <p className={panels.note}>{locale === "ru" ? "Новый сигнал действует 10 минут. Цена и риск проверяются перед покупкой. Правила и параметры — в паспорте стратегии." : "A new signal lasts 10 minutes. Price and risk are checked before buying. See the strategy passport for rules and parameters."}</p>
         </div>
       </article>
 
