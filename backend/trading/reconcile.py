@@ -481,6 +481,16 @@ async def reconcile_position_quantities(
         local = Decimal(str(row.qty))
         actual = Decimal(str(pos.qty))
         rep.checked.append(f"quantity:{sym}")
+        if local < 0 or actual < 0:
+            rep.unresolved.append(f"quantity:{sym}:unexpected_short:local={local}:broker={actual}")
+            await block_symbol_as_unknown(
+                intents,
+                symbol=sym,
+                qty=actual,
+                reason=f"unexpected short position: local {local}, broker {actual}",
+                audit=audit,
+            )
+            continue
         if local == actual:
             continue
 
@@ -724,6 +734,22 @@ async def reconcile_protective_orders(
         local = Decimal(str(row.qty))
         actual = held_at_broker.get(row.symbol.upper())
         held = local if actual is None else min(local, actual)
+        if held <= 0:
+            # Long protection is a SELL. A negative holding must never become a
+            # negative order or abs(qty) SELL, which would increase the short.
+            rep.unresolved.append(f"protection:{row.symbol}:non_long_position:broker={actual}")
+            if audit:
+                await audit.append(
+                    "ProtectionBlockedNonLongPosition",
+                    "reconcile",
+                    {
+                        "symbol": row.symbol,
+                        "local_qty": str(local),
+                        "broker_qty": str(actual),
+                        "severity": SEVERITY_CRITICAL,
+                    },
+                )
+            continue
 
         stop = resting.get(str(stop_oid)) if stop_oid else None
         if stop is not None and stop.qty == held:
@@ -837,7 +863,8 @@ async def cancel_excess_protection(
         by_symbol.setdefault(order.symbol.upper(), []).append(order)
 
     for symbol, orders in by_symbol.items():
-        held = held_at_broker.get(symbol, Decimal(0))
+        # A short has zero long shares available for protective SELL orders.
+        held = max(Decimal(0), held_at_broker.get(symbol, Decimal(0)))
         promised = sum((Decimal(str(o.qty)) for o in orders), Decimal(0))
         rep.checked.append(f"excess_protection:{symbol}")
         if promised <= held:

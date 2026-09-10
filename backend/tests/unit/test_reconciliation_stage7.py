@@ -347,3 +347,66 @@ async def test_full_reconcile_reports_an_orphan_as_critical() -> None:
     assert result["severity"] == SEVERITY_CRITICAL
     assert "NVDA" in ep.EXTERNAL_POSITIONS.blocking_symbols()
     assert any(e["event_type"] == "ReconciliationUnresolved" for e in audit.events)
+
+
+@pytest.mark.parametrize("quantity", [Decimal(-2), Decimal(0)])
+async def test_non_long_broker_position_never_installs_a_sell_stop(quantity):
+    class SignedBroker(MockPaperBroker):
+        async def list_positions(self):
+            from types import SimpleNamespace
+
+            return [SimpleNamespace(symbol="AAPL", qty=quantity)]
+
+    broker = SignedBroker()
+    broker.orders.append(
+        OrderRecord(
+            id=uuid4(),
+            client_order_id="traido-s-excess",
+            broker_order_id="excess-stop",
+            symbol="AAPL",
+            side=OrderSide.SELL,
+            order_type=OrderType.STOP,
+            qty=Decimal(10),
+            status=OrderStatus.ACCEPTED,
+            stop_price=Decimal(95),
+        )
+    )
+    installer, report = _Installer(), ReconciliationReport()
+    restored = await reconcile_protective_orders(
+        broker,
+        _Ledger([_Row(stop_order_id="excess-stop")]),
+        InMemoryAudit(),
+        execution=installer,
+        report=report,
+    )
+    assert restored == 0
+    assert installer.calls == []
+    assert len(installer.cancelled) == 1
+    assert any("non_long_position" in item for item in report.unresolved)
+    assert report.severity == SEVERITY_CRITICAL
+
+
+async def test_matching_negative_ledger_and_broker_are_still_an_incident(monkeypatch):
+    from types import SimpleNamespace
+
+    from trading import reconcile
+
+    row = _Row(stop_order_id=None)
+    row.qty = Decimal(-2)
+    incidents = []
+
+    async def record(*args, **kwargs):
+        incidents.append(kwargs)
+
+    monkeypatch.setattr(reconcile, "block_symbol_as_unknown", record)
+    report = ReconciliationReport()
+    adjusted = await reconcile.reconcile_position_quantities(
+        _Ledger([row]),
+        MemoryOrderIntentStore(),
+        {"AAPL": SimpleNamespace(qty=Decimal(-2))},
+        InMemoryAudit(),
+        report=report,
+    )
+    assert adjusted == 0 and row.qty == Decimal(-2)
+    assert incidents[0]["qty"] == Decimal(-2)
+    assert any("unexpected_short" in item for item in report.unresolved)

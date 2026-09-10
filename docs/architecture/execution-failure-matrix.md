@@ -517,3 +517,13 @@ Results of 1.4.0 are attributed separately from previous versions.
 | Durable execution / refusal / skip | Show terminal state even if worker flags lag; no terminal action buttons |
 | Mode or execution state changes | Included in desk ETag so the browser cannot keep stale controls via 304 |
 | Status projection | Read-only, batched database lookup; never submits or changes a trade |
+
+
+## Non-long broker quantities during reconciliation
+
+| Situation | Behaviour |
+|---|---|
+| Broker or ledger reports a negative holding | Preserve signed evidence, record an unexplained-position incident and block the symbol, even if both quantities match |
+| Protective sweep sees zero or negative holdings | Report unresolved non-long position; do not create a stop or emergency SELL request |
+| Existing protective SELL stops against a short | Treat available long shares as zero for excess-stop cancellation |
+| Unexpected short remains | Never auto-convert it to a long or hide the incident; resolution requires verified broker state |
