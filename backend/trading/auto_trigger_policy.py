@@ -241,10 +241,24 @@ def _error_text(exc: BaseException) -> str:
     return text or type(exc).__name__
 
 
+def _orb_price_wait(error: str) -> bool:
+    # Match complete reasons only; never override missing-data or broker errors.
+    tokens = {part.strip().upper() for part in error.replace(",", ":").split(":") if part.strip()}
+    wrappers = {"LIQUIDITY_GATE_REJECTED", "ORB_ENTRY_REJECTED", "ORB_SUBMISSION_BLOCKED"}
+    reasons = tokens - wrappers
+    return bool(reasons) and reasons <= {
+        "ORB_WAITING_BREAKOUT",
+        "ORB_ENTRY_MISSED",
+        "SPREAD_TOO_WIDE",
+    }
+
+
 def _classify_failure(exc: BaseException) -> str:
     from trading.approval_errors import DataBlockedError, NoTradeError, WaitError
     from trading.outcome_taxonomy import OutcomeClass, classify_exception_text
 
+    if _orb_price_wait(_error_text(exc)):
+        return OutcomeClass.WAIT.value
     if isinstance(exc, DataBlockedError):
         return OutcomeClass.DATA_BLOCKED.value
     if isinstance(exc, NoTradeError):
@@ -269,7 +283,9 @@ def _set_retry(opportunity_id: Any, *, operational: bool, outcome: str, error: s
         attempt = max(_retry_attempts.get(key, 0), persisted_attempt) + 1
         _retry_attempts[key] = attempt
         delay = _BACKOFF_STEPS[min(attempt - 1, len(_BACKOFF_STEPS) - 1)]
-        if not operational:
+        if outcome == "WAIT" and _orb_price_wait(error):
+            delay = 5
+        elif not operational:
             delay = min(delay, 30)
         until = datetime.now(UTC) + timedelta(seconds=delay)
         _retry_after[key] = until

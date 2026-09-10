@@ -14,8 +14,14 @@ type Props = { desk: DeskResponse | null; onFlash: (message: FlashMessage, repla
 export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
-  const plans = Object.values(desk?.orb?.plans ?? {});
   const buys = desk?.buy_opportunities ?? [];
+  const planPriority = (symbol: string) => {
+    const opp = buys.find(o => o.candidate.symbol === symbol && ["orb@1.1.0", "orb@1.2.0"].includes(o.candidate.strategy_version ?? ""));
+    if (!opp) return 2;
+    const qty = Math.floor(Number(opp.proposed_qty ?? opp.risk?.sized_qty ?? 0));
+    return opp.viability?.buyable === true && desk?.session?.entries_allowed !== false && qty > 0 ? 0 : 1;
+  };
+  const plans = Object.values(desk?.orb?.plans ?? {}).sort((a, b) => planPriority(a.symbol) - planPriority(b.symbol));
   async function decide(opp: BuyOpportunity, decision: "approve" | "skip", qty: number) {
     setBusy(`${opp.id}:${decision}`);
     try {

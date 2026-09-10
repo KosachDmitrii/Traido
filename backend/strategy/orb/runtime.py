@@ -348,6 +348,10 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
     from strategy.orb.publication import publish_orb
 
     opp = publish_orb(result, final, ctx.settings.trading_mode)
+    from core.audit import create_audit
+    from trading.auto_trigger_policy import enqueue_auto_approve_opportunity
+
+    enqueue_auto_approve_opportunity(opp.id, audit=create_audit(), symbol=symbol)
     return result.model_copy(update={"status": "awaiting_confirmation", "opportunity": opp})
 
 

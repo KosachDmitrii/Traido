@@ -469,3 +469,11 @@ unchanged stop; the account's monetary risk cap is unchanged.
 | Concurrent publication with an older plan | Same session row lock and full-plan comparison refuse stale geometry |
 | Quote above the revised maximum / below trigger / stale | Refuse or wait through the existing gates; no market-order fallback |
 | Existing position or protective stop | Unchanged |
+
+## ORB automatic approval scheduling
+
+| Situation | Behaviour |
+|---|---|
+| Newly published ORB proposal | Enqueue immediately after committed publication, without waiting for the remaining symbols |
+| Only price outside entry band / spread too wide | Keep proposal as WAIT; next automatic attempt due after 5 seconds, subject to queue availability |
+| Missing data, service failure, unknown submission | Existing data/operational backoff or reconciliation applies; never reclassified as a price-only wait |

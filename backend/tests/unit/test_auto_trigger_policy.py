@@ -356,3 +356,39 @@ async def test_orb_loop_dispatches_after_observation(monkeypatch) -> None:
     with pytest.raises(asyncio.CancelledError):
         await loop._run()
     assert events == ["observe", "queue"]
+
+
+@pytest.mark.parametrize("reason", ["ORB_WAITING_BREAKOUT", "ORB_ENTRY_MISSED", "SPREAD_TOO_WIDE"])
+def test_price_conditions_are_wait_not_operational_failure(reason):
+    assert atp._classify_failure(RuntimeError(f"LIQUIDITY_GATE_REJECTED:{reason}")) == "WAIT"
+
+
+def test_price_wait_does_not_hide_missing_data_or_unknown_submission():
+    assert (
+        atp._classify_failure(
+            RuntimeError("LIQUIDITY_GATE_REJECTED:ORB_WAITING_BREAKOUT,QUOTE_STALE")
+        )
+        == "DATA_BLOCKED"
+    )
+    assert (
+        atp._classify_failure(RuntimeError("ENTRY_STATE_UNKNOWN:ORB_WAITING_BREAKOUT")) == "UNKNOWN"
+    )
+
+
+def test_price_wait_retry_does_not_grow_to_five_minutes(monkeypatch):
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from trading.opportunities import OPPORTUNITIES
+
+    monkeypatch.setattr(OPPORTUNITIES, "get", lambda _: None)
+    key = uuid4()
+    for _ in range(10):
+        before = datetime.now(UTC)
+        until = atp._set_retry(
+            key,
+            operational=False,
+            outcome="WAIT",
+            error="LIQUIDITY_GATE_REJECTED:ORB_WAITING_BREAKOUT",
+        )
+        assert 4.9 <= (until - before).total_seconds() <= 5.5
