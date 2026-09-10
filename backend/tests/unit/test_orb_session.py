@@ -5,7 +5,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from strategy.orb import PARAMETERS
 from strategy.orb.runtime import discover
 from strategy.orb.store import read_session, update_state
 from tests.unit.test_orb_policy import NOW, evidence
@@ -62,7 +61,7 @@ class Universe:
 
 
 @pytest.mark.asyncio
-async def test_all_eligible_names_are_read_and_top20_are_ranked_on_opening_volume():
+async def test_all_qualifying_names_are_retained_and_ranked_on_opening_volume():
     symbols = [f"S{i:03}" for i in range(75)]
     ctx, u = Context(symbols), Universe(symbols)
     result = await discover(ctx, u, now=NOW)
@@ -70,9 +69,9 @@ async def test_all_eligible_names_are_read_and_top20_are_ranked_on_opening_volum
     assert ctx.daily_calls == 1
     assert len(ctx.market_data.calls) == 15
     assert all(end - start < timedelta(minutes=5) for _, start, end, _ in ctx.market_data.calls)
-    assert set(result["plans"]) == set(symbols[-20:])
+    assert set(result["plans"]) == set(symbols)
     assert result["counts"]["qualified"] == 75
-    assert result["counts"]["selected"] == PARAMETERS["top_n"]
+    assert result["counts"]["selected"] == 75
     assert all(s["state"] == "WAIT" for s in result["states"].values())
     # No broker, risk snapshot or account history was supplied. Observation is independent.
 
@@ -157,3 +156,30 @@ async def test_paper_rollout_changes_only_unpublished_limits_and_records_old_pla
     assert after["trigger"] == before["trigger"]
     assert after["evidence"]["entry_policy_change"]["old_max_entry"] == before["max_entry"]
     assert upgrade_unpublished_entry_limits("2026-09-09", now=NOW) == upgraded
+
+
+@pytest.mark.asyncio
+async def test_expanding_old_selection_preserves_existing_plan_and_state():
+    from copy import deepcopy
+
+    from database.models.orb import OrbSessionRow
+    from database.session import session_factory
+
+    symbols = [f"S{i:03}" for i in range(30)]
+    full = await discover(Context(symbols), Universe(symbols), now=NOW)
+    old = deepcopy(full)
+    old.pop("selection_scope")
+    old["plans"] = dict(list(old["plans"].items())[:20])
+    old["states"] = {s: old["states"][s] for s in old["plans"]}
+    kept = next(iter(old["plans"]))
+    old["states"][kept]["opportunity_id"] = "existing-claim"
+    with session_factory()() as db:
+        row = db.get(OrbSessionRow, "2026-09-09")
+        row.payload = old
+        db.commit()
+    expanded = await discover(Context(symbols), Universe(symbols), now=NOW)
+    assert len(expanded["plans"]) == 30
+    assert expanded["plans"][kept] == old["plans"][kept]
+    assert expanded["states"][kept] == old["states"][kept]
+    assert expanded["counts"]["selected"] == 30
+    assert expanded["outranked"] == []

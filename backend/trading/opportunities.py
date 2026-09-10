@@ -358,7 +358,7 @@ def withdraw_unactionable(store: Any = None) -> int:
         if expires is not None and now > expires:
             to_status = OpportunityStatus.EXPIRED
             why = "proposal is past its hour"
-        elif opp.candidate.strategy_version not in {"orb@1.1.0", "orb@1.2.0"} and (
+        elif opp.candidate.strategy_version not in {"orb@1.1.0", "orb@1.2.0", "orb@1.3.0"} and (
             opp.candidate.target_model is None or opp.candidate.target_reachability is None
         ):
             to_status = OpportunityStatus.DISCARDED

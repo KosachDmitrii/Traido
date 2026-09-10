@@ -13,8 +13,8 @@ from core.clock import ET
 from core.schemas import Bar, Quote
 from trading.session_hours import is_market_holiday, session_close, us_equity_rth_open
 
-VERSION = "orb@1.2.0"
-SUPPORTED_VERSIONS = frozenset({"orb@1.1.0", VERSION})
+VERSION = "orb@1.3.0"
+SUPPORTED_VERSIONS = frozenset({"orb@1.1.0", "orb@1.2.0", VERSION})
 # Paper implementation parameters; statistical profitability is not certified.
 PARAMETERS = {
     "opening_minutes": 5,
@@ -24,7 +24,7 @@ PARAMETERS = {
     "iex_min_avg_dollar_volume": "20000000",
     "min_daily_atr": "0.50",
     "min_relative_volume": "1",
-    "top_n": 20,
+    "selection_scope": "all_qualified",
     "stop_atr_fraction": "0.10",
     "direction": "long_only",
     "exit": "session_close",
@@ -37,7 +37,9 @@ PARAMETERS = {
 }
 
 
-LEGACY_PARAMETERS = {k: v for k, v in PARAMETERS.items() if k != "entry_policy_revision"}
+FLEX_PARAMETERS = {k: v for k, v in PARAMETERS.items() if k != "selection_scope"}
+FLEX_PARAMETERS["top_n"] = 20
+LEGACY_PARAMETERS = {k: v for k, v in FLEX_PARAMETERS.items() if k != "entry_policy_revision"}
 LEGACY_PARAMETERS["max_entry_drift_r"] = "0.25"
 
 
@@ -143,7 +145,11 @@ def form_plan(
 
     if version not in SUPPORTED_VERSIONS:
         return blocked("ORB_INVALID_PROVENANCE")
-    parameters = PARAMETERS if version == VERSION else LEGACY_PARAMETERS
+    parameters = (
+        PARAMETERS
+        if version == VERSION
+        else (FLEX_PARAMETERS if version == "orb@1.2.0" else LEGACY_PARAMETERS)
+    )
     if now.tzinfo is None:
         return blocked("ORB_TIMEZONE_REQUIRED")
     if feed not in {"iex", "sip"}:

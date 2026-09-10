@@ -16,10 +16,23 @@ def read_session(day: str) -> dict[str, Any] | None:
         return deepcopy(row.payload) if row else None
 
 
-def create_session(day: str, payload: dict[str, Any]) -> dict[str, Any]:
+def create_session(day: str, payload: dict[str, Any], *, expand: bool = False) -> dict[str, Any]:
     with session_factory()() as db:
-        row = db.get(OrbSessionRow, day)
+        row = db.scalar(select(OrbSessionRow).where(OrbSessionRow.session == day).with_for_update())
         if row:
+            if expand and row.payload.get("selection_scope") != "all_qualified":
+                # Preserve every existing plan and current state, including claims.
+                previous = deepcopy(row.payload)
+                merged = deepcopy(payload)
+                merged["plans"] = {**merged.get("plans", {}), **previous.get("plans", {})}
+                merged["states"] = {**merged.get("states", {}), **previous.get("states", {})}
+                for key in ("entry_policy_rollout", "entry_policy_changes"):
+                    if key in previous:
+                        merged[key] = previous[key]
+                merged["counts"]["selected"] = len(merged["plans"])
+                merged["selection_expanded_from"] = len(previous.get("plans", {}))
+                row.payload = merged
+                db.commit()
             return deepcopy(row.payload)
         db.add(OrbSessionRow(session=day, payload=deepcopy(payload)))
         try:

@@ -53,7 +53,7 @@ export function OrbSymbolInspector() {
       <Button type="submit" variant="ghost" loading={loading} disabled={loading} aria-busy={loading}>{ru ? "Посмотреть / обновить" : "View / refresh"}</Button>
     </form>
     {loading ? <div className={styles.loading}><LoadingDots ariaLabel={ru ? "Загружаем данные акции" : "Loading symbol"} /><span>{ru ? "Загружаем данные акции…" : "Loading symbol…"}</span></div> : error ? <p className={styles.notice} role="alert">{ru ? "Не удалось получить данные. Попробуйте обновить." : "Could not load data. Please retry."}</p> : data ? <>
-      <div className={styles.sectionHead}><h2>{data.symbol}</h2><span>{data.state ? orbState(data.state.state) : data.outranked ? (ru ? "Не вошла в топ-20" : "Outside top 20") : data.rejections.length ? (ru ? "Исключена из отбора" : "Excluded") : (ru ? "Решение ещё не получено" : "No decision reported")}</span></div>
+      <div className={styles.sectionHead}><h2>{data.symbol}</h2><span>{data.state ? orbState(data.state.state) : data.outranked ? (ru ? "Не вошла в прежний ограниченный список" : "Outside the previous capped selection") : data.rejections.length ? (ru ? "Исключена из отбора" : "Excluded") : (ru ? "Решение ещё не получено" : "No decision reported")}</span></div>
       <div className={styles.symbolMetrics}>{metrics.map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       <p className={styles.description}>Alpaca {data.quote?.feed?.toUpperCase() ?? "—"} · {ru ? "Котировка от" : "Quote timestamp"} {time(data.quote?.ts)}</p>
       {data.quote_error && <p className={styles.notice}>{orbReason(data.quote_error)}</p>}

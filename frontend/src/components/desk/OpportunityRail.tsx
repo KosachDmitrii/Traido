@@ -16,7 +16,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const buys = desk?.buy_opportunities ?? [];
   const planPriority = (symbol: string) => {
-    const opp = buys.find(o => o.candidate.symbol === symbol && ["orb@1.1.0", "orb@1.2.0"].includes(o.candidate.strategy_version ?? ""));
+    const opp = buys.find(o => o.candidate.symbol === symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0"].includes(o.candidate.strategy_version ?? ""));
     if (!opp) return 2;
     const qty = Math.floor(Number(opp.proposed_qty ?? opp.risk?.sized_qty ?? 0));
     return opp.viability?.buyable === true && desk?.session?.entries_allowed !== false && qty > 0 ? 0 : 1;
@@ -38,7 +38,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
       <div className={styles.summary}>
         <div><Layers size={18} /><span>Планы сессии</span><strong>{desk ? plans.length : "—"}</strong></div>
         <div><Clock3 size={18} /><span>Ждут цены входа</span><strong>{desk?.orb ? Object.values(desk.orb.states ?? {}).filter(s => s.state === "WAIT").length : "—"}</strong></div>
-        <div><ArrowUpRight size={18} /><span>Предложения покупки</span><strong>{desk ? buys.filter(o => ["orb@1.1.0", "orb@1.2.0"].includes(o.candidate.strategy_version ?? "")).length : "—"}</strong></div>
+        <div><ArrowUpRight size={18} /><span>Предложения покупки</span><strong>{desk ? buys.filter(o => ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0"].includes(o.candidate.strategy_version ?? "")).length : "—"}</strong></div>
       </div>
       <div className={styles.sectionHead}><h2>Планы ORB</h2><span>Диапазон открытия · 09:30–09:35 ET</span></div>
     </> : <>
@@ -50,7 +50,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
     <div className={styles.grid}>
     {plans.map(plan => {
       const state = desk?.orb?.states?.[plan.symbol];
-      const opp = buys.find(o => o.candidate.symbol === plan.symbol && ["orb@1.1.0", "orb@1.2.0"].includes(o.candidate.strategy_version ?? ""));
+      const opp = buys.find(o => o.candidate.symbol === plan.symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0"].includes(o.candidate.strategy_version ?? ""));
       const maxQty = Math.max(0, Math.floor(Number(opp?.proposed_qty ?? opp?.risk?.sized_qty ?? 0)));
       const qty = Math.min(maxQty, quantities[plan.symbol] ?? maxQty);
       const buyable = !!opp && opp.viability?.buyable === true && desk?.session?.entries_allowed !== false && maxQty > 0;

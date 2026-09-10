@@ -10,7 +10,7 @@ export function ScanFunnelCard() {
     ["Вселенная", c.universe], ["Допущены по типу инструмента", c.eligible],
     ["Недостаточно дневной истории", c.history_missing], ["Не прошли объём или ATR", c.base_rejected],
     ["Проверены диапазоны открытия", c.opening_evaluated], ["Прошли условия ORB", c.qualified],
-    ["Отобраны по относительному объёму · максимум 20", c.selected],
+    ["Все планы, прошедшие отбор", c.selected],
     ["Ждут пробоя", states.filter(s=>s.state === "WAIT").length],
     ["Вход заблокирован", states.filter(s=>s.state === "BLOCKED" || s.state === "DATA_BLOCKED").length],
     ["Предложения для подтверждения", desk?.buy_opportunities?.length ?? 0],

@@ -46,7 +46,7 @@ STATUS: dict[str, Any] = {"status": "not_started", "version": VERSION, "paramete
 async def discover(
     ctx: ScanContext, universe: UniverseService, *, now: datetime | None = None
 ) -> dict[str, Any]:
-    """Freeze the top 20 by complete first-five-minute relative volume, never by latest price."""
+    """Keep all qualifying plans, ordered by opening relative volume."""
     now = now or datetime.now(UTC)
     day = str(now.astimezone(ET).date())
     async with _discovery_lock:
@@ -67,7 +67,8 @@ async def discover(
             if get_settings().broker_env is BrokerEnvironment.PAPER:
                 existing = upgrade_unpublished_entry_limits(day, now=now) or existing
                 STATUS.update(existing)
-            return existing
+            if existing.get("selection_scope") == "all_qualified":
+                return existing
         STATUS.clear()
         STATUS.update(
             version=VERSION,
@@ -172,7 +173,7 @@ async def discover(
             else:
                 rejected[symbol] = decision.reasons
         plans.sort(key=lambda p: (-p.relative_volume, p.symbol))
-        selected = plans[:20]
+        selected = plans
         counts.update(qualified=len(plans), selected=len(selected))
         payload = {
             "version": VERSION,
@@ -191,9 +192,10 @@ async def discover(
             },
             "rejections": rejected,
             "rejection_counts": dict(Counter(r for rs in rejected.values() for r in rs)),
-            "outranked": [p.symbol for p in plans[20:]],
+            "outranked": [],
+            "selection_scope": "all_qualified",
         }
-        payload = create_session(day, payload)
+        payload = create_session(day, payload, expand=existing is not None)
         STATUS.update(payload)
         return payload
 

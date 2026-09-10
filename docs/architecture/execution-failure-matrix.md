@@ -477,3 +477,13 @@ unchanged stop; the account's monetary risk cap is unchanged.
 | Newly published ORB proposal | Enqueue immediately after committed publication, without waiting for the remaining symbols |
 | Only price outside entry band / spread too wide | Keep proposal as WAIT; next automatic attempt due after 5 seconds, subject to queue availability |
 | Missing data, service failure, unknown submission | Existing data/operational backoff or reconciliation applies; never reclassified as a price-only wait |
+
+## ORB all qualifying plans (1.3.0)
+
+| Situation | Behaviour |
+|---|---|
+| More than 20 instruments qualify | Retain and display every qualifying plan, ranked by relative volume; actionable proposals appear first in the UI |
+| Existing capped session | Expand under the session row lock; preserve existing plans, states and publication claims |
+| Expansion data request fails | Preserve the existing session; do not replace it with an empty selection |
+| Existing 1.1 or 1.2 proposal | Revalidate with its original version and captured parameters |
+| Additional plans become eligible | All entry, sizing, exposure and execution gates still apply |

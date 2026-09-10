@@ -32,7 +32,7 @@ export function StrategiesPage() {
     [data?.feed === "iex" ? (ru ? "Средний дневной оборот IEX" : "Average daily IEX turnover") : (ru ? "Средний дневной объём SIP" : "Average daily SIP volume"), data?.feed === "iex" ? `≥ $${v("iex_min_avg_dollar_volume")}` : `≥ ${v("sip_min_daily_volume")} ${ru ? "акций" : "shares"}`],
     [ru ? "Относительный объём окна открытия" : "Opening relative volume", `≥ ${v("min_relative_volume")}×`],
     [ru ? "Направление первой свечи" : "First candle direction", ru ? "Растущая: закрытие выше открытия" : "Bullish: close above open"],
-    [ru ? "Отбор по относительному объёму" : "Relative volume selection", `Top ${v("top_n")}`],
+    [ru ? "Отбор по относительному объёму" : "Relative volume selection", ru ? "Все прошедшие отбор" : "All qualifying plans"],
   ];
   return <div className={styles.page}>
     <header className={styles.heading}><div><span className={styles.eyebrow}>ORB</span><h1>{ru ? "Паспорт стратегии" : "Strategy passport"}</h1><p>{ru ? "Действующие правила и состояние проверки стратегии." : "Active rules and strategy verification status."}</p></div><Button variant="ghost" loading={loading} onClick={()=>setRevision(n=>n+1)}>{!loading && <RefreshCw size={14} />}{ru ? "Обновить" : "Refresh"}</Button></header>
