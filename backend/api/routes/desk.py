@@ -89,10 +89,8 @@ def _entry_policy_payload() -> dict:
 def _broker_backend_desk_payload() -> dict:
     try:
         from broker.backend_policy import broker_backend_payload
-        from broker.switch_guard import broker_switch_blocked_reason
 
         payload = broker_backend_payload()
-        payload["switch_blocked_reason"] = broker_switch_blocked_reason()
         return payload
     except Exception:  # noqa: BLE001
         return {"backend": "alpaca", "environment": "paper"}

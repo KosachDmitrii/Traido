@@ -81,6 +81,11 @@ async def lifespan(_app: FastAPI):
     assert_single_worker()
     assert_implemented_trading_mode()
     init_db()
+    from broker.backend_policy import get_broker_backend
+    from broker.journal_guard import assert_alpaca_journal
+
+    get_broker_backend()
+    assert_alpaca_journal()
     from strategy.registry import ensure_builtin_strategies
 
     ensure_builtin_strategies()

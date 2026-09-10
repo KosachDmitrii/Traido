@@ -346,12 +346,11 @@ export type EntryPolicy = {
 };
 
 export type BrokerBackend = {
-  backend: "alpaca" | "ibkr" | string;
+  backend: "alpaca";
   environment?: string;
   connection_state?: string;
   account_id?: string | null;
   broker_class?: string;
-  switch_blocked_reason?: string | null;
   note?: string;
   error?: string;
 };
@@ -743,16 +742,6 @@ export async function paperRiskPeriod(action?: "start" | "suspend", accountId?: 
   return data as PaperRiskSnapshot;
 }
 
-export async function setBrokerBackend(backend: "alpaca" | "ibkr"): Promise<BrokerBackend> {
-  const res = await fetch(apiUrl("/api/v1/broker-backend"), {
-    method: "PUT",
-    headers: apiHeaders(true),
-    body: JSON.stringify({ backend }),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(parseApiError(data, "broker_backend_failed"));
-  return data as BrokerBackend;
-}
 
 export type RegimeResult = {
   regime: string;

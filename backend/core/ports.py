@@ -71,7 +71,7 @@ class QuotePort(Protocol):
 
 @runtime_checkable
 class ConnectionAwareBroker(Protocol):
-    """Implemented by session-based adapters such as IBKR.
+    """Optional connection-health reporting for broker adapters.
 
     Stateless REST adapters do not implement it and are treated as READY —
     they have no session to lose, and a failed call raises rather than lying.

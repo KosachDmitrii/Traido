@@ -10,7 +10,7 @@ from database.session import get_sync_engine, session_factory
 from risk.paper_period import RiskPeriodError, observe, start_period, suspend_period
 
 NOW = datetime(2026, 9, 9, 14, 0, tzinfo=UTC)
-ACCOUNT = "DU123456"
+ACCOUNT = "alpaca-account-123456"
 
 
 def start():
@@ -47,7 +47,7 @@ def test_account_isolation():
     assert observe("DUOTHER", "USD", Decimal(50000), NOW) is None
 
 
-@pytest.mark.parametrize("account,currency", [("U123", "USD"), ("", "USD"), (ACCOUNT, "EUR")])
+@pytest.mark.parametrize("account,currency", [("", "USD"), (ACCOUNT, "EUR")])
 def test_invalid_account_or_currency_rejected(account, currency):
     with pytest.raises(RiskPeriodError):
         start_period(account, currency, Decimal(100000), NOW)
@@ -114,23 +114,22 @@ def test_concurrent_start_is_one_baseline():
 
 @pytest.mark.asyncio
 async def test_adapter_observes_started_period_and_isolates_unknown_account():
-    from broker.ibkr import IBKRBroker
-    from tests.unit.test_ibkr_portfolio_accounting import AccountSummaryTransport
+    from broker.interface import BrokerUnreachable
+    from tests.alpaca_account import account_broker
 
     # Adapter uses real UTC; start one minute earlier for monotonic ordering.
     start_period(ACCOUNT, "USD", Decimal(100000), datetime.now(UTC) - timedelta(minutes=1))
     summary = {
-        "Account": ACCOUNT,
-        "BaseCurrency": "USD",
-        "NetLiquidation": "99000",
-        "TotalCashValue": "99000",
+        "id": ACCOUNT,
+        "currency": "USD",
+        "equity": "99000",
+        "cash": "99000",
     }
-    broker = IBKRBroker(AccountSummaryTransport(summary))
+    broker = account_broker(summary)
     snapshot = await broker.get_portfolio()
     assert snapshot.week_pnl == -1000
     assert snapshot.drawdown_pct == 1
     assert snapshot.risk_account_id == ACCOUNT
-    summary["Account"] = "DUOTHER"
-    unknown = await broker.get_portfolio()
-    assert unknown.week_pnl is None
-    assert unknown.risk_history_status == "account_unverified"
+    summary["id"] = "DUOTHER"
+    with pytest.raises(BrokerUnreachable, match="ACCOUNT_CHANGED"):
+        await broker.get_portfolio(fresh=True)

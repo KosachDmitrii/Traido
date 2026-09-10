@@ -1,3 +1,7 @@
+> Historical document. Execution-vendor instructions and readiness claims below
+> are superseded by [Alpaca-only decision](architecture/alpaca-only.md).
+> Current status: PAPER_TESTING_ONLY; these notes are not proof of a connected Paper run.
+
 # Production readiness
 
 Status of the hardening program, written to be read by someone deciding whether

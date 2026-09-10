@@ -6,7 +6,7 @@
   },
   "vendors": {
     "broker_paper": "alpaca_paper",
-    "broker_live_future": "ibkr",
+    "broker_live_future": null,
     "market_data": "alpaca",
     "market_data_scale_future": "massive",
     "news": "finnhub",

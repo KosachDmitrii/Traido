@@ -2,9 +2,7 @@
 
 `run_symbol_pipeline` built a broker and a market-data port for every symbol,
 and neither factory caches. Against Alpaca that is sixty sets of HTTP clients
-and sixty reads of the same account inside a few seconds. Against IBKR — a
-stateful TWS socket carrying a client id — it is not a cost but a refusal, which
-is why this blocked Paper certification rather than merely slowing things down.
+and sixty reads of the same account inside a few seconds.
 """
 
 from __future__ import annotations
@@ -114,7 +112,7 @@ async def test_the_kill_switch_is_re_read_every_time(
 
 
 async def test_the_connection_is_closed_when_the_cycle_ends(counted) -> None:
-    """An IBKR socket left open per cycle exhausts the client-id space."""
+    """A cycle must release its vendor connections."""
     async with ctx_mod.open_scan_context(SimpleNamespace()) as cycle:
         broker = cycle.broker
 

@@ -1,20 +1,4 @@
-"""Every broker adapter must read the kill switch the same way.
-
-P0-7 — halting the desk also disarming it — was found and closed once, in
-`AlpacaPaperBroker`. The other two adapters kept refusing every order, so the
-guarantee held for the broker in use and not for the broker in the vendor lock:
-IBKR is the one going to production, and on it the switch would still have
-refused the protective stop reconciliation was installing and the emergency
-close that is the last way out.
-
-The mock being wrong is why nothing caught it. A property asserted through the
-mock could never pass, so "an exit works while halted" was never written down as
-a test at all, and the fix stayed where it was first applied.
-
-Parametrised over the adapters rather than asserted once, because the defect was
-never that the rule was wrong. It was that the rule lived in one place and the
-question gets asked in three.
-"""
+"""Alpaca and local mock preserve defensive orders while halted."""
 
 from __future__ import annotations
 
@@ -25,13 +9,12 @@ from uuid import uuid4
 
 import pytest
 
-from broker.ibkr.adapter import IBKRBroker
 from broker.paper.mock import MockPaperBroker
 from core.enums import IntentPurpose, OrderSide, OrderType, PositionStatus
 from core.schemas import OrderRequest, Position
 from risk.kill_switch import set_kill_switch
 
-ADAPTERS = ("mock", "alpaca", "ibkr")
+ADAPTERS = ("mock", "alpaca")
 
 NEW_EXPOSURE = (IntentPurpose.ENTRY,)
 REDUCES_RISK = (
@@ -59,8 +42,6 @@ def _place_order_source(adapter: str) -> str:
 
     if adapter == "mock":
         return inspect.getsource(MockPaperBroker.place_order)
-    if adapter == "ibkr":
-        return inspect.getsource(IBKRBroker.place_order)
     from broker.alpaca import AlpacaPaperBroker
 
     return inspect.getsource(AlpacaPaperBroker.place_order)

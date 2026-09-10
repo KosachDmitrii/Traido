@@ -36,24 +36,25 @@ class PaperRiskSuspendBody(BaseModel):
     confirmation: Literal["SUSPEND_PAPER_PERIOD"]
 
 
-async def _ibkr_risk_snapshot():
-    from broker.ibkr import IBKRBroker
+async def _alpaca_risk_snapshot():
+    from broker.alpaca import AlpacaPaperBroker
+    from broker.interface import broker_connection_state
     from core.enums import BrokerConnectionState
 
     broker = create_broker(get_settings())
-    if not isinstance(broker, IBKRBroker) or broker.environment != "paper":
-        raise HTTPException(status_code=409, detail="IBKR_PAPER_REQUIRED")
-    snapshot = await broker.get_portfolio()
-    if broker.connection_state() is not BrokerConnectionState.READY:
-        raise HTTPException(status_code=409, detail="IBKR_NOT_READY")
+    if not isinstance(broker, AlpacaPaperBroker) or broker.environment != "paper":
+        raise HTTPException(status_code=409, detail="ALPACA_PAPER_REQUIRED")
+    snapshot = await broker.get_portfolio(fresh=True)
+    if broker_connection_state(broker) is not BrokerConnectionState.READY:
+        raise HTTPException(status_code=409, detail="ALPACA_NOT_READY")
     if not snapshot.risk_account_id or snapshot.base_currency != "USD":
-        raise HTTPException(status_code=409, detail="IBKR_PAPER_ACCOUNT_UNVERIFIED")
+        raise HTTPException(status_code=409, detail="ALPACA_PAPER_ACCOUNT_UNVERIFIED")
     return broker, snapshot
 
 
 @router.get("/risk-period", response_model=PortfolioSnapshot)
 async def get_risk_period() -> PortfolioSnapshot:
-    _, snapshot = await _ibkr_risk_snapshot()
+    _, snapshot = await _alpaca_risk_snapshot()
     return snapshot
 
 
@@ -61,7 +62,7 @@ async def get_risk_period() -> PortfolioSnapshot:
 async def start_risk_period(body: PaperRiskStartBody) -> PortfolioSnapshot:
     from risk.paper_period import RiskPeriodError, start_period
 
-    _, snapshot = await _ibkr_risk_snapshot()
+    _, snapshot = await _alpaca_risk_snapshot()
     if snapshot.risk_account_id != body.account_id:
         raise HTTPException(status_code=409, detail="RISK_ACCOUNT_CHANGED")
     if snapshot.risk_period_id:
@@ -75,7 +76,7 @@ async def start_risk_period(body: PaperRiskStartBody) -> PortfolioSnapshot:
     # Starting observation does not authorize execution or reconcile positions.
     # Existing exposure is already included in NetLiquidation. Entry gates remain
     # independent; an orphan/UNKNOWN is not resolved by recording this baseline.
-    _, fresh = await _ibkr_risk_snapshot()
+    _, fresh = await _alpaca_risk_snapshot()
     if fresh.risk_account_id != body.account_id:
         raise HTTPException(status_code=409, detail="RISK_ACCOUNT_CHANGED")
     try:
@@ -93,7 +94,7 @@ async def start_risk_period(body: PaperRiskStartBody) -> PortfolioSnapshot:
 async def suspend_risk_period(body: PaperRiskSuspendBody) -> PortfolioSnapshot:
     from risk.paper_period import RiskPeriodError, suspend_period
 
-    _, snapshot = await _ibkr_risk_snapshot()
+    _, snapshot = await _alpaca_risk_snapshot()
     if snapshot.risk_account_id != body.account_id:
         raise HTTPException(status_code=409, detail="RISK_ACCOUNT_CHANGED")
     try:
@@ -133,10 +134,6 @@ class EntryPolicyBody(BaseModel):
         le=100,
         description="0=strong BUY confirms, 100=weak BUY confirms",
     )
-
-
-class BrokerBackendBody(BaseModel):
-    backend: str = Field(description="alpaca or ibkr — paper execution only")
 
 
 class AutoTriggerBody(BaseModel):
@@ -297,17 +294,16 @@ async def put_auto_trigger(body: AutoTriggerBody) -> dict:
     raise HTTPException(status_code=410, detail="ORB_MANUAL_CONFIRMATION_REQUIRED")
 
 
-def _broker_backend_status() -> dict:
-    from broker.backend_policy import broker_backend_payload, get_broker_backend
+async def _broker_backend_status() -> dict:
+    from broker.backend_policy import broker_backend_payload
     from broker.factory import create_broker
     from broker.interface import broker_connection_state
-    from broker.switch_guard import broker_switch_blocked_reason
     from core.config import get_settings
 
     payload = broker_backend_payload()
-    payload["switch_blocked_reason"] = broker_switch_blocked_reason()
     try:
         broker = create_broker(get_settings())
+        await broker.get_portfolio()
         payload["connection_state"] = broker_connection_state(broker).value
         account = getattr(broker, "account_id", None)
         if account:
@@ -316,32 +312,14 @@ def _broker_backend_status() -> dict:
     except Exception as exc:  # noqa: BLE001
         payload["connection_state"] = "disconnected"
         payload["error"] = type(exc).__name__
-    payload["backend"] = get_broker_backend()
     return payload
 
 
 @router.get("/broker-backend")
 async def get_broker_backend_route() -> dict:
-    return _broker_backend_status()
+    return await _broker_backend_status()
 
 
 @router.put("/broker-backend")
-async def put_broker_backend(body: BrokerBackendBody) -> dict:
-    """Switch paper execution venue (Alpaca ↔ IBKR). Market data stays Alpaca."""
-    from broker.backend_policy import BrokerBackendError
-    from broker.factory import apply_broker_backend
-    from broker.switch_guard import broker_switch_blocked_reason
-
-    blocked = broker_switch_blocked_reason()
-    if blocked:
-        raise HTTPException(status_code=409, detail=f"broker_switch_blocked:{blocked}")
-
-    try:
-        backend = apply_broker_backend(body.backend, actor="user")
-    except BrokerBackendError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    audit = create_audit()
-    await audit.append("BrokerBackendUpdated", "user", {"backend": backend})
-    DESK_BUS.bump_desk()
-    return _broker_backend_status()
+async def put_broker_backend() -> dict:
+    raise HTTPException(status_code=410, detail="ALPACA_ONLY_BROKER_SELECTION_REMOVED")

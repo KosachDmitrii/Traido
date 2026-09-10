@@ -72,7 +72,7 @@ enforces — so the operator does not have to press BUY to learn the book moved.
   incomplete entry evidence is distinct from an unverified quote. Preview
   never replaces the final fresh admission check.
 
-- IBKR account summary has no verified weekly baseline/high-water history.
+- Alpaca account summary has no verified weekly baseline/high-water history.
   Weekly P&L and drawdown are therefore nullable, not fabricated zeroes. New
   entries fail closed with `WEEKLY_PNL_UNAVAILABLE` /
   `PORTFOLIO_DRAWDOWN_UNAVAILABLE`. Do not deploy this as a complete accounting
@@ -290,16 +290,15 @@ exactly the one where the status update never happened.
 Regressions: `test_running_reconciliation_twice_does_not_sell_the_position_twice`,
 `test_a_fill_the_book_already_absorbed_is_not_absorbed_again`,
 `test_an_exit_that_keeps_filling_is_absorbed_as_it_goes`.
-# IBKR Paper observed risk period (2026-09-09)
+# Alpaca Paper observed risk period (2026-09-09)
 
 Operator-approved policy: begin a NEW observation period from current broker
-NetLiquidation; do not reconstruct or assert earlier weekly history. Alpaca's
-accounting is not changed by this feature. Paper-only, USD, verified DU account.
+equity; do not reconstruct or assert earlier weekly history. Paper-only, USD, broker-reported Alpaca account identity.
 
 | Condition | Behaviour |
 |---|---|
 | No period yet | Weekly/drawdown unknown; entries blocked; GET never initializes |
-| Explicit authenticated start | Requires matching broker account, flat broker, no open orders or unresolved local state; baseline and audit committed atomically |
+| Explicit authenticated start | Requires matching verified account and fresh equity; baseline and audit committed atomically; existing exposure does not authorize orders |
 | Duplicate start / restart | Same durable account key; never resets losses or high water |
 | New exchange week | Last observed equity is carried as baseline, including gap movement on first read; actual baseline timestamp disclosed |
 | Missing/corrupt risk store or changed account | Unknown metrics; entries blocked; portfolio remains readable for exits |
@@ -308,7 +307,7 @@ accounting is not changed by this feature. Paper-only, USD, verified DU account.
 
 This is sampled net-liquidation accounting, not cash-flow-adjusted trading P&L
 or a complete historical intraday high-water mark. Unobserved peaks cannot be
-recovered from Gateway. Do not fund/reset the paper account while this period
+recovered from the broker. Do not fund/reset the paper account while this period
 is active: unreported funding can invalidate its metrics. Suspension preserves
 history; subsequent funding reconciliation/resumption requires a separate
 implementation, not deleting the row. No live use is authorized.
@@ -320,15 +319,15 @@ reset. Unchanged observations are checkpointed at most once per minute;
 changed equity is persisted immediately on read. All changes have audit events.
 
 Migration: `0016_risk_periods` (`alembic upgrade head`) before backend startup.
-Activation after deployment: Settings → IBKR Paper → Start risk accounting,
+Activation after deployment: Settings → Alpaca Paper → Start risk accounting,
 verify displayed account/equity and confirm. No orders are sent by activation.
 The period starts when that request succeeds, not when code is deployed.
 
 
-## Observed IBKR Paper period with existing exposure
+## Observed Alpaca Paper period with existing exposure
 
 Decision: an explicitly confirmed first observed period may include existing
-positions and resting orders in the broker's current USD NetLiquidation.
+positions and resting orders in the broker's current USD equity.
 This is an observation baseline, not reconstructed weekly performance and not
 an admission or reconciliation action. It does not resolve UNKNOWN intents,
 adopt external positions, place/cancel orders or reset an existing/suspended
@@ -336,8 +335,8 @@ period. Account identity and READY state are rechecked before persistence.
 Existing execution/reconciliation gates remain responsible for trading access.
 
 Desk order-read failure is exposed as `open_orders_verified=false`, never as
-verified absence. Position valuation uses broker portfolio marketPrice keyed by
-account and contract; missing/invalid prices remain unknown. Stop/target fields
+verified absence. Position valuation uses Alpaca current_price keyed by
+account and symbol; missing/invalid prices remain unknown. Stop/target fields
 remain visible as unknown when the ledger has no evidence. Scanner cycle WAIT
 counts are distinguished from active plans across cycles.
 
@@ -441,3 +440,17 @@ strict side boundaries, and invalid reference prices.
 | Feed or strategy revision changes after daily selection | Keep saved evidence; require next-session selection |
 | IEX volume below consolidated share floor but dollar liquidity sufficient | Allow observation using IEX RVOL; execution still runs all liquidity/capital gates |
 | IEX request returns 403 | Report configured-feed access denial, not a SIP subscription requirement |
+
+## Alpaca-only execution — 2026-09-10
+
+| Condition | Behaviour |
+|---|---|
+| Non-Alpaca deployment selector | Reject construction; no alternative adapter |
+| Old desk calls broker selection PUT | HTTP 410; no state mutation |
+| Live URL or lookalike Paper host | Constructor refuses before sending credentials |
+| Production mock requested | Refuse; mock is only for explicit local tests |
+| Submission timeout / HTTP 5xx | Unresolved, never a definitive rejection |
+| IEX quote differs from NBBO | Preserve the admitted limit; no market-order retry |
+| No Alpaca observed risk period | Weekly risk/drawdown unknown; entries blocked |
+| Risk store unavailable/suspended | Unknown risk; defensive execution remains available |
+| Legacy venue journal has unresolved/open state | Refuse cutover; never reconcile it through Alpaca |

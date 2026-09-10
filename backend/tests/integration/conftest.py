@@ -684,8 +684,17 @@ def desk(monkeypatch: pytest.MonkeyPatch) -> Iterator[Desk]:
     broker = DegradableBroker(
         api_key="integration-key",
         api_secret="integration-secret",
-        base_url="https://paper-api.example.test",
+        base_url="https://paper-api.alpaca.markets",
         transport=backend.transport(),
+    )
+    # Explicit observed account baseline for this valid Paper lifecycle scenario.
+    from risk.paper_period import start_period
+
+    start_period(
+        "alpaca-contract-account",
+        "USD",
+        Decimal(str(backend.equity)),
+        datetime.now(UTC) - timedelta(minutes=1),
     )
     market = ScriptedMarketData()
 
@@ -733,7 +742,6 @@ def desk(monkeypatch: pytest.MonkeyPatch) -> Iterator[Desk]:
 
     # Macro + sector assessments are required for Final Admission. Integration
     # desk opts in explicitly (unit suite no longer auto-clears them).
-    from datetime import UTC
     from datetime import datetime as _dt
 
     from core.enums import AssessmentKind, DataHealthStatus, MarketRegimeLabel

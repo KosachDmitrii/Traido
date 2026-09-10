@@ -31,7 +31,7 @@ COPY configs ./configs
 RUN python -m venv /opt/venv \
     && /opt/venv/bin/pip install --upgrade pip \
     && /opt/venv/bin/pip install "psycopg[binary]>=3.2" \
-    && /opt/venv/bin/pip install ".[ibkr]"
+    && /opt/venv/bin/pip install "."
 
 
 FROM python:3.12-slim AS runtime
@@ -42,8 +42,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
     TRAIDO_ENV=production
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl ca-certificates util-linux proxychains4 \
-    && curl -fsSL https://tailscale.com/install.sh | sh \
+    && apt-get install -y --no-install-recommends curl ca-certificates util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --create-home --uid 10001 traido
 
@@ -53,8 +52,7 @@ WORKDIR /app
 COPY --chown=traido:traido . .
 
 RUN mkdir -p /app/data && chown -R traido:traido /app/data \
-    && chmod +x /app/scripts/railway-start.sh /app/scripts/docker-entrypoint.sh /app/scripts/tailscale-join.sh \
-    && cp /app/configs/proxychains.conf /etc/proxychains4.conf
+    && chmod +x /app/scripts/railway-start.sh /app/scripts/docker-entrypoint.sh
 
 EXPOSE 8000
 

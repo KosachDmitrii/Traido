@@ -679,9 +679,7 @@ async def reconcile_protective_orders(
     long — re-protected, or handed to the emergency-close path.
 
     Note what this does *not* establish. That an order object exists says
-    nothing about whether it will actually trigger: with IBKR in particular a
-    stop may be simulated rather than native, in which case the trigger belongs
-    to IB's systems and its behaviour varies by venue, product and session. This
+    nothing about whether it will actually trigger. This
     check confirms the order is present and correctly sized. It cannot confirm
     the venue will fire it, which is why the emergency-close path exists and why
     a resting stop never ends an incident on its own.

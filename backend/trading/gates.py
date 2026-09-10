@@ -310,8 +310,7 @@ _OTC_SUFFIXES = ("F", "Y")
 
 A crude test, and knowingly so: this is a backstop for the Alpaca path, where
 the adapter reports no security type and `allowed_symbols` defaults to `None`,
-so nothing else stands between a scanner and an unlisted name. The IBKR path
-resolves a real contract and should assert against `secType` instead.
+so nothing else stands between a scanner and an unlisted name.
 """
 
 

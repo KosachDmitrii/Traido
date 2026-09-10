@@ -1,3 +1,7 @@
+> Historical document. Execution-vendor instructions and readiness claims below
+> are superseded by [Alpaca-only decision](alpaca-only.md).
+> Current status: PAPER_TESTING_ONLY; these notes are not proof of a connected Paper run.
+
 # Full system audit — Traido
 
 **Audited:** 2026-08-31 (repository truth, not prior chat claims).  

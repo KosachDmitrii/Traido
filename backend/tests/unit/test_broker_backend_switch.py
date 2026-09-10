@@ -1,150 +1,100 @@
-"""Operator can switch paper execution venue without restarting the process."""
+"""The desk cannot select another venue or a live/test endpoint."""
 
-from __future__ import annotations
-
-from datetime import UTC, datetime
-from decimal import Decimal
-from uuid import uuid4
-
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from api.routes import trading as trading_routes
-from broker import backend_policy, factory
-from broker.backend_policy import (
-    BrokerBackendError,
-    get_broker_backend,
-    normalize_backend,
-    reset_broker_backend_cache,
-    set_broker_backend,
-)
-from broker.factory import apply_broker_backend, clear_broker_singleton, create_broker
-from broker.switch_guard import broker_switch_blocked_reason
+from api.routes.trading import router
+from broker.alpaca import AlpacaPaperBroker
+from broker.backend_policy import BrokerBackendError, broker_backend_payload
+from broker.factory import create_broker
 from core.config import Settings
-from core.enums import IntentPurpose, IntentStatus, OrderSide, OrderType, PositionStatus
-from trading.intents import MemoryOrderIntentStore
-from trading.ledger import LEDGER
-from trading.order_intent import OrderIntent
 
 
-@pytest.fixture(autouse=True)
-def _isolated_broker_policy(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    path = tmp_path / "broker_backend.json"
-    monkeypatch.setattr(backend_policy, "POLICY_PATH", path)
-    monkeypatch.delenv("REDIS_URL", raising=False)
-    monkeypatch.delenv("TRAIDO_BROKER", raising=False)
-    monkeypatch.delenv("TRAIDO_BROKER_MOCK", raising=False)
-    reset_broker_backend_cache()
-    clear_broker_singleton()
-    yield
-    reset_broker_backend_cache()
-    clear_broker_singleton()
+def test_only_alpaca_is_constructed(monkeypatch):
+    monkeypatch.delenv("TRAIDO_BROKER_MOCK")
+    monkeypatch.setenv("TRAIDO_BROKER", "alpaca")
+    broker = create_broker(Settings(ALPACA_API_KEY="test", ALPACA_API_SECRET="secret"))
+    assert isinstance(broker, AlpacaPaperBroker)
+    assert broker.environment == "paper"
+    assert broker_backend_payload()["market_data_feed"] == "iex"
 
 
-def test_normalize_rejects_live() -> None:
-    with pytest.raises(BrokerBackendError, match="live"):
-        normalize_backend("live")
+def test_retired_deployment_selection_fails_closed(monkeypatch):
+    monkeypatch.delenv("TRAIDO_BROKER_MOCK")
+    monkeypatch.setenv("TRAIDO_BROKER", "retired-venue")
+    with pytest.raises(BrokerBackendError, match="ALPACA_ONLY"):
+        create_broker(Settings(ALPACA_API_KEY="test", ALPACA_API_SECRET="secret"))
 
 
-def test_env_bootstrap_ibkr(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TRAIDO_BROKER", "ibkr")
-    reset_broker_backend_cache()
-    assert get_broker_backend() == "ibkr"
-
-
-def test_persisted_backend_wins_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TRAIDO_BROKER", "ibkr")
-    set_broker_backend("alpaca", actor="test")
-    reset_broker_backend_cache()
-    assert get_broker_backend() == "alpaca"
-
-
-def test_apply_clears_ibkr_singleton(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TRAIDO_BROKER_MOCK", "true")
-    settings = Settings(
-        alpaca_api_key=None,
-        alpaca_api_secret=None,
-        finnhub_api_key=None,
-        fred_api_key=None,
-    )
-    set_broker_backend("ibkr", actor="test")
-    # Mock path ignores backend — still exercises clear on switch.
-    first = create_broker(settings)
-    factory._ibkr_broker = first  # type: ignore[attr-defined]
-    apply_broker_backend("alpaca", actor="test")
-    assert factory._ibkr_broker is None  # type: ignore[attr-defined]
-    assert get_broker_backend() == "alpaca"
-
-
-def test_switch_blocked_with_open_position(monkeypatch: pytest.MonkeyPatch) -> None:
-    from core.schemas import Position
-
-    pos = Position(
-        id=uuid4(),
-        symbol="AAPL",
-        qty=Decimal(1),
-        avg_entry=Decimal(100),
-        stop_price=Decimal(95),
-        target_price=Decimal(110),
-        status=PositionStatus.OPEN,
-        opened_at=datetime.now(UTC),
-    )
-    monkeypatch.setattr(LEDGER, "get_open", lambda: [pos])
-    monkeypatch.setattr("broker.switch_guard.INTENTS.list_unresolved", list)
-    assert broker_switch_blocked_reason() is not None
-    assert "open_positions" in (broker_switch_blocked_reason() or "")
-
-
-def test_switch_blocked_with_unknown_intent(monkeypatch: pytest.MonkeyPatch) -> None:
-    intents = MemoryOrderIntentStore()
-    intents.create_or_get(
-        OrderIntent(
-            id=uuid4(),
-            idempotency_key="test-unknown",
-            broker="test",
-            symbol="AAPL",
-            side=OrderSide.BUY,
-            requested_qty=Decimal(1),
-            order_type=OrderType.MARKET,
-            purpose=IntentPurpose.ENTRY,
-            status=IntentStatus.UNKNOWN,
-        )
-    )
-    monkeypatch.setattr(LEDGER, "get_open", list)
-    monkeypatch.setattr("broker.switch_guard.INTENTS", intents)
-    reason = broker_switch_blocked_reason()
-    assert reason is not None
-    assert "unknown_intents" in reason
-
-
-def test_put_broker_backend_rejects_when_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("backend", ["alpaca", "retired-venue", "live"])
+def test_selection_endpoint_is_gone(backend):
     app = FastAPI()
-    app.include_router(trading_routes.router)
-    client = TestClient(app)
-    monkeypatch.setattr(
-        "broker.switch_guard.broker_switch_blocked_reason",
-        lambda: "open_positions:AAPL",
+    app.include_router(router)
+    response = TestClient(app).put("/api/v1/broker-backend", json={"backend": backend})
+    assert response.status_code == 410
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://api.alpaca.markets",
+        "http://paper-api.alpaca.markets",
+        "https://paper-api.alpaca.markets.evil.test",
+        "https://evil.test/paper-api",
+    ],
+)
+def test_only_exact_paper_endpoint_is_allowed(url):
+    with pytest.raises(RuntimeError):
+        AlpacaPaperBroker("key", "secret", url)
+
+
+def test_mock_is_forbidden_in_production():
+    with pytest.raises(RuntimeError, match="MOCK_BROKER"):
+        create_broker(Settings(TRAIDO_ENV="production"))
+
+
+@pytest.mark.asyncio
+async def test_submission_server_error_is_unknown_not_rejected():
+    from broker.interface import BrokerUnreachable
+    from tests.contract.test_broker_contract import _buy
+
+    broker = AlpacaPaperBroker(
+        "key",
+        "secret",
+        "https://paper-api.alpaca.markets",
+        transport=httpx.MockTransport(lambda _: httpx.Response(503)),
     )
-
-    res = client.put("/api/v1/broker-backend", json={"backend": "ibkr"})
-    assert res.status_code == 409
-    assert "broker_switch_blocked" in res.json()["detail"]
+    with pytest.raises(BrokerUnreachable):
+        await broker.place_order(_buy())
 
 
-def test_put_broker_backend_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    app = FastAPI()
-    app.include_router(trading_routes.router)
-    client = TestClient(app)
-    monkeypatch.setattr("broker.switch_guard.broker_switch_blocked_reason", lambda: None)
+@pytest.mark.asyncio
+async def test_status_reads_account_before_reporting_ready(monkeypatch):
+    from api.routes.trading import get_broker_backend_route
+    from tests.alpaca_account import account_broker
 
-    class _Audit:
-        async def append(self, *a, **k):
-            return None
+    broker = account_broker({"id": "verified-account", "currency": "USD", "equity": "100000"})
+    monkeypatch.setattr("broker.factory.create_broker", lambda _: broker)
+    result = await get_broker_backend_route()
+    assert result["connection_state"] == "ready"
+    assert result["account_id"] == "verified-account"
+    assert result["market_data_feed"] == "iex"
 
-    monkeypatch.setattr("api.routes.trading.create_audit", lambda: _Audit())
 
-    res = client.put("/api/v1/broker-backend", json={"backend": "alpaca"})
-    assert res.status_code == 200, res.text
-    assert res.json()["backend"] == "alpaca"
-    assert res.json()["environment"] == "paper"
+@pytest.mark.asyncio
+async def test_status_does_not_report_ready_when_account_read_fails(monkeypatch):
+    from api.routes.trading import get_broker_backend_route
+
+    broker = AlpacaPaperBroker(
+        "key",
+        "secret",
+        "https://paper-api.alpaca.markets",
+        transport=httpx.MockTransport(lambda _: httpx.Response(401)),
+    )
+    broker._cache_clear()
+    monkeypatch.setattr("broker.factory.create_broker", lambda _: broker)
+    result = await get_broker_backend_route()
+    assert result["connection_state"] == "disconnected"
+    assert "account_id" not in result
