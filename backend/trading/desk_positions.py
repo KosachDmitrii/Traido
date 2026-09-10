@@ -25,6 +25,8 @@ def protective_stop_for_display(
     stop_order_id: str | None = None,
 ) -> Decimal | None:
     """Ledger stop when recorded; else the broker's resting protective stop."""
+    if qty <= 0:
+        return None
     if ledger_stop is not None:
         return ledger_stop
 

@@ -74,3 +74,18 @@ def test_returns_none_when_no_protective_stop() -> None:
         )
         is None
     )
+
+
+def test_short_does_not_inherit_long_stop():
+    assert (
+        protective_stop_for_display(
+            symbol="ETN",
+            qty=Decimal(-2),
+            open_orders=[
+                _stop_order(symbol="ETN", qty="12", stop_price="411.90", broker_order_id="old-stop")
+            ],
+            ledger_stop=Decimal("411.90"),
+            stop_order_id="old-stop",
+        )
+        is None
+    )

@@ -280,6 +280,20 @@ def _service(
     )
 
 
+def _initial_stop(broker):
+    broker.records["stop-1"] = OrderRecord(
+        id=uuid4(),
+        client_order_id="traido-initial-stop",
+        broker_order_id="stop-1",
+        symbol="AAPL",
+        side=OrderSide.SELL,
+        order_type=OrderType.STOP,
+        qty=broker.held,
+        stop_price=Decimal(95),
+        status=OrderStatus.ACCEPTED,
+    )
+
+
 # ── Durable exit intent ──────────────────────────────────────────────────────
 
 
@@ -288,6 +302,7 @@ async def test_an_exit_is_persisted_before_the_broker_is_contacted(
 ) -> None:
     position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
     broker = _ExitBroker()
+    _initial_stop(broker)
     exits = MemoryExitStore()
     intents = MemoryOrderIntentStore()
     item = exits.upsert(_proposal(position_id))
@@ -307,6 +322,7 @@ async def test_a_retry_after_a_lost_sell_reply_does_not_sell_twice(
     """The core exit-side duplicate. The broker took the order; we never heard."""
     position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
     broker = _ExitBroker(lose_reply=True)
+    _initial_stop(broker)
     exits = MemoryExitStore()
     intents = MemoryOrderIntentStore()
     item = exits.upsert(_proposal(position_id))
@@ -334,6 +350,7 @@ async def test_pressing_sell_twice_produces_one_broker_order(
 ) -> None:
     position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
     broker = _ExitBroker()
+    _initial_stop(broker)
     exits = MemoryExitStore()
     intents = MemoryOrderIntentStore()
     item = exits.upsert(_proposal(position_id))
@@ -353,6 +370,7 @@ async def test_a_partial_exit_leaves_the_remainder_open(ledger: PositionLedger) 
     """The old path closed the whole position on a 30-of-100 fill."""
     position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
     broker = _ExitBroker(fill_ratio=Decimal("0.3"))
+    _initial_stop(broker)
     exits = MemoryExitStore()
     intents = MemoryOrderIntentStore()
     item = exits.upsert(_proposal(position_id))
@@ -373,6 +391,7 @@ async def test_a_partial_exit_resizes_protection_to_the_remainder(
 ) -> None:
     position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
     broker = _ExitBroker(fill_ratio=Decimal("0.3"))
+    _initial_stop(broker)
     exits = MemoryExitStore()
     intents = MemoryOrderIntentStore()
     audit = InMemoryAudit()
@@ -393,6 +412,7 @@ async def test_protection_never_exceeds_the_remaining_position(
     """A stop for more shares than we hold would open a short."""
     position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
     broker = _ExitBroker(fill_ratio=Decimal("0.6"))
+    _initial_stop(broker)
     exits = MemoryExitStore()
     item = exits.upsert(_proposal(position_id))
 
@@ -411,6 +431,7 @@ async def test_a_full_exit_closes_the_position_exactly_once(
 ) -> None:
     position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
     broker = _ExitBroker()
+    _initial_stop(broker)
     exits = MemoryExitStore()
     intents = MemoryOrderIntentStore()
     item = exits.upsert(_proposal(position_id))
@@ -644,3 +665,94 @@ async def test_a_definite_rejection_releases_the_card(ledger: PositionLedger) ->
 
     assert exits.get(item.id).status == EXIT_AWAITING
     assert intents.list_by_key_prefix(f"exit:{position_id}:")[0].status is IntentStatus.REJECTED
+
+
+@pytest.mark.parametrize("fill", [Decimal(100), Decimal(2)])
+async def test_stop_fill_during_cancel_never_sends_second_sell(ledger, fill):
+    class RacingBroker(_ExitBroker):
+        async def cancel_order(self, oid):
+            if oid == "stop-1":
+                self.held -= fill
+                self.records[oid] = self.records[oid].model_copy(
+                    update={
+                        "status": OrderStatus.FILLED if fill == 100 else OrderStatus.CANCELED,
+                        "filled_qty": fill,
+                        "filled_avg_price": Decimal(95),
+                    }
+                )
+                return self.records[oid]
+            return await super().cancel_order(oid)
+
+    position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
+    broker = RacingBroker()
+    _initial_stop(broker)
+    exits, intents = MemoryExitStore(), MemoryOrderIntentStore()
+    item = exits.upsert(_proposal(position_id))
+    with pytest.raises(RuntimeError, match="EXIT_STOP_FILLED_RECONCILE_REQUIRED"):
+        await _service(broker, exits, intents, InMemoryAudit()).decide_exit(
+            item.id, UserDecision.SELL
+        )
+    assert broker.market_sells == []
+    assert broker.held == 100 - fill
+    assert intents.list_by_key_prefix(f"exit:{position_id}:")[0].status is IntentStatus.REJECTED
+
+
+async def test_holdings_change_after_stop_cancel_blocks_stale_exit_quantity(ledger):
+    class ShrinkingBroker(_ExitBroker):
+        async def cancel_order(self, oid):
+            result = await super().cancel_order(oid)
+            self.held = Decimal(98)
+            return result
+
+    position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
+    broker = ShrinkingBroker()
+    _initial_stop(broker)
+    exits, intents = MemoryExitStore(), MemoryOrderIntentStore()
+    item = exits.upsert(_proposal(position_id))
+    with pytest.raises(RuntimeError, match="EXIT_QUANTITY_CHANGED_RECONCILE_REQUIRED"):
+        await _service(broker, exits, intents, InMemoryAudit()).decide_exit(
+            item.id, UserDecision.SELL
+        )
+    assert broker.market_sells == [] and broker.held == 98
+
+
+@pytest.mark.parametrize("path", ["emergency", "resize"])
+async def test_stop_fill_also_blocks_emergency_or_replacement_sell(ledger, path):
+    class RacingBroker(_ExitBroker):
+        async def cancel_order(self, oid):
+            if oid == "stop-1":
+                self.held = Decimal(0)
+                self.records[oid] = self.records[oid].model_copy(
+                    update={
+                        "status": OrderStatus.FILLED,
+                        "filled_qty": Decimal(100),
+                        "filled_avg_price": Decimal(95),
+                    }
+                )
+                return self.records[oid]
+            return await super().cancel_order(oid)
+
+    position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
+    broker = RacingBroker()
+    _initial_stop(broker)
+    intents = MemoryOrderIntentStore()
+    service = _service(broker, MemoryExitStore(), intents, InMemoryAudit())
+    if path == "emergency":
+        assert not await service._emergency_flatten(
+            symbol="AAPL",
+            qty=Decimal(100),
+            pipeline_run_id=None,
+            reason="test",
+            position_id=position_id,
+        )
+    else:
+        with pytest.raises(BrokerRejection, match="EXIT_STOP_FILLED_RECONCILE_REQUIRED"):
+            await service.resize_protection(
+                symbol="AAPL",
+                position_id=position_id,
+                remaining_qty=Decimal(100),
+                stop_price=Decimal(95),
+                reason="test",
+                previous_stop_order_id="stop-1",
+            )
+    assert broker.orders == [] and broker.held == 0

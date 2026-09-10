@@ -93,3 +93,9 @@ def test_no_gate_reads_the_mark() -> None:
 
     for path in forbidden:
         assert ".mark" not in path.read_text(), f"{path.name} reads the display mark"
+
+
+def test_short_profit_has_matching_cash_and_percentage_sign():
+    out = _mark_to_market(_position(avg_entry="411.81", qty="-2", mark="411.55"))
+    assert Decimal(out["pnl"]) == Decimal("0.52")
+    assert out["pnl_pct"] == 0.06

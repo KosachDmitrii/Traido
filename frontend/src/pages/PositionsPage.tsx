@@ -42,10 +42,11 @@ export function PositionsPage() {
       {positions.length === 0 ? <div className={styles.empty} role="status"><Briefcase size={28} aria-hidden /><h3>{!desk || !desk.portfolio ? (ru ? "Получаем данные позиций" : "Waiting for position data") : t("positions.empty")}</h3><p>{ru ? "Здесь появятся открытые сделки и их текущий результат." : "Open trades and their current performance will appear here."}</p></div> : <div className={styles.grid}>
         {posPager.slice.map(p => <article className={styles.position} key={p.symbol}>
           <div className={styles.positionHead}><div className={styles.identity}><span className={styles.symbolIcon}>{p.symbol.slice(0,2)}</span><div><h3>{p.symbol}</h3><p>{p.name || (p.strategy_version || "").split("@")[0] || "Alpaca Paper"}</p></div></div><span className={styles.tag}>{p.qty} {ru ? "акц." : "shares"}</span></div>
+          {Number(p.qty) < 0 && <p className={styles.notice} role="alert">{ru ? "Короткая позиция. Требуется сверка исполнений; план покупки к ней не применяется." : "Short position. Execution reconciliation required; the long plan does not apply."}</p>}
           <div className={styles.performance}><div><span>{ru ? "Текущая цена" : "Current price"}</span><strong>{money(p.mark)}</strong></div><div data-tone={tone(p.pnl)}><span>{ru ? "Открытый P&L" : "Unrealized P&L"}</span><strong>{money(p.pnl, true)}</strong><small>{number(p.pnl_pct) === null ? "—" : `${Number(p.pnl_pct) > 0 ? "+" : ""}${Number(p.pnl_pct).toFixed(2)}%`}</small></div></div>
           <dl className={styles.levels}>
             <div><dt>{t("positions.col.avg")}</dt><dd>{money(p.avg_entry)}</dd></div>
-            <div><dt>{ru ? "Стоп по плану" : "Planned stop"}</dt><dd>{money(p.stop)}</dd></div>
+            <div><dt>{ru ? "Стоп по плану" : "Planned stop"}</dt><dd>{Number(p.qty) < 0 ? "—" : money(p.stop)}</dd></div>
             <div><dt>{ru ? "План выхода" : "Exit plan"}</dt><dd>{p.exit_policy === "session_close" ? (ru ? "До закрытия сессии" : "Before session close") : money(p.target)}</dd></div>
             <div><dt>{t("positions.col.strategy")}</dt><dd>{p.strategy_version || "—"}</dd></div>
           </dl>

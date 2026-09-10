@@ -527,3 +527,18 @@ Results of 1.4.0 are attributed separately from previous versions.
 | Protective sweep sees zero or negative holdings | Report unresolved non-long position; do not create a stop or emergency SELL request |
 | Existing protective SELL stops against a short | Treat available long shares as zero for excess-stop cancellation |
 | Unexpected short remains | Never auto-convert it to a long or hide the incident; resolution requires verified broker state |
+
+
+## Stop cancellation versus exit race
+
+| Situation | Behaviour |
+|---|---|
+| Stop fills fully or partly while canceling for exit | Refuse a second SELL and require reconciliation; a terminal stop is not assumed canceled |
+| Stop final status unavailable | Refuse EXIT_STOP_STATE_UNVERIFIED |
+| Holdings shrink after cancellation | Reject the unsubmitted stale-sized exit intent; never send its old quantity |
+| Emergency exit or protection replacement | Apply the same stop-fill and fresh-holdings checks before another SELL |
+| Negative broker position in UI | Mark as short, detach the long strategy plan and disable long-only close action |
+| Short mark-to-market | Cash and percentage use the same signed direction |
+
+This closes a reproducible oversell path. Attribution of the historical ETN short
+requires the broker's executed order history; runtime logs alone do not establish it.

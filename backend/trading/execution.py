@@ -2196,7 +2196,7 @@ class ExecutionService:
         )
 
         if previous_stop_order_id:
-            await self._cancel_quietly(previous_stop_order_id, note="protection resize")
+            await self._free_shares_for_exit(symbol=symbol, stop_order_id=previous_stop_order_id)
             self._retire_protective_intent(previous_stop_order_id)
 
         if remaining_qty <= 0:
@@ -2209,6 +2209,7 @@ class ExecutionService:
             )
             return None
 
+        await self._verify_long_exit_quantity(symbol, remaining_qty)
         if stop_price is None:
             await self.audit.append(
                 "ProtectionResizeFailed",
@@ -2346,6 +2347,24 @@ class ExecutionService:
             ok = await self._cancel_and_await_gone(oid, note="exit supersedes protective stop")
             if not ok:
                 raise BrokerRejection(f"protective stop {oid} still holding {symbol} shares")
+            # Gone is not the same as canceled: a stop can fill during cancellation.
+            try:
+                final_stop = await self.broker.get_order(oid)
+            except Exception as exc:
+                raise BrokerRejection("EXIT_STOP_STATE_UNVERIFIED") from exc
+            if final_stop is None:
+                raise BrokerRejection("EXIT_STOP_STATE_UNVERIFIED")
+            if final_stop.status is OrderStatus.FILLED or (final_stop.filled_qty or Decimal(0)) > 0:
+                raise BrokerRejection("EXIT_STOP_FILLED_RECONCILE_REQUIRED")
+
+    async def _verify_long_exit_quantity(self, symbol: str, qty: Decimal) -> None:
+        try:
+            positions = await self.broker.list_positions()
+        except Exception as exc:
+            raise BrokerRejection("EXIT_POSITION_UNVERIFIED") from exc
+        held = next((p.qty for p in positions if p.symbol.upper() == symbol.upper()), Decimal(0))
+        if held <= 0 or qty <= 0 or qty > held:
+            raise BrokerRejection("EXIT_QUANTITY_CHANGED_RECONCILE_REQUIRED")
 
     async def _emergency_flatten(
         self,
@@ -2384,6 +2403,18 @@ class ExecutionService:
         )
         if resumed:
             return await self._resume_emergency(intent, pipeline_run_id=pipeline_run_id)
+        try:
+            await self._free_shares_for_exit(symbol=symbol, stop_order_id=None)
+            await self._verify_long_exit_quantity(symbol, qty)
+        except BrokerRejection as exc:
+            self.intents.transition(intent.id, IntentStatus.REJECTED, last_error=str(exc))
+            await self.audit.append(
+                "EmergencyExitBlockedForReconciliation",
+                "execution",
+                {"symbol": symbol, "reason": str(exc)},
+                pipeline_run_id=pipeline_run_id,
+            )
+            return False
 
         client_id = f"traido-flat-{intent.id.hex[:16]}"
         claimed = self.intents.transition_from(
@@ -2822,6 +2853,8 @@ class ExecutionService:
         pos = next((p for p in positions if p.symbol.upper() == symbol), None)
         if pos is None:
             raise ValueError(f"no_open_position:{symbol}")
+        if pos.qty <= 0:
+            raise BrokerRejection("NON_LONG_POSITION_REQUIRES_RECONCILIATION")
 
         from trading.ledger import LEDGER
 
@@ -2916,6 +2949,8 @@ class ExecutionService:
         )
 
     async def _create_exit_intent(self, item: ExitOpportunity, *, qty: Decimal) -> OrderIntent:
+        if qty <= 0:
+            raise BrokerRejection("NON_LONG_POSITION_REQUIRES_RECONCILIATION")
         position_id = item.proposal.position_id
         attempt = len(self.intents.list_by_key_prefix(f"exit:{position_id}:"))
         intent, created = self.intents.create_or_get(
@@ -2978,7 +3013,13 @@ class ExecutionService:
         # The protective stop and the exit both want to sell the same shares.
         # Cancel must finish (not merely be requested) or Alpaca rejects the
         # market sell with insufficient qty / held_for_orders.
-        await self._free_shares_for_exit(symbol=intent.symbol, stop_order_id=stop_order_id)
+        try:
+            await self._free_shares_for_exit(symbol=intent.symbol, stop_order_id=stop_order_id)
+            await self._verify_long_exit_quantity(intent.symbol, intent.requested_qty)
+        except BrokerRejection as exc:
+            # No submit has happened; safely retire this stale-sized intent.
+            self.intents.transition(intent.id, IntentStatus.REJECTED, last_error=str(exc))
+            raise
 
         client_id = f"traido-x-{intent.id.hex[:16]}"
         claimed = self.intents.transition_from(

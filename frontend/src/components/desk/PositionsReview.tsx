@@ -106,6 +106,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
           ) : (
             positions.map((p) => {
               const pnl = pnlView(p);
+              const isShort = Number(p.qty) < 0;
               const armed = arming === p.symbol;
               const metrics: { key: string; label: string; value: string }[] = [
                 { key: "qty", label: t("desk.positions.stat.qty"), value: String(p.qty) },
@@ -113,8 +114,8 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
               ];
               metrics.push(
                 { key: "mark", label: t("desk.positions.stat.mark"), value: fmtPx(p.mark) },
-                { key: "stop", label: t("desk.positions.stat.stop"), value: fmtPx(p.stop) },
-                { key: "tgt", label: t("desk.positions.stat.tgt"), value: p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
+                { key: "stop", label: t("desk.positions.stat.stop"), value: isShort ? "—" : fmtPx(p.stop) },
+                { key: "tgt", label: t("desk.positions.stat.tgt"), value: isShort ? "—" : p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
               );
               return (
                 <div className="pos-row" key={p.symbol}>
@@ -123,6 +124,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                       <span className="pos-row__dot" aria-hidden />
                       <div className="pos-row__identity">
                         <strong>{p.symbol}</strong>
+                        {isShort && <span role="alert" style={{color:"#b42336"}}>Короткая позиция · требуется сверка</span>}
                         {p.name ? <span className="pos-row__name">{p.name}</span> : null}
                       </div>
                     </div>
@@ -164,7 +166,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                     <button
                       type="button"
                       className={armed ? "pos-close pos-close--armed" : "pos-close"}
-                      disabled={busy === p.symbol}
+                      disabled={busy === p.symbol || isShort}
                       aria-busy={busy === p.symbol}
                       onClick={() => onClose(p.symbol)}
                       onBlur={() => setArming((s) => (s === p.symbol ? null : s))}

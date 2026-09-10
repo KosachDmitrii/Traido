@@ -303,7 +303,9 @@ def _mark_to_market(p: Position) -> dict:
     return {
         "mark": str(p.mark),
         "pnl": str((p.mark - p.avg_entry) * p.qty),
-        "pnl_pct": round(float((p.mark - p.avg_entry) / p.avg_entry * 100), 2),
+        "pnl_pct": round(
+            float((p.mark - p.avg_entry) / p.avg_entry * 100 * (1 if p.qty >= 0 else -1)), 2
+        ),
     }
 
 
@@ -552,6 +554,8 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
     try:
         for p in await broker.list_positions():
             meta = by_sym.get(p.symbol.upper())
+            if p.qty <= 0 or (meta is not None and Decimal(str(meta.qty)) <= 0):
+                meta = None  # Never attach a long plan to an unexpected short.
             payload = (meta.payload or {}) if meta else {}
             stop_oid = payload.get("stop_order_id")
             ledger_stop = (
