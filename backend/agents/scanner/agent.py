@@ -405,9 +405,9 @@ async def _scan_once() -> ScannerStatus:
         STATUS.error = "superseded"
         raise
     except Exception as exc:  # noqa: BLE001
-        STATUS.error = str(exc)
-        BOARD.set_agent("scanner", status="error", detail=str(exc)[:80])
-        BOARD.log("scanner", f"Cycle failed: {exc}", level="error")
+        STATUS.error = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+        BOARD.set_agent("scanner", status="error", detail=STATUS.error[:160])
+        BOARD.log("scanner", f"Cycle failed: {STATUS.error}", level="error")
     finally:
         STATUS.running = False
         STATUS.last_finished_at = datetime.now(UTC).isoformat()

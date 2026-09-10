@@ -117,10 +117,23 @@ class ScanContext:
             return {}
         feed = self.market_data
         if isinstance(feed, BatchMarketDataPort):
-            return await self.concurrency.run(
-                "market_data",
-                lambda: feed.get_daily_bars_batch(wanted, start, end),
-            )
+            # The provider pages the universe sequentially. Apply the request
+            # deadline per bounded batch, not to the entire market's history.
+            out: dict[str, list[Bar]] = {}
+            for offset in range(0, len(wanted), 100):
+                batch = wanted[offset : offset + 100]
+                try:
+                    rows = await self.concurrency.run(
+                        "market_data",
+                        lambda batch=batch: feed.get_daily_bars_batch(batch, start, end),
+                    )
+                except TimeoutError as exc:
+                    raise TimeoutError(
+                        f"DAILY_HISTORY_TIMEOUT: batch {offset // 100 + 1}; "
+                        f"completed {offset}/{len(wanted)} symbols"
+                    ) from exc
+                out.update(rows)
+            return out
 
         async def _one(symbol: str) -> tuple[str, list[Bar]]:
             return symbol, await self.market_data.get_bars(symbol, Timeframe.D1, start, end)

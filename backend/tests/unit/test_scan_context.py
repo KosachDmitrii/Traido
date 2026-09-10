@@ -184,3 +184,43 @@ def test_the_scanner_opens_exactly_one_context_per_cycle(monkeypatch):
     )
     assert len(contexts) == 1
     assert seen == [contexts[0], contexts[0]]
+
+
+@pytest.mark.asyncio
+async def test_daily_history_deadline_is_per_batch(counted, monkeypatch):
+    from datetime import UTC, datetime
+
+    calls = []
+
+    class Feed:
+        async def get_daily_bars_batch(self, symbols, start, end):
+            calls.append(list(symbols))
+            return {symbol: [] for symbol in symbols}
+
+    monkeypatch.setattr(ctx_mod, "BatchMarketDataPort", Feed)
+    async with ctx_mod.open_scan_context(SimpleNamespace()) as cycle:
+        cycle.market_data = Feed()
+        symbols = [f"S{i}" for i in range(251)]
+        now = datetime.now(UTC)
+        rows = await cycle.daily_bars(symbols, now, now)
+        assert list(rows) == symbols
+        assert [len(batch) for batch in calls] == [100, 100, 51]
+        assert cycle.concurrency.stats["market_data"].calls == 3
+
+
+@pytest.mark.asyncio
+async def test_daily_history_timeout_never_returns_partial_success(counted, monkeypatch):
+    from datetime import UTC, datetime
+
+    class Feed:
+        async def get_daily_bars_batch(self, symbols, start, end):
+            if symbols[0] == "S100":
+                raise TimeoutError()
+            return {symbol: [] for symbol in symbols}
+
+    monkeypatch.setattr(ctx_mod, "BatchMarketDataPort", Feed)
+    async with ctx_mod.open_scan_context(SimpleNamespace()) as cycle:
+        cycle.market_data = Feed()
+        now = datetime.now(UTC)
+        with pytest.raises(TimeoutError, match="completed 100/201"):
+            await cycle.daily_bars([f"S{i}" for i in range(201)], now, now)
