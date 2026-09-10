@@ -63,7 +63,7 @@ export function JournalPage() {
           <td>{date && !Number.isNaN(date.getTime()) ? date.toLocaleString(ru ? "ru-RU" : "en-US", {timeZone: "America/New_York", year: "2-digit", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false}) : "—"}</td>
           <td>{price(trade.entry)}</td><td>{price(trade.exit)}</td><td><span className={styles.pnl} data-tone={pnl === null || pnl === 0 ? "neutral" : pnl > 0 ? "positive" : "negative"}>{price(trade.pnl, true)}</span></td><td>{numeric(trade.pnl_pct) === null ? "—" : `${price(trade.pnl_pct, true)}%`}</td><td><span className={styles.strategy}>{trade.strategy_version || "—"}</span></td></tr>;
       })}</tbody></table></div>}
-      {data && <footer className={styles.footer}><span>{loading || error ? "—" : `${data.total ? (data.page - 1) * data.page_size + 1 : 0}–${Math.min(data.page * data.page_size, data.total)}`} {ru ? "из" : "of"} {data.total}</span><TablePager pager={pager} /></footer>}
+      {data && <footer className={styles.footer}><span>{loading || error ? "—" : `${data.total ? (data.page - 1) * data.page_size + 1 : 0}–${Math.min(data.page * data.page_size, data.total)}`} {ru ? "из" : "of"} {data.total}</span><TablePager pager={pager} loading={loading} /></footer>}
     </section>
     {!!r?.notes?.length && <details className={styles.notes}><summary>{t("journal.notes")}<span>{r.notes.length}</span></summary><ul>{r.notes.map((note, i) => <li key={i}>{note}</li>)}</ul></details>}
   </div>;

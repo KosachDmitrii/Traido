@@ -4,7 +4,7 @@ import { BarChart3, RefreshCw, Target, TrendingUp } from "lucide-react";
 import { fetchOrbEvaluation, type OrbEvaluation } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
 import { useI18n } from "@/i18n/I18nProvider";
-import { Button, TablePager, useTablePager, LoadingDots } from "@/ui";
+import { Button, TablePager, useTablePager } from "@/ui";
 import { orbReason, orbState, px } from "@/components/desk/orbLabels";
 import styles from "./EvaluationPage.module.css";
 
@@ -43,7 +43,7 @@ export function EvaluationPage() {
     { icon: TrendingUp, label: ru ? "Средняя сделка · USD" : "Average trade · USD", value: px(shown?.expectancy) },
   ];
   return <div className={styles.page}>
-    <header className={styles.heading}><div><span className={styles.eyebrow}>ORB · ALPACA PAPER</span><h1>{ru ? "Оценка стратегии" : "Strategy evaluation"}</h1><p>{ru ? "Отбор текущей сессии и фактические результаты ORB." : "Current session selection and actual ORB results."}</p></div><Button variant="ghost" disabled={loading} aria-busy={loading} onClick={() => setRevision(n => n + 1)}>{loading ? <LoadingDots ariaLabel={ru ? "Загрузка" : "Loading"} /> : <RefreshCw size={14} />}{ru ? "Обновить результаты" : "Refresh results"}</Button></header>
+    <header className={styles.heading}><div><span className={styles.eyebrow}>ORB · ALPACA PAPER</span><h1>{ru ? "Оценка стратегии" : "Strategy evaluation"}</h1><p>{ru ? "Отбор текущей сессии и фактические результаты ORB." : "Current session selection and actual ORB results."}</p></div><Button variant="ghost" loading={loading} disabled={loading} aria-busy={loading} onClick={() => setRevision(n => n + 1)}>{!loading && <RefreshCw size={14} />}{ru ? "Обновить результаты" : "Refresh results"}</Button></header>
     <OrbSymbolInspector />
     <section className={styles.card}>
       <div className={styles.sectionHead}><h2>{ru ? "Результаты Paper" : "Paper results"}</h2><span>{result?.strategy_version ?? "ORB"}</span></div>

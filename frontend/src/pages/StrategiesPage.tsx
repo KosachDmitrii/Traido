@@ -157,6 +157,7 @@ export function StrategiesPage() {
               <Button
                 variant="light"
                 disabled={!!busy || rejected}
+                loading={busy === `${v.id}:recompute`}
                 onClick={() => void run(v.id, "recompute")}
               >
                 {t("strategies.action.recompute")}
@@ -164,6 +165,7 @@ export function StrategiesPage() {
               <Button
                 variant="accent"
                 disabled={!!busy || !canApprove}
+                loading={busy === `${v.id}:approve`}
                 onClick={() => void run(v.id, "approve")}
               >
                 {t("strategies.action.approve")}
@@ -171,6 +173,7 @@ export function StrategiesPage() {
               <Button
                 variant="accent"
                 disabled={!!busy || !canPromote}
+                loading={busy === `${v.id}:promote`}
                 onClick={() => void run(v.id, "promote")}
               >
                 {t("strategies.action.promote")}
@@ -178,6 +181,7 @@ export function StrategiesPage() {
               <Button
                 variant="ghost"
                 disabled={!!busy || rejected || production}
+                loading={busy === `${v.id}:reject`}
                 onClick={() => void run(v.id, "reject")}
               >
                 {t("strategies.action.reject")}

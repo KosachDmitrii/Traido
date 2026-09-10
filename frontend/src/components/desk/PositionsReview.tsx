@@ -1,4 +1,5 @@
 
+import { LoadingDots } from "@/ui";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { DeskPosition, DeskResponse } from "@/lib/api";
@@ -164,11 +165,12 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
                       type="button"
                       className={armed ? "pos-close pos-close--armed" : "pos-close"}
                       disabled={busy === p.symbol}
+                      aria-busy={busy === p.symbol}
                       onClick={() => onClose(p.symbol)}
                       onBlur={() => setArming((s) => (s === p.symbol ? null : s))}
                     >
                       {busy === p.symbol
-                        ? "…"
+                        ? <LoadingDots ariaLabel={t("common.loading")} />
                         : armed
                           ? t("desk.positions.close.confirm")
                           : t("desk.positions.close")}

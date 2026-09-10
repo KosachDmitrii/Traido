@@ -50,7 +50,7 @@ export function PaperRiskPeriod() {
       <p className="settings-card__lead">{t("riskPeriod.fundingWarning")}</p>
       {(active || startable) && <>
         <label><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} /> {t(active ? "riskPeriod.confirmSuspend" : "riskPeriod.confirmStart")}</label>
-        <div className="settings-card__actions"><Button disabled={busy || !confirmed} onClick={() => void commit(active ? "suspend" : "start")}>
+        <div className="settings-card__actions"><Button loading={busy} disabled={busy || !confirmed} onClick={() => void commit(active ? "suspend" : "start")}>
           {t(active ? "riskPeriod.suspend" : "riskPeriod.start")}
         </Button></div>
       </>}

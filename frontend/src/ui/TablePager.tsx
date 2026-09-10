@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { LoadingDots } from "./LoadingDots";
 import { SelectField } from "@/ui/SelectField";
 import { useT } from "@/i18n/I18nProvider";
 import { PAGE_SIZE_OPTIONS, type TablePagerState } from "@/ui/useTablePager";
@@ -5,10 +7,13 @@ import styles from "./TablePager.module.css";
 
 type Props = {
   pager: TablePagerState<unknown>;
+  loading?: boolean;
 };
 
-export function TablePager({ pager }: Props) {
+export function TablePager({ pager, loading = false }: Props) {
   const t = useT();
+  const [pending, setPending] = useState<"prev" | "next" | null>(null);
+  useEffect(() => { if (!loading) setPending(null); }, [loading]);
   if (!pager.showPager) return null;
 
   return (
@@ -28,10 +33,11 @@ export function TablePager({ pager }: Props) {
         <button
           type="button"
           className={styles.NavBtn}
-          disabled={!pager.canPrev}
-          onClick={() => pager.setPage(pager.page - 1)}
+          disabled={loading || !pager.canPrev}
+          aria-busy={loading && pending === "prev"}
+          onClick={() => { setPending("prev"); pager.setPage(pager.page - 1); }}
         >
-          {t("pager.prev")}
+          {loading && pending === "prev" ? <LoadingDots ariaLabel={t("common.loading")} /> : null}{t("pager.prev")}
         </button>
         <span className={styles.Page} aria-current="page">
           {pager.page}
@@ -39,10 +45,11 @@ export function TablePager({ pager }: Props) {
         <button
           type="button"
           className={styles.NavBtn}
-          disabled={!pager.canNext}
-          onClick={() => pager.setPage(pager.page + 1)}
+          disabled={loading || !pager.canNext}
+          aria-busy={loading && pending === "next"}
+          onClick={() => { setPending("next"); pager.setPage(pager.page + 1); }}
         >
-          {t("pager.next")}
+          {loading && pending === "next" ? <LoadingDots ariaLabel={t("common.loading")} /> : null}{t("pager.next")}
         </button>
       </div>
     </div>

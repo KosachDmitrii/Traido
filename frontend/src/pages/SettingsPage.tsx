@@ -29,6 +29,7 @@ export function SettingsPage() {
     typeof window !== "undefined" ? window.localStorage.getItem("TRAIDO_API_KEY") || "" : "",
   );
   const [busy, setBusy] = useState(false);
+  const [scanning, setScanning] = useState(false);
   const saveKey = useCallback(() => {
     if (apiKey.trim()) {
       window.localStorage.setItem("TRAIDO_API_KEY", apiKey.trim());
@@ -81,6 +82,7 @@ export function SettingsPage() {
   }, [kill, showFlash, refreshKillSwitch, t]);
 
   const scanNow = useCallback(async () => {
+    setScanning(true);
     setBusy(true);
     try {
       await runScanner();
@@ -92,6 +94,7 @@ export function SettingsPage() {
       });
     } finally {
       setBusy(false);
+      setScanning(false);
     }
   }, [refreshAll, showFlash, t]);
 
@@ -255,7 +258,7 @@ export function SettingsPage() {
             <li>{t("settings.scanner.hint")}</li>
           </ul>
           <div className="settings-card__actions">
-            <Button variant="accent" disabled={busy} onClick={scanNow}>
+            <Button variant="accent" loading={scanning} disabled={busy} onClick={scanNow}>
               {t("settings.scanner.run")}
             </Button>
           </div>
