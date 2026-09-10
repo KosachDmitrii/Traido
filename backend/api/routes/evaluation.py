@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Path, Query
 
 from core.config import get_settings
 from core.enums import Timeframe
@@ -116,3 +116,37 @@ async def evaluation_batch(
 
     await attach_company_names(results, settings.finnhub_api_key)
     return {"results": results, "errors": errors}
+
+
+@router.get("/evaluation/orb-symbol/{symbol}")
+async def orb_symbol(symbol: str = Path(pattern=r"^[A-Za-z][A-Za-z0-9.\-]{0,15}$")) -> dict:
+    """Inspect a saved ORB decision and quote without evaluating or publishing entries."""
+    from core.clock import market_date
+    from strategy.orb.runtime import STATUS
+    from strategy.orb.store import read_session
+
+    symbol = symbol.upper()
+    snapshot = read_session(str(market_date())) or dict(STATUS)
+    plan = snapshot.get("plans", {}).get(symbol)
+    state = snapshot.get("states", {}).get(symbol)
+    reasons = snapshot.get("rejections", {}).get(symbol, [])
+    outranked = symbol in snapshot.get("outranked", [])
+    quote = None
+    quote_error = None
+    try:
+        quote = await create_market_data_port(get_settings()).get_quote(symbol)
+        if quote is None:
+            quote_error = "ORB_QUOTE_MISSING"
+    except Exception:  # noqa: BLE001
+        quote_error = "ORB_SERVICE_UNAVAILABLE"
+    return {
+        "symbol": symbol,
+        "session": snapshot.get("session"),
+        "plan": {k: v for k, v in plan.items() if k != "evidence"} if plan else None,
+        "state": state,
+        "rejections": reasons,
+        "outranked": outranked,
+        "session_reason": snapshot.get("reason"),
+        "quote": quote.model_dump(mode="json") if quote else None,
+        "quote_error": quote_error,
+    }

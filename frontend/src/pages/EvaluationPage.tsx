@@ -1,3 +1,4 @@
+import { OrbSymbolInspector } from "@/components/desk/OrbSymbolInspector";
 import { useEffect, useState } from "react";
 import { BarChart3, RefreshCw, Target, TrendingUp } from "lucide-react";
 import { fetchOrbEvaluation, type OrbEvaluation } from "@/lib/api";
@@ -43,6 +44,7 @@ export function EvaluationPage() {
   ];
   return <div className={styles.page}>
     <header className={styles.heading}><div><span className={styles.eyebrow}>ORB · ALPACA PAPER</span><h1>{ru ? "Оценка стратегии" : "Strategy evaluation"}</h1><p>{ru ? "Отбор текущей сессии и фактические результаты ORB." : "Current session selection and actual ORB results."}</p></div><Button variant="ghost" disabled={loading} onClick={() => setRevision(n => n + 1)}><RefreshCw size={14} />{ru ? "Обновить результаты" : "Refresh results"}</Button></header>
+    <OrbSymbolInspector />
     <section className={styles.card}>
       <div className={styles.sectionHead}><h2>{ru ? "Результаты Paper" : "Paper results"}</h2><span>{result?.strategy_version ?? "ORB"}</span></div>
       <p className={styles.description}>{ru ? "Только закрытые сделки текущей версии ORB из журнала. Старые стратегии и бэктесты исключены. Источники IEX/SIP в этой сводке не разделены." : "Closed journal trades for the current ORB version only. Legacy strategies and backtests are excluded. IEX/SIP results are not separated in this summary."}</p>

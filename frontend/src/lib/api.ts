@@ -946,3 +946,15 @@ export async function fetchOrbEvaluation(signal?: AbortSignal): Promise<OrbEvalu
   if (!response.ok) throw new Error("orb_evaluation_unavailable");
   return response.json();
 }
+
+
+export type OrbSymbolView = {
+  symbol: string; session: string | null; plan: OrbPlan | null; state: OrbState | null;
+  rejections: string[]; outranked: boolean; session_reason: string | null; quote_error: string | null;
+  quote: { bid: string; ask: string; ts: string; feed: string | null; source: string } | null;
+};
+export async function fetchOrbSymbol(symbol: string, signal?: AbortSignal): Promise<OrbSymbolView> {
+  const response = await fetch(apiUrl(`/api/v1/evaluation/orb-symbol/${encodeURIComponent(symbol)}`), { headers: apiHeaders(), signal });
+  if (!response.ok) throw new Error("orb_symbol_unavailable");
+  return response.json();
+}
