@@ -414,6 +414,12 @@ async def desk(
     buys = await attach_buy_viability(OPPORTUNITIES.list_open())
     payload = _light_payload(buy_opportunities=buys)
     key = get_settings().finnhub_api_key
+    # Names are presentation data: never mutate the persisted ORB plan.
+    orb = payload.get("orb")
+    if isinstance(orb, dict):
+        plans = {symbol: dict(plan) for symbol, plan in (orb.get("plans") or {}).items()}
+        await attach_company_names(list(plans.values()), key)
+        payload["orb"] = {**orb, "plans": plans}
     await attach_company_names(payload["positions"], key)
     await attach_company_names(payload.get("review", {}).get("recent") or [], key)
     # Cards: name sits next to the ticker on BUY / WAIT / SELL — display only.

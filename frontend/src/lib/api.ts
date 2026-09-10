@@ -911,6 +911,7 @@ export const rejectStrategy = (id: string, reason: string) =>
 
 
 export type OrbPlan = {
+  name?: string | null;
   symbol: string; session: string; trigger: string; stop: string; max_entry: string;
   range_high: string; range_low: string; relative_volume: string; daily_atr: string;
   range_end: string; entry_deadline: string; exit_at: string;

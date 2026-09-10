@@ -91,3 +91,5 @@
 .facts > div { display: flex; justify-content: space-between; gap: 12px; }
 .facts dt { color: var(--td-text-muted); }
 .facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+
+.companyName { margin: 7px 0 0; color: var(--td-text-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }

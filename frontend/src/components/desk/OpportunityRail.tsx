@@ -52,6 +52,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
       const ask = opp?.viability?.measured?.ask ?? state?.ask;
       return <article key={plan.symbol} className={`opp-card ${styles.card}`} data-buyable={buyable}>
         <div className={styles.cardHead}><div className={styles.identity}><div><h3>{plan.symbol}</h3><span className={styles.strategy}>ORB · Покупка</span></div></div><strong className={styles.status}>{buyable ? "Можно подтвердить" : orbState(state?.state)}</strong></div>
+        {(plan.name || opp?.candidate.name) && <p className={styles.companyName}>{plan.name || opp?.candidate.name}</p>}
         <dl className={styles.prices}>
           <div><dt>Цена сейчас</dt><dd>{px(ask)}</dd></div>
           <div><dt>Цена входа</dt><dd>{px(plan.trigger)}</dd></div>
