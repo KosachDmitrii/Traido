@@ -358,7 +358,10 @@ async def test_orb_loop_dispatches_after_observation(monkeypatch) -> None:
     assert events == ["observe", "queue"]
 
 
-@pytest.mark.parametrize("reason", ["ORB_WAITING_BREAKOUT", "ORB_ENTRY_MISSED", "SPREAD_TOO_WIDE"])
+@pytest.mark.parametrize(
+    "reason",
+    ["ORB_WAITING_BREAKOUT", "ORB_WAITING_PULLBACK", "ORB_ENTRY_MISSED", "SPREAD_TOO_WIDE"],
+)
 def test_price_conditions_are_wait_not_operational_failure(reason):
     assert atp._classify_failure(RuntimeError(f"LIQUIDITY_GATE_REJECTED:{reason}")) == "WAIT"
 
@@ -375,7 +378,8 @@ def test_price_wait_does_not_hide_missing_data_or_unknown_submission():
     )
 
 
-def test_price_wait_retry_does_not_grow_to_five_minutes(monkeypatch):
+@pytest.mark.parametrize("reason", ["ORB_WAITING_BREAKOUT", "ORB_WAITING_PULLBACK"])
+def test_price_wait_retry_does_not_grow_to_five_minutes(monkeypatch, reason):
     from datetime import UTC, datetime
     from uuid import uuid4
 
@@ -389,7 +393,7 @@ def test_price_wait_retry_does_not_grow_to_five_minutes(monkeypatch):
             key,
             operational=False,
             outcome="WAIT",
-            error="LIQUIDITY_GATE_REJECTED:ORB_WAITING_BREAKOUT",
+            error=f"LIQUIDITY_GATE_REJECTED:{reason}",
         )
         assert 4.9 <= (until - before).total_seconds() <= 5.5
 

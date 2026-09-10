@@ -392,6 +392,7 @@ class ExecutionService:
             "orb@1.2.0",
             "orb@1.3.0",
             "orb@1.4.0",
+            "orb@1.5.0",
         }:
             raise RuntimeError("STRATEGY_RETIRED:ORB_REQUIRED")
 
@@ -693,7 +694,13 @@ class ExecutionService:
             )
             raise DataBlockedError(str(exc)) from exc
 
-        if priced.strategy_version in {"orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0"}:
+        if priced.strategy_version in {
+            "orb@1.1.0",
+            "orb@1.2.0",
+            "orb@1.3.0",
+            "orb@1.4.0",
+            "orb@1.5.0",
+        }:
             from strategy.orb import OrbPlan, evaluate_trigger
 
             quote, spread, tape_last = await self._top_of_book(priced.symbol)
@@ -1180,7 +1187,13 @@ class ExecutionService:
         Geometry is owned by `assess_buy_viability` so the desk preview and the
         click cannot disagree about whether the card still describes a trade.
         """
-        if candidate.strategy_version in {"orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0"}:
+        if candidate.strategy_version in {
+            "orb@1.1.0",
+            "orb@1.2.0",
+            "orb@1.3.0",
+            "orb@1.4.0",
+            "orb@1.5.0",
+        }:
             from strategy.orb import OrbPlan, evaluate_trigger
 
             if quote is None or not spread.is_live:
@@ -1546,7 +1559,13 @@ class ExecutionService:
             entity_id=str(intent.id),
         )
 
-        if opp.candidate.strategy_version in {"orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0"}:
+        if opp.candidate.strategy_version in {
+            "orb@1.1.0",
+            "orb@1.2.0",
+            "orb@1.3.0",
+            "orb@1.4.0",
+            "orb@1.5.0",
+        }:
             from strategy.orb import OrbPlan, evaluate_trigger
             from trading.admission_records import ADMISSION_RECORDS
 

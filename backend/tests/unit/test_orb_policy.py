@@ -190,7 +190,7 @@ def test_new_registry_version_preserves_registered_strict_parameters():
 
 def test_early_paper_entry_is_lower_with_same_stop_and_chase_ceiling():
     d, o = evidence()
-    p = form_plan("AAPL", d, o, now=NOW, feed="sip").plan
+    p = form_plan("AAPL", d, o, now=NOW, feed="sip", version="orb@1.4.0").plan
     old = plan()
     assert p.trigger == D("100.81") < old.trigger
     assert p.stop == old.stop and p.max_entry == old.max_entry
@@ -201,4 +201,21 @@ def test_early_paper_entry_is_lower_with_same_stop_and_chase_ceiling():
     assert evaluate_trigger(p, None, now=NOW).state == "DATA_BLOCKED"
     assert (
         evaluate_trigger(p, quote(ts=NOW - timedelta(seconds=6)), now=NOW).state == "DATA_BLOCKED"
+    )
+
+
+def test_pullback_policy_buys_below_reference_never_above_or_below_stop():
+    d, o = evidence()
+    p = form_plan("AAPL", d, o, now=NOW, feed="sip").plan
+    assert p.trigger == p.max_entry == D("100.81")
+    assert p.stop == D("100.61")
+    assert evaluate_trigger(p, quote("100.79", "100.81"), now=NOW).state == "BUY_ALLOWED"
+    assert evaluate_trigger(p, quote("100.70", "100.72"), now=NOW).state == "BUY_ALLOWED"
+    assert evaluate_trigger(p, quote("100.81", "100.82"), now=NOW).reasons == [
+        "ORB_WAITING_PULLBACK"
+    ]
+    assert evaluate_trigger(p, quote("100.61", "100.63"), now=NOW).reasons == ["ORB_STOP_BREACHED"]
+    assert (
+        evaluate_trigger(p, quote("100.70", "100.72"), now=NOW, limit_price=D("100.82")).state
+        != "BUY_ALLOWED"
     )

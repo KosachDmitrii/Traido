@@ -19,7 +19,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
   const buys = desk?.buy_opportunities ?? [];
   const automatic = desk?.auto_trigger?.enabled === true;
   const planPriority = (symbol: string) => {
-    const opp = buys.find(o => o.candidate.symbol === symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0"].includes(o.candidate.strategy_version ?? ""));
+    const opp = buys.find(o => o.candidate.symbol === symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", "orb@1.5.0"].includes(o.candidate.strategy_version ?? ""));
     if (!opp) return 2;
     const qty = Math.floor(Number(opp.proposed_qty ?? opp.risk?.sized_qty ?? 0));
     return opp.viability?.buyable === true && desk?.session?.entries_allowed !== false && qty > 0 ? 0 : 1;
@@ -46,7 +46,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
       <div className={styles.summary}>
         <div><Layers size={18} /><span>Планы сессии</span><strong>{desk ? plans.length : "—"}</strong></div>
         <div><Clock3 size={18} /><span>Ждут цены входа</span><strong>{desk?.orb ? Object.values(desk.orb.states ?? {}).filter(s => s.state === "WAIT").length : "—"}</strong></div>
-        <div><ArrowUpRight size={18} /><span>Предложения покупки</span><strong>{desk ? buys.filter(o => ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0"].includes(o.candidate.strategy_version ?? "")).length : "—"}</strong></div>
+        <div><ArrowUpRight size={18} /><span>Предложения покупки</span><strong>{desk ? buys.filter(o => ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", "orb@1.5.0"].includes(o.candidate.strategy_version ?? "")).length : "—"}</strong></div>
       </div>
       <div className={styles.sectionHead}><h2>Планы ORB</h2><span>Диапазон открытия · 09:30–09:35 ET</span></div>
     </> : <>
@@ -58,11 +58,11 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
     <div className={styles.grid}>
     {plans.map(plan => {
       const state = desk?.orb?.states?.[plan.symbol];
-      const opp = buys.find(o => o.candidate.symbol === plan.symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0"].includes(o.candidate.strategy_version ?? ""));
+      const opp = buys.find(o => o.candidate.symbol === plan.symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", "orb@1.5.0"].includes(o.candidate.strategy_version ?? ""));
       const maxQty = Math.max(0, Math.floor(Number(opp?.proposed_qty ?? opp?.risk?.sized_qty ?? 0)));
       const qty = Math.min(maxQty, quantities[plan.symbol] ?? maxQty);
       const buyable = !!opp && opp.viability?.buyable === true && desk?.session?.entries_allowed !== false && maxQty > 0;
-      const reasons = opp && !opp.viability?.buyable ? opp.viability?.reasons ?? ["ORB_QUOTE_STALE"] : state?.reasons ?? ["ORB_WAITING_BREAKOUT"];
+      const reasons = opp && !opp.viability?.buyable ? opp.viability?.reasons ?? ["ORB_QUOTE_STALE"] : state?.reasons ?? [plan.version === "orb@1.5.0" ? "ORB_WAITING_PULLBACK" : "ORB_WAITING_BREAKOUT"];
       const ask = opp?.viability?.measured?.ask ?? state?.ask;
       const execution = desk?.orb?.execution?.[plan.symbol];
       const auto = autoBuyPresentation(execution, state?.state, desk?.auto_trigger?.available !== false);
@@ -71,9 +71,9 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
         {(plan.name || opp?.candidate.name) && <p className={styles.companyName}>{plan.name || opp?.candidate.name}</p>}
         <dl className={styles.prices}>
           <div><dt>Цена сейчас</dt><dd><CurrentPrice value={ask} /></dd></div>
-          <div><dt>Цена входа</dt><dd>{px(plan.trigger)}</dd></div>
+          <div><dt>{plan.version === "orb@1.5.0" ? "Покупать не дороже" : "Цена входа"}</dt><dd>{px(plan.trigger)}</dd></div>
           <div><dt>Защитный стоп</dt><dd>{px(plan.stop)}</dd></div>
-          <div><dt>Не покупать выше</dt><dd>{px(plan.max_entry)}</dd></div>
+          {plan.version !== "orb@1.5.0" && <div><dt>Не покупать выше</dt><dd>{px(plan.max_entry)}</dd></div>}
         </dl>
         {(!automatic || !execution) && <p className={styles.brief}>{reasons.length === 1 && reasons[0] === "ORB_WAITING_BREAKOUT" ? "Ждём роста до цены входа." : reasons.map(orbReason).join(" · ")}</p>}
         <details className={styles.details}>

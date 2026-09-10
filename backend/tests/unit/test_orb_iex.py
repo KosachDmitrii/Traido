@@ -32,7 +32,13 @@ def test_iex_volume_is_compared_with_iex_history_without_multiplying_it():
     assert form_plan("AAPL", daily, opening, now=NOW, feed="sip").reasons == [
         "ORB_DAILY_VOLUME_LOW"
     ]
-    q = quote().model_copy(update={"feed": "iex"})
+    q = quote().model_copy(
+        update={
+            "feed": "iex",
+            "bid": decision.plan.max_entry - Decimal("0.02"),
+            "ask": decision.plan.max_entry,
+        }
+    )
     assert evaluate_trigger(decision.plan, q, now=NOW).state == "BUY_ALLOWED"
     assert evaluate_trigger(
         decision.plan, q.model_copy(update={"feed": "sip"}), now=NOW
@@ -125,3 +131,46 @@ def test_iex_denial_does_not_request_a_sip_subscription():
     )
     error = httpx.HTTPStatusError("forbidden", request=response.request, response=response)
     assert data_error_reason(error, feed="iex") == "ORB_DATA_ACCESS_DENIED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("capital_path_ready")
+@pytest.mark.parametrize("above_limit", [False, True])
+async def test_pullback_execution_never_sends_buy_above_reference(above_limit):
+    from strategy.orb import VERSION
+
+    broker = MockPaperBroker()
+    card = orb_ready_candidate(admission_ready_candidate(), feed="iex", version=VERSION)
+    risk = RiskEngine().evaluate(card, await broker.get_portfolio(), context=CLEARED_EARNINGS)
+    store = MemoryOpportunityStore()
+    opp = store.create(card, risk, TradingMode.CONFIRMATION)
+    market = liquid_market_data(price=float(card.entry) + (0.10 if above_limit else -0.02))
+    market._feed = "iex"
+    service = ExecutionService(
+        broker=broker,
+        market_data=market,
+        store=store,
+        exit_store=MemoryExitStore(),
+        audit=InMemoryAudit(),
+    )
+
+    async def approve():
+        return await service.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        )
+
+    if above_limit:
+        with pytest.raises(RuntimeError, match="ORB_WAITING_PULLBACK"):
+            await approve()
+        assert broker.orders == []
+    else:
+        result = await approve()
+        assert result.status is OpportunityStatus.EXECUTED
+        buys = [o for o in broker.orders if o.side.value == "buy"]
+        assert len(buys) == 1
+        assert buys[0].order_type.value == "limit"
+        assert buys[0].limit_price == Decimal(card.orb_plan["trigger"])
+        assert any(o.order_type.value == "stop" for o in broker.orders)

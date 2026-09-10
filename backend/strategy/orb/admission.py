@@ -35,7 +35,12 @@ def evaluate_sealed(inp: AdmissionInput) -> TradeAdmissionResult:
         admitted=not reasons,
         buy_ready=not reasons,
         setup_type=SetupType.BREAKOUT_CONTINUATION,
-        reason_codes=reasons or ["ORB_BREAKOUT_CONFIRMED"],
+        reason_codes=reasons
+        or [
+            "ORB_PRICE_WITHIN_LIMIT"
+            if inp.strategy_version == "orb@1.5.0"
+            else "ORB_BREAKOUT_CONFIRMED"
+        ],
         admission_version=inp.strategy_version,
     )
 

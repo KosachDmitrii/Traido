@@ -363,6 +363,7 @@ def withdraw_unactionable(store: Any = None) -> int:
             "orb@1.2.0",
             "orb@1.3.0",
             "orb@1.4.0",
+            "orb@1.5.0",
         } and (opp.candidate.target_model is None or opp.candidate.target_reachability is None):
             to_status = OpportunityStatus.DISCARDED
             why = "proposal has no reproducible target plan"

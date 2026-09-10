@@ -13,8 +13,8 @@ from core.clock import ET
 from core.schemas import Bar, Quote
 from trading.session_hours import is_market_holiday, session_close, us_equity_rth_open
 
-VERSION = "orb@1.4.0"
-SUPPORTED_VERSIONS = frozenset({"orb@1.1.0", "orb@1.2.0", "orb@1.3.0", VERSION})
+VERSION = "orb@1.5.0"
+SUPPORTED_VERSIONS = frozenset({"orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", VERSION})
 # Paper implementation parameters; statistical profitability is not certified.
 PARAMETERS = {
     "opening_minutes": 5,
@@ -43,6 +43,14 @@ PARAMETERS = {
     "entry_policy_revision": "paper-early-1",
     "early_entry_range_fraction": "0.25",
     "early_entry_atr_cap": "0.05",
+}
+
+EARLY_PARAMETERS = dict(PARAMETERS)
+PARAMETERS = {
+    **EARLY_PARAMETERS,
+    "entry_policy_revision": "paper-pullback-1",
+    "entry_rule": "buy_at_or_below_reference",
+    "max_entry_drift_r": "0",
 }
 
 FLEX_PARAMETERS = {k: v for k, v in ALL_PARAMETERS.items() if k != "selection_scope"}
@@ -95,8 +103,10 @@ class OrbPlan(BaseModel):
         if any(not n.is_finite() or n <= 0 for n in numbers):
             raise ValueError("ORB_INVALID_GEOMETRY")
         if not (self.stop < self.trigger <= self.max_entry) or (
-            self.version != VERSION and self.trigger <= self.range_high
+            self.version not in {"orb@1.4.0", VERSION} and self.trigger <= self.range_high
         ):
+            raise ValueError("ORB_INVALID_GEOMETRY")
+        if self.version == VERSION and self.max_entry != self.trigger:
             raise ValueError("ORB_INVALID_GEOMETRY")
         if any(
             t.tzinfo is None
@@ -155,15 +165,13 @@ def form_plan(
 
     if version not in SUPPORTED_VERSIONS:
         return blocked("ORB_INVALID_PROVENANCE")
-    parameters = (
-        PARAMETERS
-        if version == VERSION
-        else (
-            ALL_PARAMETERS
-            if version == "orb@1.3.0"
-            else (FLEX_PARAMETERS if version == "orb@1.2.0" else LEGACY_PARAMETERS)
-        )
-    )
+    parameters = {
+        VERSION: PARAMETERS,
+        "orb@1.4.0": EARLY_PARAMETERS,
+        "orb@1.3.0": ALL_PARAMETERS,
+        "orb@1.2.0": FLEX_PARAMETERS,
+        "orb@1.1.0": LEGACY_PARAMETERS,
+    }[version]
     if now.tzinfo is None:
         return blocked("ORB_TIMEZONE_REQUIRED")
     if feed not in {"iex", "sip"}:
@@ -249,7 +257,7 @@ def form_plan(
     ).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
     # Experimental early entry uses observed opening range, never the current price.
     # Preserve the old stop and chase ceiling; only lower the entry threshold.
-    if version == VERSION:
+    if version in {"orb@1.4.0", VERSION}:
         discount = min(
             (today.high - today.low) * Decimal(parameters["early_entry_range_fraction"]),
             atr * Decimal(parameters["early_entry_atr_cap"]),
@@ -257,6 +265,8 @@ def form_plan(
         trigger = (trigger - discount).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
         if trigger <= stop:
             return blocked("ORB_INVALID_STOP")
+    if version == VERSION:
+        max_entry = trigger
     plan = OrbPlan(
         symbol=symbol.upper(),
         version=version,
@@ -286,7 +296,12 @@ def form_plan(
             "parameters": dict(parameters),
         },
     )
-    return OrbDecision(state="WAIT", reasons=["ORB_WAITING_BREAKOUT"], plan=plan, measured=measured)
+    return OrbDecision(
+        state="WAIT",
+        reasons=["ORB_WAITING_PULLBACK" if version == VERSION else "ORB_WAITING_BREAKOUT"],
+        plan=plan,
+        measured=measured,
+    )
 
 
 def evaluate_trigger(
@@ -325,6 +340,14 @@ def evaluate_trigger(
         or quote.ask < quote.bid
     ):
         return result("DATA_BLOCKED", "ORB_QUOTE_INVALID")
+    if plan.version == VERSION:
+        if quote.bid <= plan.stop:
+            return result("NO_TRADE", "ORB_STOP_BREACHED")
+        if quote.ask > plan.max_entry or (limit_price is not None and limit_price > plan.max_entry):
+            return result("WAIT", "ORB_WAITING_PULLBACK")
+        if limit_price is not None and limit_price < quote.ask:
+            return result("DATA_BLOCKED", "ORB_LIMIT_BELOW_OFFER")
+        return result("BUY_ALLOWED", "ORB_PRICE_WITHIN_LIMIT")
     # Bid above the trigger avoids treating a widening offer as a breakout.
     if quote.bid < plan.trigger:
         return result("WAIT", "ORB_WAITING_BREAKOUT")

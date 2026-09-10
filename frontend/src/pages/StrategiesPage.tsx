@@ -46,9 +46,9 @@ export function StrategiesPage() {
       <section className={styles.card}><h2><Target size={18} />{ru ? "Условия отбора" : "Selection rules"}</h2><p>{ru ? "Только покупки. Значения загружены из параметров действующей ORB." : "Long only. Values come from the active ORB parameters."}</p><dl className={styles.rules}>{rules.map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></section>
       <div className={styles.columns}>
         <section className={styles.card}><h2><Target size={18} />{ru ? "Вход и риск" : "Entry & risk"}</h2><ul>
-          <li>{ru ? "Ранний вход Paper: максимум + $0.01 минус 25% диапазона первых 5 минут, но снижение не больше 0.05 ATR." : "Early Paper entry: high + $0.01 minus 25% of the opening range, capped at 0.05 ATR."}</li>
+          <li>{ru ? "Максимальная цена покупки: максимум + $0.01 минус 25% диапазона первых 5 минут, но снижение не больше 0.05 ATR. Ждём цену не выше этого предела и выше стопа." : "Buy ceiling: high + $0.01 minus 25% of the opening range, discount capped at 0.05 ATR. Wait for an offer at or below this ceiling and a bid above the stop."}</li>
           <li>{ru ? "Стоп ниже максимума + $0.01 на" : "Stop below high + $0.01 by"} {v("stop_atr_fraction")} ATR.</li>
-          <li>{ru ? "Допуск выше максимума + $0.01" : "Maximum premium above high + $0.01"}: {v("max_entry_drift_r")}R — {ru ? "R здесь — расстояние от максимума + $0.01 до стопа. Экспериментальный допуск для Paper." : "R is the distance from high + $0.01 to the stop. Experimental Paper allowance."}</li>
+          <li>{ru ? "Заявка лимитная: выше указанной цены покупать нельзя. Если цена не снизится, сделки не будет." : "Limit order: no buying above the displayed ceiling. Without a qualifying price, there is no trade."}</li>
           <li>{ru ? "Количество акций определяется проверкой риска счёта; параметры плана фиксируются после отбора." : "Account risk checks determine quantity; plan parameters are fixed after selection."}</li>
           <li>{ru ? "Перед отправкой проверяются котировка, цена, доступность входа и риск. Наличие плана ещё не разрешает покупку." : "Quote, price, entry availability and risk are checked before submission. A plan alone does not authorize a purchase."}</li>
         </ul></section>

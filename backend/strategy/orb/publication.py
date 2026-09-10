@@ -100,7 +100,11 @@ def publish_orb(
         payload.setdefault("states", {})[plan.symbol] = {
             **state,
             "state": "BUY_ALLOWED",
-            "reasons": ["ORB_BREAKOUT_CONFIRMED"],
+            "reasons": [
+                "ORB_PRICE_WITHIN_LIMIT"
+                if plan.version == "orb@1.5.0"
+                else "ORB_BREAKOUT_CONFIRMED"
+            ],
             "opportunity_id": str(opp.id),
             "observed_at": now.isoformat(),
         }

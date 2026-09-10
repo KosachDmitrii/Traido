@@ -188,7 +188,7 @@ async def discover(
             "reason": None,
             "plans": {p.symbol: p.model_dump(mode="json") for p in selected},
             "states": {
-                p.symbol: {"state": "WAIT", "reasons": ["ORB_WAITING_BREAKOUT"]} for p in selected
+                p.symbol: {"state": "WAIT", "reasons": ["ORB_WAITING_PULLBACK"]} for p in selected
             },
             "rejections": rejected,
             "rejection_counts": dict(Counter(r for rs in rejected.values() for r in rs)),

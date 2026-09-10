@@ -21,7 +21,7 @@ from strategy import StrategyPromotionStage
 # Desk confirmation strategy — stamped onto every candidate / journal row.
 # Same key for paper and live; broker environment is orthogonal.
 LIVE_STRATEGY_NAME = "orb"
-LIVE_STRATEGY_TAG = "1.4.0"
+LIVE_STRATEGY_TAG = "1.5.0"
 LIVE_STRATEGY_KEY = f"{LIVE_STRATEGY_NAME}@{LIVE_STRATEGY_TAG}"
 
 # Legacy confluence key kept registered so old journal rows still promote.

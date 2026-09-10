@@ -9,12 +9,16 @@ from decimal import Decimal
 from core.clock import ET
 from core.enums import EntryDecision, SetupType, Timeframe
 from core.schemas import Bar, TradeCandidate
-from strategy.orb import VERSION, _previous_sessions, form_plan
+from strategy.orb import SUPPORTED_VERSIONS, _previous_sessions, form_plan
 from strategy.orb.store import read_session
 
+VERSION = "orb@1.4.0"  # Historical lifecycle fixtures retain their original price geometry.
 
-def orb_ready_candidate(candidate: TradeCandidate, *, feed: str = "sip") -> TradeCandidate:
-    if candidate.strategy_version == VERSION:
+
+def orb_ready_candidate(
+    candidate: TradeCandidate, *, feed: str = "sip", version: str = VERSION
+) -> TradeCandidate:
+    if candidate.strategy_version in SUPPORTED_VERSIONS:
         return candidate
     from database.models.orb import OrbSessionRow
     from database.session import session_factory
@@ -63,7 +67,7 @@ def orb_ready_candidate(candidate: TradeCandidate, *, feed: str = "sip") -> Trad
                 source="synthetic_orb",
             )
         )
-    decision = form_plan(candidate.symbol, daily, opening, now=now, feed=feed)
+    decision = form_plan(candidate.symbol, daily, opening, now=now, feed=feed, version=version)
     assert decision.plan is not None, decision.reasons
     plan = decision.plan
     with session_factory()() as db:
@@ -71,7 +75,7 @@ def orb_ready_candidate(candidate: TradeCandidate, *, feed: str = "sip") -> Trad
         payload = (
             dict(row.payload)
             if row
-            else {"plans": {}, "states": {}, "session": plan.session, "version": VERSION}
+            else {"plans": {}, "states": {}, "session": plan.session, "version": version}
         )
         payload["plans"] = {**payload["plans"], plan.symbol: plan.model_dump(mode="json")}
         if row:
@@ -83,18 +87,18 @@ def orb_ready_candidate(candidate: TradeCandidate, *, feed: str = "sip") -> Trad
         symbol=candidate.symbol,
         action=candidate.action,
         confidence=0,
-        entry=entry,
+        entry=plan.max_entry if version == "orb@1.5.0" else entry,
         stop=plan.stop,
         exit_policy="session_close",
         exit_at=plan.exit_at,
         orb_plan=plan.model_dump(mode="json"),
         reasons=["synthetic ORB execution fixture"],
-        strategy_version=VERSION,
+        strategy_version=version,
         exec_timeframe=Timeframe.M5,
         setup_type=SetupType.BREAKOUT_CONTINUATION,
         entry_decision=EntryDecision.BUY_NOW,
-        admission_version=VERSION,
-        policy_version=VERSION,
+        admission_version=version,
+        policy_version=version,
         pipeline_run_id=candidate.pipeline_run_id,
     )
 

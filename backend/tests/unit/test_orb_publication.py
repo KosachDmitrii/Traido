@@ -116,17 +116,20 @@ def test_skip_requires_cooldown_fresh_reset_and_new_admission():
     )
     day, symbol = result.candidate.orb_plan["session"], result.symbol
     below = final.quote.model_copy(
-        update={"bid": Decimal(result.candidate.orb_plan["trigger"]) - Decimal("0.01")}
+        update={
+            "bid": Decimal(result.candidate.orb_plan["trigger"]) - Decimal("0.02"),
+            "ask": Decimal(result.candidate.orb_plan["trigger"]),
+        }
     )
     assert not rearm_skipped_plan(day, symbol, str(opp.id), below, now=RTH_INSTANT)
     later = RTH_INSTANT + timedelta(seconds=61)
-    # Unchanged above-entry prices and stale data cannot undo a skip.
+    # A fresh move above the new ceiling is required before another pullback.
     assert not rearm_skipped_plan(
-        day, symbol, str(opp.id), final.quote.model_copy(update={"ts": later}), now=later
+        day, symbol, str(opp.id), below.model_copy(update={"ts": later}), now=later
     )
     assert not rearm_skipped_plan(day, symbol, str(opp.id), below, now=later)
     assert rearm_skipped_plan(
-        day, symbol, str(opp.id), below.model_copy(update={"ts": later}), now=later
+        day, symbol, str(opp.id), final.quote.model_copy(update={"ts": later}), now=later
     )
     assert not rearm_skipped_plan(
         day, symbol, str(opp.id), below.model_copy(update={"ts": later}), now=later
@@ -164,3 +167,54 @@ def test_rearm_never_releases_non_skipped_claim(status):
     day = result.candidate.orb_plan["session"]
     assert not rearm_skipped_plan(day, result.symbol, str(opp.id), final.quote, now=RTH_INSTANT)
     assert read_session(day)["states"][result.symbol]["opportunity_id"] == str(opp.id)
+
+
+@pytest.mark.parametrize("status", ["awaiting_confirmation", "approving", "executed", "skipped"])
+def test_pullback_rollout_retires_only_unclaimed_proposal(status):
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from core.enums import OpportunityStatus
+    from strategy.orb import VERSION
+    from strategy.orb.store import upgrade_unpublished_entry_limits
+    from trading.opportunities import OpportunityStore
+
+    result, final = proposed()
+    opp = publish_orb(result, final, TradingMode.CONFIRMATION, now=RTH_INSTANT)
+    store = OpportunityStore()
+    if status != "awaiting_confirmation":
+        store.claim(
+            opp.id,
+            from_status=OpportunityStatus.AWAITING_CONFIRMATION,
+            to_status=OpportunityStatus(status),
+        )
+    day = result.candidate.orb_plan["session"]
+    before = read_session(day)
+    saved = upgrade_unpublished_entry_limits(day, now=RTH_INSTANT + timedelta(seconds=1))
+    if status != "awaiting_confirmation":
+        assert saved["plans"] == before["plans"]
+        assert saved["states"] == before["states"]
+        assert store.get(opp.id).status.value == status
+        return
+    new_plan = saved["plans"][result.symbol]
+    assert new_plan["version"] == VERSION
+    assert new_plan["max_entry"] == new_plan["trigger"]
+    assert Decimal(new_plan["max_entry"]) < Decimal(opp.candidate.orb_plan["max_entry"])
+    retired = store.get(opp.id)
+    assert retired.status is OpportunityStatus.DISCARDED
+    assert retired.candidate == opp.candidate
+    assert retired.creation_admission_record_id == opp.creation_admission_record_id
+    state = saved["states"][result.symbol]
+    assert state["replaced_opportunity_ids"] == [str(opp.id)]
+    assert "opportunity_id" not in state
+    assert (
+        store.claim(
+            opp.id,
+            from_status=OpportunityStatus.AWAITING_CONFIRMATION,
+            to_status=OpportunityStatus.APPROVING,
+        )
+        is None
+    )
+    with pytest.raises(ValueError, match="ORB_PLAN_NOT_SELECTED"):
+        publish_orb(result, final, TradingMode.CONFIRMATION, now=RTH_INSTANT + timedelta(seconds=2))
+    assert upgrade_unpublished_entry_limits(day, now=RTH_INSTANT + timedelta(seconds=2)) == saved

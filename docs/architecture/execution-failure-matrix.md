@@ -542,3 +542,21 @@ Results of 1.4.0 are attributed separately from previous versions.
 
 This closes a reproducible oversell path. Attribution of the historical ETN short
 requires the broker's executed order history; runtime logs alone do not establish it.
+
+
+## Paper buy ceiling — orb@1.5.0
+
+User decision (2026-09-10): buy at or below the displayed entry reference; do not chase a higher price. This is an experimental entry rule, not a validated profitability claim. Historical versions retain their original parameters.
+
+| Situation | Behaviour |
+|---|---|
+| Fresh offer above the displayed reference | WAIT / ORB_WAITING_PULLBACK; no BUY; automatic price retry is due in 5 seconds |
+| Fresh offer at or below reference, bid above stop | Eligible for the existing full admission/risk checks; broker BUY is LIMIT with reference as its ceiling |
+| Bid at or below stop | ORB_STOP_BREACHED; no new BUY |
+| Missing, stale, invalid or mismatched-feed quote | Existing fail-closed data checks remain active |
+| Prior unclaimed, never-submitted proposal during rollout | Lock session and proposal, retire old ID as DISCARDED, preserve original evidence, rebuild plan from recorded bars; require new publication and fresh admission |
+| Approval already claimed, submitted timestamp, unknown outcome, or terminal proposal | Preserve original plan and proposal; never migrate an in-flight order or position |
+| Old candidate attempts publication after migration | ORB_PLAN_NOT_SELECTED; old opportunity cannot claim approval |
+| Skipped plan | After cooldown, require a fresh price above the new ceiling to rearm; a subsequent qualifying pullback needs new admission |
+
+Regression coverage: policy price boundaries; real execution path with zero broker orders above ceiling and a capped LIMIT plus protection within it; migration versus proposal statuses; old publication/approval rejection; retry timing.

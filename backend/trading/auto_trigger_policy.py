@@ -248,6 +248,7 @@ def _orb_price_wait(error: str) -> bool:
     reasons = tokens - wrappers
     return bool(reasons) and reasons <= {
         "ORB_WAITING_BREAKOUT",
+        "ORB_WAITING_PULLBACK",
         "ORB_ENTRY_MISSED",
         "SPREAD_TOO_WIDE",
     }

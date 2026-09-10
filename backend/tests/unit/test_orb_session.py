@@ -153,7 +153,8 @@ async def test_paper_rollout_changes_only_unpublished_limits_and_records_old_pla
     upgraded = upgrade_unpublished_entry_limits("2026-09-09", now=NOW)
     assert upgraded["plans"]["MSFT"] == legacy["plans"]["MSFT"]
     before, after = legacy["plans"]["AAPL"], upgraded["plans"]["AAPL"]
-    assert Decimal(after["max_entry"]) > Decimal(before["max_entry"])
+    assert Decimal(after["max_entry"]) < Decimal(before["max_entry"])
+    assert after["max_entry"] == after["trigger"]
     assert after["stop"] == before["stop"]
     assert Decimal(after["trigger"]) <= Decimal(before["trigger"])
     assert after["evidence"]["entry_policy_change"]["old_max_entry"] == before["max_entry"]
