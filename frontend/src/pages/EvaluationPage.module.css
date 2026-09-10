@@ -37,3 +37,5 @@
 .symbolMetrics span { display: block; font-size: 11px; color: var(--td-text-muted); }
 .symbolMetrics strong { display: block; margin-top: 8px; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
 @media(max-width:800px) { .symbolMetrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+.loading { display: flex; align-items: center; gap: 12px; padding: 28px 0; color: var(--td-accent-pressed); font-size: 13px; --loading-dot-size: 3px; --loading-dot-gap: 3px; }

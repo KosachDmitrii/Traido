@@ -2,7 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { fetchOrbSymbol, type OrbSymbolView } from "@/lib/api";
 import { useDesk } from "@/context/DeskContext";
 import { useI18n } from "@/i18n/I18nProvider";
-import { Button } from "@/ui";
+import { Button, LoadingDots } from "@/ui";
 import { orbReason, orbState, px } from "./orbLabels";
 import styles from "@/pages/EvaluationPage.module.css";
 
@@ -50,9 +50,9 @@ export function OrbSymbolInspector() {
       <label htmlFor={`${listId}-input`}>{ru ? "Выберите или введите тикер" : "Choose or enter a symbol"}</label>
       <input id={`${listId}-input`} list={listId} value={input} onChange={e=>setInput(e.target.value.toUpperCase())} placeholder="AAPL" required pattern="[A-Za-z][A-Za-z0-9.\-]{0,15}" maxLength={16} autoComplete="off" />
       <datalist id={listId}>{symbols.map(symbol => <option key={symbol} value={symbol} />)}</datalist>
-      <Button type="submit" variant="ghost" disabled={loading}>{ru ? "Посмотреть / обновить" : "View / refresh"}</Button>
+      <Button type="submit" variant="ghost" disabled={loading} aria-busy={loading}>{loading && <LoadingDots ariaLabel={ru ? "Загрузка" : "Loading"} />}{ru ? "Посмотреть / обновить" : "View / refresh"}</Button>
     </form>
-    {loading ? <p className={styles.description} role="status">{ru ? "Загружаем данные акции…" : "Loading symbol…"}</p> : error ? <p className={styles.notice} role="alert">{ru ? "Не удалось получить данные. Попробуйте обновить." : "Could not load data. Please retry."}</p> : data ? <>
+    {loading ? <div className={styles.loading}><LoadingDots ariaLabel={ru ? "Загружаем данные акции" : "Loading symbol"} /><span>{ru ? "Загружаем данные акции…" : "Loading symbol…"}</span></div> : error ? <p className={styles.notice} role="alert">{ru ? "Не удалось получить данные. Попробуйте обновить." : "Could not load data. Please retry."}</p> : data ? <>
       <div className={styles.sectionHead}><h2>{data.symbol}</h2><span>{data.state ? orbState(data.state.state) : data.outranked ? (ru ? "Не вошла в топ-20" : "Outside top 20") : data.rejections.length ? (ru ? "Исключена из отбора" : "Excluded") : (ru ? "Решение ещё не получено" : "No decision reported")}</span></div>
       <div className={styles.symbolMetrics}>{metrics.map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       <p className={styles.description}>Alpaca {data.quote?.feed?.toUpperCase() ?? "—"} · {ru ? "Котировка от" : "Quote timestamp"} {time(data.quote?.ts)}</p>
