@@ -105,3 +105,8 @@
 .autoStatus[data-tone="warning"] { background: #fff8ee; border-color: #f0d6ad; }
 .autoStatus[data-tone="success"] { background: #eaf8f2; border-color: #bde4d2; }
 :is(.page, .rail) .actions[data-auto="true"] { grid-template-columns: minmax(0, 1fr); }
+
+.currentPrice { display: inline-flex; align-items: center; gap: 5px; font-variant-numeric: tabular-nums; }
+.currentPrice[data-direction="up"] { color: #008660; }
+.currentPrice[data-direction="down"] { color: #dc3545; }
+.currentPrice svg { flex-shrink: 0; }

@@ -6,6 +6,7 @@ import { decideBuy } from "@/lib/api";
 import { humanizeError, type FlashMessage } from "@/lib/messages";
 import type { FlashSlot } from "@/lib/toasts";
 import { Button, LoadingDots } from "@/ui";
+import { CurrentPrice } from "./CurrentPrice";
 import { autoBuyPresentation } from "./autoBuyPresentation";
 import { orbReason, orbState, px, etTime } from "./orbLabels";
 
@@ -69,7 +70,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
         <div className={styles.cardHead}><div className={styles.identity}><div><h3>{plan.symbol}</h3><span className={styles.strategy}>ORB · Покупка</span></div></div><strong className={styles.status}>{automatic ? auto.title : buyable ? "Можно подтвердить" : orbState(state?.state)}</strong></div>
         {(plan.name || opp?.candidate.name) && <p className={styles.companyName}>{plan.name || opp?.candidate.name}</p>}
         <dl className={styles.prices}>
-          <div><dt>Цена сейчас</dt><dd>{px(ask)}</dd></div>
+          <div><dt>Цена сейчас</dt><dd><CurrentPrice value={ask} /></dd></div>
           <div><dt>Цена входа</dt><dd>{px(plan.trigger)}</dd></div>
           <div><dt>Защитный стоп</dt><dd>{px(plan.stop)}</dd></div>
           <div><dt>Не покупать выше</dt><dd>{px(plan.max_entry)}</dd></div>
