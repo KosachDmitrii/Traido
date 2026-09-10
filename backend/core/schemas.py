@@ -286,7 +286,7 @@ class PortfolioSnapshot(StrictModel):
     drawdown_pct: float | None
     kill_switch: bool = False
     # Broker-account components used to explain why net liquidation can move
-    # without a Traido trade. Optional keeps non-IBKR adapters compatible.
+    # without a Traido trade. Optional fields remain absent when the broker does not report them.
     accrued_cash: Decimal | None = None
     gross_position_value: Decimal | None = None
     unrealized_pnl: Decimal | None = None

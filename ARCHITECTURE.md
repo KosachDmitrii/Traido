@@ -29,10 +29,8 @@ Review learns.
 
 **No LLM can bypass Risk or Execution controls.**
 
-The broker is an execution venue, not a brain. IBKR positions itself as
-self-directed brokerage and makes no investment decisions for the account
-holder; responsibility for every order stays with the owner. Traido is
-therefore designed as a **fault-tolerant trading system**, not an AI script —
+The broker is an execution venue, not a brain. Responsibility for every order
+stays with the owner. Traido is designed as a **fault-tolerant trading system**, not an AI script —
 the broker guarantees neither absence of outages, nor best price, nor that any
 given order executes at all.
 
@@ -125,11 +123,10 @@ as its own CI job. If a change breaks one, the change is wrong.
     and existing protective orders are left in place rather than cancelled —
     but "left in place" is not "confirmed working", so they stay external state
     that each pass has to read back.
-18. **Market-data vendor and execution broker are independent choices.**
-    Neither may be inferred from the other.
-19. **Broker instrument identity is explicit.** For IBKR that means a resolved
-    `conId`. An ambiguous ticker is a rejection, never a routing decision left
-    to the broker.
+18. **Alpaca is the only market-data and execution provider.** Data and
+    execution remain separate ports; development uses IEX and Alpaca Paper.
+19. **The execution endpoint is fixed to Alpaca Paper.** Quotes do not guarantee
+    fills; entries use bounded limits and actual fills come from order reports.
 
 ---
 
@@ -363,7 +360,7 @@ Conceptual freeze does not mean built. Verified against the tree, not assumed:
 | Memory layers | partial — trade journal only |
 | News event taxonomy, SEC EDGAR fundamentals | missing |
 | Market-data licensing metadata | missing |
-| IBKR adapter | partial — adapter, instrument resolver, and production-shaped `ib_async` transport exist and are contract-tested against fakes; never connected to an IB Gateway |
+| Alpaca adapter | sole Paper execution adapter; tested against native REST fakes |
 | Live quote feed | partial — `QuotePort` and an Alpaca implementation exist; the gate fails closed without one |
 
 ### Resolved capital-safety defect
@@ -397,11 +394,8 @@ One rule deserves its own line: a broker order reported as cancelled or expired
 Recorded rather than silently resolved, because each contradicts a current
 lock:
 
-1. ~~**Broker.**~~ **Resolved 2026-08-30: IBKR.** IBKR Paper for testing, IBKR
-   Live for production, behind `BrokerPort`. Alpaca remains a working adapter
-   and stays until the IBKR adapter passes the same lifecycle tests — the
-   migration must never leave the desk without a proven execution path.
-   Market data stays on Alpaca; that is a separate decision.
+1. **Broker — resolved 2026-09-10: Alpaca Paper only.** See
+   [decision and cutover](docs/architecture/alpaca-only.md).
 2. **Frontend.** The desk is built in Vite + React against locked design tokens.
    The v1.0 stack names Next.js.
 3. **Repository layout.** Current layout is flat top-level packages. The v1.0

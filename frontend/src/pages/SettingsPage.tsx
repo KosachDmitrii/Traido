@@ -1,4 +1,4 @@
-import { runScanner, invalidateDeskEtag, setBrokerBackend, setKillSwitch, fetchBrokerBackend } from "@/lib/api";
+import { runScanner, setKillSwitch } from "@/lib/api";
 import { executionBrokerLabelKey } from "@/lib/brokerLabel";
 import { PaperRiskPeriod } from "@/components/desk/PaperRiskPeriod";
 import { useDesk } from "@/context/DeskContext";
@@ -6,16 +6,10 @@ import { useI18n } from "@/i18n/I18nProvider";
 import type { Locale, MessageKey } from "@/i18n";
 import type { Vars } from "@/i18n/store";
 import { Button, Input, SegmentedControl, SwitchControl } from "@/ui";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { KeyRound, Languages, ScanSearch, ShieldAlert, Building2 } from "lucide-react";
 
 type Translate = (key: MessageKey, vars?: Vars) => string;
-
-const BROKER_STEPS = [
-  { value: "alpaca", key: "settings.broker.alpaca" as const },
-  { value: "ibkr", key: "settings.broker.ibkr" as const },
-] as const;
-
 
 function brokerConnectionStateLabel(t: Translate, state: string | undefined): string {
   const raw = (state ?? "").trim().toUpperCase();
@@ -28,22 +22,6 @@ function brokerConnectionStateLabel(t: Translate, state: string | undefined): st
   return t("settings.broker.state.unknown", { state: state ?? raw });
 }
 
-function brokerBlockedReasonLabel(t: Translate, reason: string): string {
-  const openPos = /^open_positions:(.+)$/i.exec(reason);
-  if (openPos) {
-    return t("settings.broker.blocked.openPositions", { symbols: openPos[1] });
-  }
-  const unknown = /^unknown_intents:(\d+)$/i.exec(reason);
-  if (unknown) {
-    return t("settings.broker.blocked.unknownIntents", { n: Number(unknown[1]) });
-  }
-  const openIntents = /^open_intents:(\d+)$/i.exec(reason);
-  if (openIntents) {
-    return t("settings.broker.blocked.openIntents", { n: Number(openIntents[1]) });
-  }
-  return reason;
-}
-
 export function SettingsPage() {
   const { desk, refreshAll, showFlash, killSwitch: kill, refreshKillSwitch } = useDesk();
   const { t, locale, setLocale } = useI18n();
@@ -51,37 +29,6 @@ export function SettingsPage() {
     typeof window !== "undefined" ? window.localStorage.getItem("TRAIDO_API_KEY") || "" : "",
   );
   const [busy, setBusy] = useState(false);
-  const [settingsReady, setSettingsReady] = useState(false);
-  const [brokerBackend, setBrokerBackendState] = useState<"alpaca" | "ibkr" | null>(null);
-  const brokerSaveGen = useRef(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [broker] = await Promise.all([
-          fetchBrokerBackend(),
-        ]);
-        if (cancelled) return;
-        if (brokerSaveGen.current === 0) {
-          setBrokerBackendState(broker.backend === "ibkr" ? "ibkr" : "alpaca");
-        }
-        setSettingsReady(true);
-      } catch {
-        if (!cancelled) setSettingsReady(true);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    const b = desk?.broker_backend?.backend;
-    if (brokerSaveGen.current !== 0) return;
-    if (b === "alpaca" || b === "ibkr") setBrokerBackendState(b);
-  }, [desk?.broker_backend?.backend]);
-
   const saveKey = useCallback(() => {
     if (apiKey.trim()) {
       window.localStorage.setItem("TRAIDO_API_KEY", apiKey.trim());
@@ -133,35 +80,6 @@ export function SettingsPage() {
     }
   }, [kill, showFlash, refreshKillSwitch, t]);
 
-  const commitBrokerBackend = useCallback(
-    async (value: string) => {
-      const backend = value === "ibkr" ? "ibkr" : "alpaca";
-      const gen = ++brokerSaveGen.current;
-      try {
-        const next = await setBrokerBackend(backend);
-        setBrokerBackendState(next.backend === "ibkr" ? "ibkr" : "alpaca");
-        invalidateDeskEtag();
-        showFlash({
-          kind: "ok",
-          title: t("settings.broker.flash.title"),
-          detail: t("settings.broker.flash.detail", { n: t(executionBrokerLabelKey(next.backend)) }),
-        });
-        await refreshAll();
-      } catch (err) {
-        showFlash({
-          kind: "error",
-          title: t("settings.broker.flash.failed"),
-          detail: err instanceof Error ? err.message : String(err),
-        });
-        const current = desk?.broker_backend?.backend;
-        if (current === "alpaca" || current === "ibkr") setBrokerBackendState(current);
-      } finally {
-        if (brokerSaveGen.current === gen) brokerSaveGen.current = 0;
-      }
-    },
-    [desk?.broker_backend?.backend, refreshAll, showFlash, t],
-  );
-
   const scanNow = useCallback(async () => {
     setBusy(true);
     try {
@@ -187,7 +105,6 @@ export function SettingsPage() {
           ? t("settings.kill.badge.loading")
           : t("settings.kill.badge.unreadable");
 
-  const controlsDisabled = busy || !settingsReady;
 
   return (
     <section className="settings-page">
@@ -237,7 +154,7 @@ export function SettingsPage() {
       <article className="settings-card"><div className="settings-card__body">
         <h3>Opening Range Breakout · Paper</h3>
         <p>Диапазон 09:30–09:35 ET, отбор по относительному объёму. Геометрия фиксируется на сессию. Вход подтверждается вручную, выход — стоп или конец сессии.</p>
-        <p>Котировки и объёмы: Alpaca {(desk?.orb?.feed ?? "iex").toUpperCase()}{(desk?.orb?.feed ?? "iex") === "iex" ? " (данные одной биржи)" : ""}. Позиции и исполнение: выбранный брокер. Ограничения риска счёта проверяются перед каждым ордером.</p>
+        <p>Котировки и объёмы: Alpaca {(desk?.orb?.feed ?? "iex").toUpperCase()}{(desk?.orb?.feed ?? "iex") === "iex" ? " (данные одной биржи)" : ""}. Позиции и исполнение: Alpaca Paper. Ограничения риска счёта проверяются перед каждым ордером.</p>
       </div></article>
 
       <article className="settings-card">
@@ -248,14 +165,12 @@ export function SettingsPage() {
           <div className="settings-card__head">
             <h3>{t("settings.broker.title")}</h3>
             <span className="settings-badge">
-              {settingsReady && brokerBackend
-                ? t(executionBrokerLabelKey(brokerBackend))
-                : "…"}
+              {t(executionBrokerLabelKey(desk?.broker_backend?.backend))}
             </span>
           </div>
           <p className="settings-card__lead">{t("settings.broker.lead")}</p>
           <ul className="settings-points">
-            <li>{t("settings.broker.what")}</li>
+            <li>{t("settings.broker.what", { feed: (desk?.orb?.feed ?? "iex").toUpperCase() })}</li>
             <li>{t("settings.broker.keeps")}</li>
             <li>{t("settings.broker.hint")}</li>
           </ul>
@@ -276,29 +191,7 @@ export function SettingsPage() {
           {desk?.broker_backend?.broker_class === "MockPaperBroker" ? (
             <p className="settings-card__lead">{t("settings.broker.mockWarning")}</p>
           ) : null}
-          {desk?.broker_backend?.switch_blocked_reason ? (
-            <p className="settings-card__lead">
-              {t("settings.broker.blocked", {
-                reason: brokerBlockedReasonLabel(t, desk.broker_backend.switch_blocked_reason),
-              })}
-            </p>
-          ) : null}
-          <div className="settings-entry-steps">
-            <SegmentedControl
-              wide
-              ariaLabel={t("settings.broker.title")}
-              value={brokerBackend ?? "alpaca"}
-              onChange={(v) => {
-                if (controlsDisabled) return;
-                void commitBrokerBackend(v);
-              }}
-              options={BROKER_STEPS.map((step) => ({
-                value: step.value,
-                label: t(step.key),
-              }))}
-            />
-          </div>
-          {brokerBackend === "ibkr" && !controlsDisabled ? <PaperRiskPeriod /> : null}
+          <PaperRiskPeriod />
         </div>
       </article>
 

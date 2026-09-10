@@ -1,3 +1,7 @@
+> Historical document. Execution-vendor instructions and readiness claims below
+> are superseded by [Alpaca-only decision](alpaca-only.md).
+> Current status: PAPER_TESTING_ONLY; these notes are not proof of a connected Paper run.
+
 # Staged Implementation Plan
 
 ## Stage 0 — Architecture freeze — done
@@ -80,7 +84,7 @@ The gap between "the desk works" and "the desk is safe when things fail."
 - [x] Fail-safe mode: no new positions, existing protective orders left in place
       rather than cancelled, reconciliation continues re-verifying them
 
-## Stage 7.1 — Durable exit lifecycle + IBKR paper readiness
+## Stage 7.1 — Durable exit lifecycle + Alpaca Paper validation
 Everything Stage 7 deliberately deferred, plus what real IB connectivity needs.
 
 - [x] One generalized durable intent covering `ENTRY`, `EXIT`, `EMERGENCY_EXIT`
@@ -140,11 +144,7 @@ Everything Stage 7 deliberately deferred, plus what real IB connectivity needs.
       test stops a route from building its own service again. Twenty-five tests
       had to be given a data port to keep passing, which is the measure of how
       long the suite had been agreeing with the hole
-- [x] IBKR instrument resolution to an explicit `conId`, with ambiguity, wrong
-      currency, unsupported type and OTC all rejected
-- [x] Production-shaped IBKR transport over `ib_async`, connection states,
-      bounded reconnect, and PAPER/LIVE separation enforced at construction
-- [x] `permId` / `orderRef` correlation so a durable intent survives a reconnect
+- [x] Alpaca client-order-ID recovery and Paper-only endpoint enforcement
 - [x] Failure matrix — `docs/architecture/execution-failure-matrix.md`
 - [x] A stale schema stops the API instead of failing one query at a time.
       `create_all` adds tables but never alters one, so migration `0005` left an
@@ -193,8 +193,7 @@ Everything Stage 7 deliberately deferred, plus what real IB connectivity needs.
       must not drive scan cadence. `SCAN_PACING_SECONDS` paces one walker and
       says nothing about how many exist, which is why the guard is the fix and
       not a longer delay
-- [ ] Verified against a real IBKR Paper account — **blocked: no IB Gateway
-      session or credentials in this environment**
+- [ ] Connected Alpaca Paper lifecycle validation, including restart and protective exits
 
 ## Stage 8 — Strategy as a first-class object
 - [x] Strategy registry with versioned, immutable strategy definitions
@@ -231,20 +230,7 @@ Required before any agent actually calls an LLM.
 
 ---
 
-## IBKR adapter (decided 2026-08-30, schedule open)
+## Current execution scope — 2026-09-10
 
-IBKR is now the execution broker, so the adapter is no longer end-of-roadmap
-work. It should land once Stage 7 defines the order state machine, since that
-machine must be modelled on IBKR semantics rather than retrofitted from
-Alpaca's.
-
-- [x] `IBKRBroker` behind `BrokerPort` with an IB→domain mapping layer
-- [x] Passes the shared broker lifecycle contract suite (`tests/contract/`)
-      against a fake transport, alongside Alpaca
-- [x] `assert_paper_only()` continues to apply — IBKR Paper is still paper
-- [x] Instrument resolution to `conId` before any order leaves the adapter
-- [x] TWS/Gateway session handling implemented (`broker/ibkr/live_transport.py`,
-      `ib_async`) — written against the documented API, never run against a
-      gateway
-- [ ] Verified against a real IBKR Paper account
-- [ ] Only then may Alpaca be retired
+Alpaca Paper is the sole execution provider; development data uses IEX.
+See [cutover and validation](alpaca-only.md). Live execution remains prohibited.

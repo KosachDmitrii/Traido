@@ -5,7 +5,7 @@ export const en = {
   "desk.positions.stat.value": "Position value",
   "desk.orders.unverified": "Open orders could not be verified. Protection is unknown.",
 
-  "riskPeriod.title": "IBKR Paper risk period",
+  "riskPeriod.title": "Alpaca Paper risk period",
   "riskPeriod.description": "Observe equity from now, including existing positions. This is not reconstructed weekly history. Starting observation does not clear execution or reconciliation blocks.",
   "riskPeriod.account": "Account {account} · current equity ${equity}",
   "riskPeriod.status": "Accounting status: {status}",
@@ -136,8 +136,8 @@ export const en = {
   "stats.cash": "Cash",
   "stats.buyingPower": "Buying power",
   "stats.todayPnl": "Daily equity change",
-  "stats.todayPnlTip": "Net liquidation change versus the previous IBKR session",
-  "stats.nonCashEquity": "Other IBKR components: {value}",
+  "stats.todayPnlTip": "Net liquidation change versus the previous Alpaca session",
+  "stats.nonCashEquity": "Other Alpaca components: {value}",
   "stats.positions": "Positions",
   "stats.winRate": "Win rate",
   "stats.ordersPill": "{n} orders",
@@ -288,7 +288,7 @@ export const en = {
   "desk.positions.empty.title": "Flat",
   "desk.positions.empty.detail": "No open positions",
   "desk.positions.stat.qty": "Qty",
-  "desk.positions.stat.entry": "Entry",
+  "desk.positions.stat.entry": "Actual entry",
   "desk.positions.stat.mark": "Mark",
   "desk.positions.stat.stop": "Stop",
   "desk.positions.stat.tgt": "Target",
@@ -448,12 +448,11 @@ export const en = {
   "settings.broker.title": "Execution broker",
   "settings.broker.lead": "Where confirmed orders go — paper only. Market data stays on Alpaca.",
   "settings.broker.what":
-    "Alpaca Paper uses the REST paper API. IBKR Paper needs IB Gateway running locally on port 4002.",
+    "Quotes: Alpaca {feed}. Orders, positions and fills: Alpaca Paper.",
   "settings.broker.keeps":
-    "Switching is blocked while positions are open or order intents are unresolved (including UNKNOWN).",
-  "settings.broker.hint": "Live trading is never selectable here.",
+    "IEX quotes can differ from Paper fills simulated against NBBO. A limit bounds the buy price; it does not guarantee a fill.",
+  "settings.broker.hint": "Paper only. Planned entry, order limit and actual fill are separate prices.",
   "settings.broker.alpaca": "Alpaca Paper",
-  "settings.broker.ibkr": "IBKR Paper",
   "settings.broker.status": "Status: {state}",
   "settings.broker.account": "Account {id}",
   "settings.broker.class": "Backend {name}",
@@ -464,13 +463,6 @@ export const en = {
   "settings.broker.state.connecting": "Connecting",
   "settings.broker.state.reconnecting": "Reconnecting",
   "settings.broker.state.unknown": "{state}",
-  "settings.broker.blocked": "Switch locked: {reason}",
-  "settings.broker.blocked.openPositions": "open positions ({symbols})",
-  "settings.broker.blocked.unknownIntents": "unresolved UNKNOWN intents ({n})",
-  "settings.broker.blocked.openIntents": "unresolved order intents ({n})",
-  "settings.broker.flash.title": "Execution broker updated",
-  "settings.broker.flash.detail": "Now using {n}.",
-  "settings.broker.flash.failed": "Could not switch execution broker",
 
   "settings.api.title": "Desk API key",
   "settings.api.lead": "Password for this browser → Traido API (not Alpaca).",
@@ -503,7 +495,7 @@ export const en = {
 
   "settings.about.title": "About",
   "settings.about.body":
-    "Traido confirmation desk — Vite + React frontend, FastAPI backend. Market data on Alpaca; execution on Alpaca Paper or IBKR Paper. Agents propose; Risk decides; you or autopilot authorize; the broker executes.",
+    "Traido confirmation desk — Vite + React frontend, FastAPI backend. Market data on Alpaca; execution on Alpaca Paper. Agents propose; Risk decides; you or autopilot authorize; the broker executes.",
 
   "eval.picker.search": "Search symbol…",
   "eval.picker.aria": "Search symbol",

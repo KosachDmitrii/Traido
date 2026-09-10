@@ -6,6 +6,8 @@ Rate-limit aware: short TTL cache + 429 backoff so desk polling does not 500.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import logging
 import time
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -23,6 +25,7 @@ from trading.pricing import format_qty
 # Process-wide cache (factory creates a new broker per request)
 _CACHE: dict[str, tuple[float, Any]] = {}
 _CACHE_TTL_SEC = 4.0
+logger = logging.getLogger(__name__)
 
 
 def _dec(value: Any) -> Decimal | None:
@@ -52,7 +55,7 @@ class AlpacaPaperBroker:
         self._transport = transport
         self.account_id: str | None = None
         assert_paper_only(self.environment)
-        if "paper-api" not in self._base:
+        if self._base != "https://paper-api.alpaca.markets":
             raise RuntimeError("AlpacaPaperBroker requires paper-api base URL")
 
     @property
@@ -66,7 +69,7 @@ class AlpacaPaperBroker:
         }
 
     def _cache_key(self, name: str) -> str:
-        return f"{self._base}:{self._key[:8]}:{name}"
+        return f"{self._base}:{hashlib.sha256((self._key + ':' + self._secret).encode()).hexdigest()}:{name}"
 
     def _cache_get(self, name: str) -> Any | None:
         hit = _CACHE.get(self._cache_key(name))
@@ -81,7 +84,9 @@ class AlpacaPaperBroker:
         _CACHE[self._cache_key(name)] = (time.monotonic(), value)
 
     def _cache_clear(self) -> None:
-        prefix = f"{self._base}:{self._key[:8]}:"
+        prefix = (
+            f"{self._base}:{hashlib.sha256((self._key + ':' + self._secret).encode()).hexdigest()}:"
+        )
         for k in list(_CACHE):
             if k.startswith(prefix):
                 del _CACHE[k]
@@ -129,10 +134,11 @@ class AlpacaPaperBroker:
         resp.raise_for_status()
         return resp.json()
 
-    async def get_portfolio(self) -> PortfolioSnapshot:
-        cached: PortfolioSnapshot | None = self._cache_get("portfolio")
+    async def get_portfolio(self, *, fresh: bool = False) -> PortfolioSnapshot:
+        cached: PortfolioSnapshot | None = None if fresh else self._cache_get("portfolio")
         if cached is not None:
-            return cached.model_copy(update={"kill_switch": is_kill_switch_on()})
+            self.account_id = cached.risk_account_id
+            return self._with_risk(cached)
 
         try:
             acct = await self._get_json("/v2/account")
@@ -140,11 +146,14 @@ class AlpacaPaperBroker:
         except RuntimeError as exc:
             if "ALPACA_RATE_LIMIT" in str(exc):
                 stale: PortfolioSnapshot | None = self._cache_get("portfolio_stale")
-                if stale is not None:
-                    return stale.model_copy(update={"kill_switch": is_kill_switch_on()})
+                if stale is not None and not fresh:
+                    self.account_id = stale.risk_account_id
+                    return self._with_risk(stale)
             raise
 
         acct_id = acct.get("id") or acct.get("account_number")
+        if self.account_id and self.account_id != str(acct_id or ""):
+            raise BrokerUnreachable("ALPACA_ACCOUNT_CHANGED")
         if acct_id:
             self.account_id = str(acct_id)
 
@@ -160,8 +169,6 @@ class AlpacaPaperBroker:
             (Decimal(str(p.get("market_value") or "0")) for p in positions),
             Decimal(0),
         )
-        peak = self._load_peak_equity(equity)
-        dd = float((peak - equity) / peak * 100) if peak > 0 and equity < peak else 0.0
         snap = PortfolioSnapshot(
             equity=equity,
             cash=cash,
@@ -169,13 +176,18 @@ class AlpacaPaperBroker:
             open_exposure=abs(open_exposure),
             open_positions=len(positions),
             day_pnl=day_pnl,
-            week_pnl=day_pnl,
-            drawdown_pct=max(0.0, dd),
+            week_pnl=None,
+            drawdown_pct=None,
+            risk_account_id=str(acct_id) if acct_id else None,
+            base_currency=str(acct.get("currency") or ""),
+            previous_equity=_dec(acct.get("last_equity")),
+            day_pnl_source="alpaca_equity_vs_last_equity",
+            non_cash_equity=equity - cash,
             kill_switch=is_kill_switch_on(),
         )
         self._cache_set("portfolio", snap)
         self._cache_set("portfolio_stale", snap)  # longer-lived fallback (same TTL bucket ok)
-        return snap
+        return self._with_risk(snap)
 
     async def list_positions(self) -> list[Position]:
         cached = self._cache_get("positions")
@@ -256,6 +268,8 @@ class AlpacaPaperBroker:
 
         resp = await self._request("POST", "/v2/orders", json=payload)
         self._cache_clear()
+        if resp.status_code >= 500 or resp.status_code == 408:
+            raise BrokerUnreachable("ALPACA_SUBMISSION_UNRESOLVED")
         if resp.status_code >= 400:
             raise BrokerRejection(f"Alpaca order rejected: {resp.status_code} {resp.text[:300]}")
         return self._map_order(resp.json())
@@ -350,20 +364,21 @@ class AlpacaPaperBroker:
             raw=raw,
         )
 
-    def _load_peak_equity(self, equity: Decimal) -> Decimal:
-        from pathlib import Path
+    def _with_risk(self, snapshot: PortfolioSnapshot) -> PortfolioSnapshot:
+        snapshot = snapshot.model_copy(update={"kill_switch": is_kill_switch_on()})
+        if not snapshot.risk_account_id or snapshot.base_currency != "USD":
+            return snapshot.model_copy(update={"risk_history_status": "account_unverified"})
+        try:
+            from risk.paper_period import observe
 
-        path = Path(__file__).resolve().parents[1] / "data" / "peak_equity.txt"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        peak = equity
-        if path.exists():
-            try:
-                peak = max(equity, Decimal(path.read_text().strip() or "0"))
-            except Exception:  # noqa: BLE001
-                peak = equity
-        else:
-            peak = equity
-        if equity >= peak:
-            peak = equity
-            path.write_text(str(peak))
-        return peak
+            period = observe(snapshot.risk_account_id, "USD", snapshot.equity, datetime.now(UTC))
+            return snapshot.model_copy(
+                update=period.metrics()
+                if period
+                else {
+                    "risk_history_status": "not_started",
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 — preserve exits, block entries
+            logger.warning("Alpaca risk history unavailable: %s", type(exc).__name__)
+            return snapshot.model_copy(update={"risk_history_status": "unavailable"})

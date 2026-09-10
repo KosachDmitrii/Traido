@@ -1,67 +1,29 @@
-"""Broker factory — Alpaca Paper when keyed; mock only when explicitly requested.
+"""Alpaca Paper execution; in-memory broker requires explicit test opt-in."""
 
-Execution backend is chosen by operator policy (Settings) with TRAIDO_BROKER as
-bootstrap default. Market data stays on Alpaca regardless.
-
-IBKR is cached process-wide: the Gateway session is stateful and keyed by
-client_id, so building a new transport per request exhausts or refuses the
-socket. Alpaca stays per-call (stateless HTTP). Switching backends disconnects
-IBKR and clears that singleton.
-"""
-
-from __future__ import annotations
-
-import asyncio
-import logging
 import os
-import threading
 
 from broker.alpaca import AlpacaPaperBroker
 from broker.backend_policy import get_broker_backend
+from broker.interface import assert_paper_only
 from broker.paper.mock import MockPaperBroker
 from core.config import Settings
 from core.ports import BrokerPort
 
-logger = logging.getLogger(__name__)
-
-_ibkr_broker: BrokerPort | None = None
-_ibkr_lock = threading.Lock()
-
 
 class BrokerCredentialsMissing(RuntimeError):
-    """Alpaca keys absent and TRAIDO_BROKER_MOCK is not set."""
-
     def __init__(self) -> None:
-        super().__init__(
-            "BROKER_CREDENTIALS_MISSING: set ALPACA_API_KEY and ALPACA_API_SECRET, "
-            "or TRAIDO_BROKER_MOCK=true for the in-memory test broker"
-        )
+        super().__init__("BROKER_CREDENTIALS_MISSING: set ALPACA_API_KEY and ALPACA_API_SECRET")
 
 
 def create_broker(settings: Settings) -> BrokerPort:
+    assert_paper_only(settings.broker_env)
+    if settings.allow_live_trading:
+        raise RuntimeError("LIVE_TRADING_DISABLED")
     if os.getenv("TRAIDO_BROKER_MOCK", "").lower() in {"1", "true", "yes"}:
+        if settings.environment == "production":
+            raise RuntimeError("MOCK_BROKER_FORBIDDEN_IN_PRODUCTION")
         return MockPaperBroker()
-
-    backend = get_broker_backend()
-    if backend == "ibkr":
-        global _ibkr_broker
-        if _ibkr_broker is not None:
-            return _ibkr_broker
-        with _ibkr_lock:
-            if _ibkr_broker is not None:
-                return _ibkr_broker
-            from broker.ibkr import IBKRBroker
-            from broker.ibkr.config import IBKRTransportConfig
-            from broker.ibkr.live_transport import IBKRLiveTransport
-
-            config = IBKRTransportConfig.from_env()
-            _ibkr_broker = IBKRBroker(
-                IBKRLiveTransport(config),
-                environment=config.environment.value,
-                account_id=config.account,
-            )
-            return _ibkr_broker
-
+    get_broker_backend()  # Reject a stale deployment selector, never silently change venue.
     if settings.alpaca_api_key and settings.alpaca_api_secret:
         return AlpacaPaperBroker(
             api_key=settings.alpaca_api_key,
@@ -69,42 +31,3 @@ def create_broker(settings: Settings) -> BrokerPort:
             base_url=settings.alpaca_broker_base_url,
         )
     raise BrokerCredentialsMissing()
-
-
-def _disconnect_ibkr_sync(broker: BrokerPort) -> None:
-    transport = getattr(broker, "_transport", None)
-    disconnect = getattr(transport, "disconnect", None)
-    if disconnect is None:
-        return
-    try:
-        result = disconnect()
-        if asyncio.iscoroutine(result):
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                asyncio.run(result)
-            else:
-                loop.create_task(result)
-    except Exception:
-        logger.warning("broker factory: IBKR disconnect failed", exc_info=True)
-
-
-def clear_broker_singleton() -> None:
-    """Drop the process-wide IBKR handle after a backend switch."""
-    global _ibkr_broker
-    with _ibkr_lock:
-        old = _ibkr_broker
-        _ibkr_broker = None
-    if old is not None:
-        _disconnect_ibkr_sync(old)
-
-
-def apply_broker_backend(backend: str, *, actor: str = "user") -> str:
-    """Persist backend, tear down the previous IBKR session when the venue changes."""
-    from broker.backend_policy import set_broker_backend
-
-    previous = get_broker_backend()
-    next_backend = set_broker_backend(backend, actor=actor)
-    if previous != next_backend:
-        clear_broker_singleton()
-    return next_backend

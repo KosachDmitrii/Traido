@@ -11,14 +11,9 @@ from core.config import Settings
 def test_missing_alpaca_keys_refuse_without_explicit_mock(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from broker import backend_policy
-    from broker.backend_policy import reset_broker_backend_cache
-
-    monkeypatch.setattr(backend_policy, "POLICY_PATH", tmp_path / "broker_backend.json")
     monkeypatch.delenv("TRAIDO_BROKER_MOCK", raising=False)
     monkeypatch.delenv("TRAIDO_BROKER", raising=False)
     monkeypatch.delenv("REDIS_URL", raising=False)
-    reset_broker_backend_cache()
     settings = Settings(
         alpaca_api_key=None,
         alpaca_api_secret=None,

@@ -5,10 +5,7 @@ per symbol, and neither factory caches. A sixty-name cycle therefore built sixty
 brokers and sixty market-data ports.
 
 Against Alpaca that is wasteful — sixty sets of HTTP clients and sixty portfolio
-reads of the same account, all inside a few seconds. Against IBKR it does not
-work at all: the connection is a stateful TWS/Gateway socket with a client id,
-and opening one per symbol either exhausts the client-id space or is refused
-outright. This is the item that blocks Paper certification.
+reads of the same account, all inside a few seconds.
 
 The context also fixes a subtler thing. Sixty portfolio reads across one cycle
 are sixty *different* portfolios, so the risk verdict for the first symbol was

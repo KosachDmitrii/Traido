@@ -7,7 +7,7 @@ export const ru: Record<MessageKey, string> = {
   "desk.positions.stat.value": "Стоимость позиции",
   "desk.orders.unverified": "Не удалось подтвердить открытые ордера. Наличие защиты неизвестно.",
 
-  "riskPeriod.title": "Период риска IBKR Paper",
+  "riskPeriod.title": "Период риска Alpaca Paper",
   "riskPeriod.description": "Учёт капитала с момента запуска, включая стоимость существующих позиций. Это не восстановленная история недели. Запуск не снимает блокировки исполнения и сверки.",
   "riskPeriod.account": "Счёт {account} · текущий капитал ${equity}",
   "riskPeriod.status": "Статус учёта: {status}",
@@ -138,8 +138,8 @@ export const ru: Record<MessageKey, string> = {
   "stats.cash": "Денежные средства",
   "stats.buyingPower": "Покупательная способность",
   "stats.todayPnl": "Изменение за день",
-  "stats.todayPnlTip": "Изменение чистой стоимости счёта относительно предыдущей сессии IBKR",
-  "stats.nonCashEquity": "Прочие компоненты IBKR: {value}",
+  "stats.todayPnlTip": "Изменение чистой стоимости счёта относительно предыдущей сессии Alpaca",
+  "stats.nonCashEquity": "Прочие компоненты Alpaca: {value}",
   "stats.positions": "Позиции",
   "stats.winRate": "Доля прибыльных",
   "stats.ordersPill": "{n} ордеров",
@@ -292,7 +292,7 @@ export const ru: Record<MessageKey, string> = {
   "desk.positions.empty.title": "Пусто",
   "desk.positions.empty.detail": "Нет открытых позиций",
   "desk.positions.stat.qty": "Кол-во",
-  "desk.positions.stat.entry": "Вход",
+  "desk.positions.stat.entry": "Фактический вход",
   "desk.positions.stat.mark": "Сейчас",
   "desk.positions.stat.stop": "Стоп",
   "desk.positions.stat.tgt": "Цель",
@@ -455,12 +455,11 @@ export const ru: Record<MessageKey, string> = {
   "settings.broker.lead":
     "Куда уходят подтверждённые ордера — только бумажный режим. Рыночные данные остаются на Alpaca.",
   "settings.broker.what":
-    "Alpaca Paper — REST API бумажного счёта. IBKR Paper — нужен локальный IB Gateway на порту 4002.",
+    "Котировки: Alpaca {feed}. Заявки, позиции и исполнение: Alpaca Paper.",
   "settings.broker.keeps":
-    "Смена блокируется, пока есть открытые позиции или неразрешённые намерения ордеров (включая статус «неизвестно»).",
-  "settings.broker.hint": "Реальную торговлю здесь выбрать нельзя.",
+    "Котировка IEX может отличаться от paper-исполнения по NBBO. Лимит ограничивает цену покупки, но не гарантирует исполнение.",
+  "settings.broker.hint": "Только Paper. Плановая цена входа, лимит заявки и фактическая цена исполнения — разные значения.",
   "settings.broker.alpaca": "Alpaca Paper",
-  "settings.broker.ibkr": "IBKR Paper",
   "settings.broker.status": "Статус: {state}",
   "settings.broker.account": "Счёт {id}",
   "settings.broker.class": "Класс {name}",
@@ -471,14 +470,6 @@ export const ru: Record<MessageKey, string> = {
   "settings.broker.state.connecting": "Подключение",
   "settings.broker.state.reconnecting": "Переподключение",
   "settings.broker.state.unknown": "{state}",
-  "settings.broker.blocked": "Смена заблокирована: {reason}",
-  "settings.broker.blocked.openPositions": "есть открытые позиции ({symbols})",
-  "settings.broker.blocked.unknownIntents":
-    "есть неразрешённые намерения со статусом «неизвестно» ({n})",
-  "settings.broker.blocked.openIntents": "есть неразрешённые намерения ордеров ({n})",
-  "settings.broker.flash.title": "Брокер исполнения обновлён",
-  "settings.broker.flash.detail": "Сейчас: {n}.",
-  "settings.broker.flash.failed": "Не удалось сменить брокера исполнения",
 
   "settings.api.title": "API-ключ пульта",
   "settings.api.lead": "Пароль этого браузера → Traido API (не Alpaca).",
@@ -511,7 +502,7 @@ export const ru: Record<MessageKey, string> = {
 
   "settings.about.title": "О системе",
   "settings.about.body":
-    "Traido — стол подтверждений: фронт Vite + React, бэкенд FastAPI. Данные — Alpaca; исполнение — Alpaca Paper или IBKR Paper. Агенты предлагают; риск решает; вы или автопилот авторизуют; брокер исполняет.",
+    "Traido — стол подтверждений: фронт Vite + React, бэкенд FastAPI. Данные — Alpaca; исполнение — Alpaca Paper. Агенты предлагают; риск решает; вы или автопилот авторизуют; брокер исполняет.",
 
   "eval.picker.search": "Поиск тикера…",
   "eval.picker.aria": "Поиск тикера",

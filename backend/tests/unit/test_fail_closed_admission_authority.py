@@ -234,7 +234,7 @@ async def test_nem_orphan_creates_external_incident_not_admission() -> None:
         reason="broker position with no ledger row",
         audit=audit,
         avg_entry=Decimal(50),
-        broker="ibkr",
+        broker="alpaca",
     )
     assert incident.symbol == "NEM"
     assert incident.correlation_status == "unattributed"

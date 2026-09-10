@@ -72,8 +72,8 @@
  read more, not to trade less safely.
 - A protective order is external state, not something we own. Reconciliation
  re-reads it every pass; an unreadable broker means `ProtectionUnverified`, not
- "protected". Never assume a stop is broker-resident or that it will fire — IB
- simulates some stops, so triggering is the venue's behaviour. Emergency close
+ "protected". Never assume a stop is broker-resident or that it will fire — Paper trading
+ simulates stops, so triggering is the venue's behaviour. Emergency close
  is the backstop, and a resting stop never closes an incident on its own.
 - Protective placement carries a durable intent too, keyed
  `protection:{position_id}:{generation}`. A lost reply is looked up by its
@@ -130,7 +130,8 @@
 - Stage 6 must follow these tokens; do not invent a second palette
 
 ## Vendors (locked)
-- Execution: IBKR (Paper → Live) · Alpaca adapter stays until IBKR is proven
+- Execution: Alpaca Paper only (user decision 2026-09-10). Live remains prohibited.
+- Data: Alpaca IEX for development. IEX quotes are not guaranteed fill prices.
 - OHLCV: Alpaca
 - News: Finnhub · Macro: FRED · Notify: Telegram · LLM: Claude
 - Details: `docs/architecture/vendor-lock.md`

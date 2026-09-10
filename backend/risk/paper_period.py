@@ -1,4 +1,4 @@
-"""Explicit IBKR Paper observation epoch, NOT reconstructed account history.
+"""Explicit ALPACA Paper observation epoch, NOT reconstructed account history.
 
 Measures sampled net-liquidation changes. External funding/reset is unsupported:
 the operator must suspend the period BEFORE changing the paper balance. There
@@ -45,7 +45,7 @@ class PaperPeriod(BaseModel):
     day_key: str
     day_baseline: Decimal = Field(gt=0)
     suspended: bool
-    source: Literal["ibkr_paper_observed_net_liquidation_v1"]
+    source: Literal["alpaca_paper_observed_net_liquidation_v1"]
 
     @model_validator(mode="after")
     def consistent(self) -> Self:
@@ -84,9 +84,9 @@ class PaperPeriod(BaseModel):
 
 
 def _key(account: str, currency: str) -> str:
-    if not account or not account.startswith("DU") or currency != "USD":
-        raise RiskPeriodError("IBKR_PAPER_USD_ACCOUNT_REQUIRED")
-    return f"ibkr:paper:{account}:{currency}"
+    if not account or not account.strip() or currency != "USD":
+        raise RiskPeriodError("ALPACA_PAPER_USD_ACCOUNT_REQUIRED")
+    return f"alpaca:paper:{account}:{currency}"
 
 
 def _week(now: datetime) -> str:
@@ -126,7 +126,7 @@ def start_period(account: str, currency: str, equity: Decimal, now: datetime) ->
         period = PaperPeriod(
             id=uuid4(),
             suspended=False,
-            source="ibkr_paper_observed_net_liquidation_v1",
+            source="alpaca_paper_observed_net_liquidation_v1",
             account_id=account,
             currency=currency,
             started_at=now,

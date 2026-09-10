@@ -28,12 +28,6 @@ dev = [
   "mypy>=1.13.0",
   "pre-commit>=4.0.0",
 ]
-# Only needed by broker/ibkr/live_transport.py, which is never imported unless a
-# deployment explicitly selects a live IB session. ib_async is the maintained
-# successor to ib_insync; see docs/architecture/vendor-lock.md.
-ibkr = [
-  "ib_async>=1.0.3",
-]
 
 [build-system]
 requires = ["setuptools>=75.0.0", "wheel"]
@@ -81,9 +75,3 @@ strict = true
 # The capital path: anything that can size, price, or place a trade. Extend
 # this list rather than loosening it.
 packages = ["core", "risk", "broker", "quant", "trading"]
-
-[[tool.mypy.overrides]]
-# Optional IBKR extra, absent from the default environment by design. Its
-# absence must not fail the typecheck of everything else.
-module = ["ib_async.*"]
-ignore_missing_imports = true

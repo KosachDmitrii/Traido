@@ -5,7 +5,7 @@ arrival-quality score, aggressiveness slider and mandatory price-target/R:R admi
 Historical executions, their evidence and protective orders are not rewritten.
 Unclaimed old proposals are withdrawn; an in-flight or UNKNOWN order retains its
 existing recovery owner. Market data is Alpaca only; execution remains with the
-selected Paper broker, Alpaca or IBKR. Live entry remains prohibited.
+Alpaca Paper broker. Live entry remains prohibited.
 
 ## Research and application choices
 

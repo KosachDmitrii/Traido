@@ -8,30 +8,27 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from api.routes import trading
-from broker.ibkr import IBKRBroker
 from database.models.risk_period import RiskPeriodRow
 from database.session import session_factory
 from risk.paper_period import observe, start_period
-from tests.unit.test_ibkr_portfolio_accounting import AccountSummaryTransport
+from tests.alpaca_account import account_broker
 
-ACCOUNT = "DU12345"
+ACCOUNT = "alpaca-account-12345"
 
 
 @pytest.fixture
 def broker(monkeypatch):
-    transport = AccountSummaryTransport(
+    instance = account_broker(
         {
-            "Account": ACCOUNT,
-            "BaseCurrency": "USD",
-            "NetLiquidation": "100000",
-            "TotalCashValue": "100000",
+            "id": ACCOUNT,
+            "currency": "USD",
+            "equity": "100000",
+            "cash": "100000",
         }
     )
-    instance = IBKRBroker(transport)
     instance.place_order = AsyncMock(side_effect=AssertionError("No broker mutations"))
     instance.cancel_order = AsyncMock(side_effect=AssertionError("No broker mutations"))
     monkeypatch.setattr(trading, "create_broker", lambda _: instance)
-    monkeypatch.setattr("broker.switch_guard.broker_switch_blocked_reason", lambda: None)
     return instance
 
 
@@ -46,7 +43,7 @@ async def test_start_endpoint_and_retry_are_not_orders_or_reset(broker):
     result = await trading.start_risk_period(body())
     assert result.week_pnl == 0
     assert result.risk_period_id
-    broker._transport.summary["NetLiquidation"] = "94000"
+    broker.summary["equity"] = "94000"
     result = await trading.start_risk_period(body())
     assert result.week_pnl == -6000
     assert result.drawdown_pct == 6
@@ -62,10 +59,6 @@ async def test_start_fails_without_changing_store(broker, monkeypatch, block):
     elif block == "positions":
         broker.list_positions = AsyncMock(
             return_value=[SimpleNamespace(qty=Decimal(1), avg_entry=Decimal(50))]
-        )
-    elif block == "intents":
-        monkeypatch.setattr(
-            "broker.switch_guard.broker_switch_blocked_reason", lambda: "unknown_intents:1"
         )
     with pytest.raises(HTTPException) as exc:
         await trading.start_risk_period(body("DUWRONG" if block == "account" else ACCOUNT))
@@ -112,11 +105,11 @@ async def test_risk_db_outage_does_not_reuse_previous_pass_or_break_portfolio(br
 
 
 @pytest.mark.asyncio
-async def test_alpaca_is_not_initialized_by_ibkr_endpoint(monkeypatch):
+async def test_mock_cannot_initialize_account_risk(monkeypatch):
     from broker.paper.mock import MockPaperBroker
 
     monkeypatch.setattr(trading, "create_broker", lambda _: MockPaperBroker())
-    with pytest.raises(HTTPException, match="IBKR_PAPER_REQUIRED"):
+    with pytest.raises(HTTPException, match="ALPACA_PAPER_REQUIRED"):
         await trading.start_risk_period(body())
 
 
@@ -124,8 +117,10 @@ async def test_alpaca_is_not_initialized_by_ibkr_endpoint(monkeypatch):
 async def test_disconnected_broker_cannot_start_from_cached_summary(broker, monkeypatch):
     from core.enums import BrokerConnectionState
 
-    monkeypatch.setattr(broker, "connection_state", lambda: BrokerConnectionState.DEGRADED)
-    with pytest.raises(HTTPException, match="IBKR_NOT_READY"):
+    monkeypatch.setattr(
+        broker, "connection_state", lambda: BrokerConnectionState.DEGRADED, raising=False
+    )
+    with pytest.raises(HTTPException, match="ALPACA_NOT_READY"):
         await trading.start_risk_period(body())
     with session_factory()() as session:
         assert list(session.scalars(select(RiskPeriodRow))) == []
@@ -180,57 +175,6 @@ def test_initialized_period_passes_risk_when_other_facts_are_valid():
     assert decision.sized_qty > 0
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "accounts,configured", [(["DU1", "DU2"], None), (["DU1"], "DU2"), ([""], None)]
-)
-async def test_transport_refuses_ambiguous_account_summaries(monkeypatch, accounts, configured):
-    from broker.ibkr.config import IBKRTransportConfig
-    from broker.ibkr.live_transport import IBKRLiveTransport
-
-    transport = IBKRLiveTransport(IBKRTransportConfig(account=configured))
-    ib = SimpleNamespace(
-        accountSummaryAsync=AsyncMock(
-            return_value=[
-                SimpleNamespace(account=a, tag="NetLiquidation", value="100000", currency="USD")
-                for a in accounts
-            ]
-        )
-    )
-    monkeypatch.setattr(transport, "_ready", AsyncMock(return_value=ib))
-    with pytest.raises(ValueError):
-        await transport.account_summary()
-
-
-@pytest.mark.asyncio
-async def test_transport_default_account_filter_is_empty_not_literal_all(monkeypatch):
-    from broker.ibkr.config import IBKRTransportConfig
-    from broker.ibkr.live_transport import IBKRLiveTransport
-
-    transport = IBKRLiveTransport(IBKRTransportConfig())
-    ib = SimpleNamespace(
-        accountSummaryAsync=AsyncMock(
-            return_value=[
-                SimpleNamespace(
-                    account=ACCOUNT, tag="NetLiquidation", value="100000", currency="USD"
-                ),
-                SimpleNamespace(
-                    account=ACCOUNT, tag="TotalCashValue", value="100000", currency="USD"
-                ),
-                SimpleNamespace(
-                    account="All", tag="TotalCashValue", value="9999999", currency="USD"
-                ),
-            ]
-        )
-    )
-    monkeypatch.setattr(transport, "_ready", AsyncMock(return_value=ib))
-    summary = await transport.account_summary()
-    ib.accountSummaryAsync.assert_awaited_once_with("")
-    assert summary["Account"] == ACCOUNT
-    assert summary["BaseCurrency"] == "USD"
-    assert summary["TotalCashValue"] == "100000"
-
-
 def test_migration_creates_and_removes_only_its_table(tmp_path):
     import importlib.util
     from pathlib import Path
@@ -260,46 +204,12 @@ async def test_observation_with_existing_exposure_does_not_resolve_intents(broke
     )
     broker.list_open_orders = AsyncMock(return_value=[object()])
     guard = lambda: "unknown_intents:1"
-    monkeypatch.setattr("broker.switch_guard.broker_switch_blocked_reason", guard)
     result = await trading.start_risk_period(body())
     assert result.risk_period_id
     assert result.week_pnl == 0
     assert guard() == "unknown_intents:1"
     broker.place_order.assert_not_called()
     broker.cancel_order.assert_not_called()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "mark,expected", [("63.5", Decimal("63.5")), (None, None), ("nan", None), ("-1", None)]
-)
-async def test_ibkr_position_mark_is_optional_and_never_synthetic(broker, mark, expected):
-    broker._transport.positions = AsyncMock(
-        return_value=[{"symbol": "BAC", "position": 793, "avgCost": "62.65", "marketPrice": mark}]
-    )
-    position = (await broker.list_positions())[0]
-    assert position.mark == expected
-    assert position.target_price is None
-
-
-@pytest.mark.asyncio
-async def test_transport_valuation_matches_account_and_contract(monkeypatch):
-    from broker.ibkr.config import IBKRTransportConfig
-    from broker.ibkr.live_transport import IBKRLiveTransport
-
-    transport = IBKRLiveTransport(IBKRTransportConfig())
-    contract = SimpleNamespace(conId=123, symbol="BAC")
-    ib = SimpleNamespace(
-        positions=lambda **kw: [
-            SimpleNamespace(account=ACCOUNT, contract=contract, position=793, avgCost=62.65)
-        ],
-        portfolio=lambda **kw: [
-            SimpleNamespace(account="DUOTHER", contract=contract, marketPrice=999),
-            SimpleNamespace(account=ACCOUNT, contract=contract, marketPrice=63),
-        ],
-    )
-    monkeypatch.setattr(transport, "_ready", AsyncMock(return_value=ib))
-    assert (await transport.positions())[0]["marketPrice"] == 63
 
 
 @pytest.mark.asyncio

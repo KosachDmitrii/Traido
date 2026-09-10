@@ -1,14 +1,4 @@
-"""
-Fake broker back-ends for the lifecycle contract suite.
-
-Each fake speaks its vendor's native dialect — Alpaca's REST JSON, IB's order
-dicts — so the suite exercises each adapter's real normalization code rather
-than a shared stand-in that would prove nothing about either.
-
-Both expose the same knobs, which is what makes one suite runnable against two
-brokers: fill ratio, outright rejection, and a broker that has no record of an
-order we believe we sent.
-"""
+"""Alpaca REST fake for order lifecycle contracts."""
 
 from __future__ import annotations
 
@@ -19,7 +9,6 @@ from uuid import uuid4
 import httpx
 
 from broker.alpaca import AlpacaPaperBroker
-from broker.ibkr import FakeIBKRTransport, IBKRBroker
 from core.ports import BrokerPort
 
 
@@ -54,6 +43,8 @@ class FakeAlpacaBackend:
             return httpx.Response(
                 200,
                 json={
+                    "id": "alpaca-contract-account",
+                    "currency": "USD",
                     "equity": str(self.equity),
                     "cash": str(self.equity - invested),
                     "buying_power": str(self.equity - invested),
@@ -172,12 +163,7 @@ def alpaca_adapter(**kwargs: Any) -> tuple[BrokerPort, FakeAlpacaBackend]:
     broker = AlpacaPaperBroker(
         api_key="contract-key",
         api_secret="contract-secret",
-        base_url="https://paper-api.example.test",
+        base_url="https://paper-api.alpaca.markets",
         transport=backend.transport(),
     )
     return broker, backend
-
-
-def ibkr_adapter(**kwargs: Any) -> tuple[BrokerPort, FakeIBKRTransport]:
-    transport = FakeIBKRTransport(**kwargs)
-    return IBKRBroker(transport), transport

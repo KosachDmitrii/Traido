@@ -164,7 +164,7 @@ class _ExitBroker:
         self.by_client[request.client_order_id] = record
         if self.lose_reply and request.side == OrderSide.SELL:
             # The broker has the order. We never learn its id.
-            raise BrokerUnreachable("gateway timed out after accepting the order")
+            raise BrokerUnreachable("broker timed out after accepting the order")
         return record
 
     async def cancel_order(self, broker_order_id: str) -> OrderRecord:

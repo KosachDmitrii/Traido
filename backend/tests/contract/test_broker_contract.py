@@ -1,15 +1,4 @@
-"""
-One lifecycle contract, two brokers.
-
-Every test here runs against both the Alpaca and the IBKR adapter, each backed
-by a fake that speaks its own vendor dialect. The assertions are written purely
-in Traido's vocabulary: if a test passes for one adapter and fails for the
-other, the adapters disagree about what a broker event means, and that
-disagreement would otherwise surface as a position nobody expected.
-
-Alpaca must keep passing this suite for as long as it is the live path. IBKR
-must pass it before it can replace Alpaca.
-"""
+"""Real Alpaca adapter order lifecycle contract using a fake REST transport."""
 
 from __future__ import annotations
 
@@ -21,12 +10,11 @@ import pytest
 from broker.interface import BrokerRejection, BrokerUnreachable
 from core.enums import IntentPurpose, IntentStatus, OrderSide, OrderStatus, OrderType
 from core.schemas import OrderRequest
-from tests.contract.fakes import alpaca_adapter, ibkr_adapter
+from tests.contract.fakes import alpaca_adapter
 from trading.order_intent import OrderIntent, intent_status_for, locate_broker_order
 
 ADAPTERS = [
     pytest.param(alpaca_adapter, id="alpaca"),
-    pytest.param(ibkr_adapter, id="ibkr"),
 ]
 
 pytestmark = pytest.mark.asyncio
