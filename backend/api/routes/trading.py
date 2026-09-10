@@ -286,12 +286,20 @@ async def put_entry_policy(body: EntryPolicyBody) -> dict:
 
 @router.get("/auto-trigger")
 async def get_auto_trigger() -> dict:
-    return {"enabled": False, "available": False, "note": "ORB_MANUAL_CONFIRMATION_REQUIRED"}
+    from trading.auto_trigger_policy import policy_payload
+
+    return policy_payload()
 
 
 @router.put("/auto-trigger")
 async def put_auto_trigger(body: AutoTriggerBody) -> dict:
-    raise HTTPException(status_code=410, detail="ORB_MANUAL_CONFIRMATION_REQUIRED")
+    from trading.auto_trigger_policy import policy_payload, set_auto_trigger_enabled
+
+    if body.enabled and not policy_payload()["available"]:
+        raise HTTPException(status_code=409, detail="AUTO_TRIGGER_PAPER_ONLY")
+    set_auto_trigger_enabled(body.enabled, actor="user")
+    DESK_BUS.bump_desk(kind="auto_trigger_policy")
+    return policy_payload()
 
 
 async def _broker_backend_status() -> dict:

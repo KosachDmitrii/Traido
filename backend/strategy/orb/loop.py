@@ -51,6 +51,10 @@ async def _run() -> None:
                 await check_access(create_market_data_port(get_settings()))
                 next_access_check = time.monotonic() + 60
             await observe()
+            from core.audit import create_audit
+            from trading.auto_trigger_policy import enqueue_auto_approve_open_buys
+
+            enqueue_auto_approve_open_buys(audit=create_audit())
         except asyncio.CancelledError:
             raise
         except Exception:

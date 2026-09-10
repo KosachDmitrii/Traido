@@ -1,11 +1,11 @@
-import { runScanner, setKillSwitch } from "@/lib/api";
+import { runScanner, setKillSwitch, setAutoTrigger } from "@/lib/api";
 import { executionBrokerLabelKey } from "@/lib/brokerLabel";
 import { PaperRiskPeriod } from "@/components/desk/PaperRiskPeriod";
 import { useDesk } from "@/context/DeskContext";
 import { useI18n } from "@/i18n/I18nProvider";
 import type { Locale, MessageKey } from "@/i18n";
 import type { Vars } from "@/i18n/store";
-import { Button, Input, SegmentedControl, SwitchControl } from "@/ui";
+import { Button, Input, SegmentedControl, SwitchControl, LoadingDots } from "@/ui";
 import { useCallback, useState } from "react";
 import { KeyRound, Languages, ScanSearch, ShieldAlert, Building2 } from "lucide-react";
 
@@ -29,6 +29,19 @@ export function SettingsPage() {
     typeof window !== "undefined" ? window.localStorage.getItem("TRAIDO_API_KEY") || "" : "",
   );
   const [busy, setBusy] = useState(false);
+  const [triggerBusy, setTriggerBusy] = useState(false);
+  const [triggerError, setTriggerError] = useState("");
+  const trigger = desk?.auto_trigger;
+  const toggleTrigger = async (enabled: boolean) => {
+    setTriggerBusy(true);
+    setTriggerError("");
+    try {
+      await setAutoTrigger(enabled);
+      await refreshAll();
+    } catch (error) {
+      setTriggerError(error instanceof Error ? error.message : String(error));
+    } finally { setTriggerBusy(false); }
+  };
   const [scanning, setScanning] = useState(false);
   const saveKey = useCallback(() => {
     if (apiKey.trim()) {
@@ -154,9 +167,29 @@ export function SettingsPage() {
         </div>
       </article>
 
+      <article className="settings-card">
+        <div className="settings-card__body">
+          <h3>{locale === "ru" ? "Автоматическая покупка · Alpaca Paper" : "Automatic buying · Alpaca Paper"}</h3>
+          <p className="settings-card__lead">{locale === "ru"
+            ? "При включении система сама покупает по допущенным планам ORB, включая уже ожидающие предложения. Перед каждой покупкой заново проверяются цена, срок входа и риск."
+            : "When enabled, eligible ORB plans are bought automatically, including pending proposals. Price, entry deadline and risk are rechecked before every purchase."}</p>
+          <div className="settings-kill-control">
+            <div className="settings-kill-control__copy">
+              <strong>{!trigger ? (locale === "ru" ? "Статус недоступен" : "Status unavailable") : trigger.enabled ? (locale === "ru" ? "Включена" : "On") : (locale === "ru" ? "Выключена" : "Off")}</strong>
+              <span>{locale === "ru" ? "Только Paper. Kill switch и все проверки риска действуют." : "Paper only. Kill switch and all risk checks remain active."}</span>
+            </div>
+            {triggerBusy && <LoadingDots ariaLabel={t("common.loading")} />}
+            <SwitchControl checked={trigger?.enabled ?? false} onCheckedChange={(enabled) => void toggleTrigger(enabled)}
+              disabled={triggerBusy || !trigger || (!trigger.available && !trigger.enabled)}
+              aria-label={locale === "ru" ? "Автоматическая покупка" : "Automatic buying"} />
+          </div>
+          {triggerError && <p role="alert">{triggerError}</p>}
+        </div>
+      </article>
+
       <article className="settings-card"><div className="settings-card__body">
         <h3>Opening Range Breakout · Paper</h3>
-        <p>Диапазон 09:30–09:35 ET, отбор по относительному объёму. Геометрия фиксируется на сессию. Вход подтверждается вручную, выход — стоп или конец сессии.</p>
+        <p>Диапазон 09:30–09:35 ET, отбор по относительному объёму. Геометрия фиксируется на сессию. Вход — ручное подтверждение или автоматическая покупка Paper, выход — стоп или конец сессии.</p>
         <p>Котировки и объёмы: Alpaca {(desk?.orb?.feed ?? "iex").toUpperCase()}{(desk?.orb?.feed ?? "iex") === "iex" ? " (данные одной биржи)" : ""}. Позиции и исполнение: Alpaca Paper. Ограничения риска счёта проверяются перед каждым ордером.</p>
       </div></article>
 

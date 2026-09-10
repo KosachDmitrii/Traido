@@ -79,7 +79,9 @@ def _market_data_quota_payload() -> dict:
 
 
 def _auto_trigger_payload() -> dict:
-    return {"enabled": False, "available": False, "note": "ORB_MANUAL_CONFIRMATION_REQUIRED"}
+    from trading.auto_trigger_policy import policy_payload
+
+    return policy_payload()
 
 
 def _entry_policy_payload() -> dict:

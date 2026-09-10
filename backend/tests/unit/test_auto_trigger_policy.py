@@ -307,3 +307,52 @@ async def test_auto_approve_off_does_not_touch_card(monkeypatch: pytest.MonkeyPa
     assert ok is False
     store.get.assert_not_called()
     store.claim.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_orb_toggle_routes_and_desk_share_policy() -> None:
+    from api.routes.desk import _auto_trigger_payload
+    from api.routes.trading import AutoTriggerBody, get_auto_trigger, put_auto_trigger
+
+    assert (await get_auto_trigger())["enabled"] is False
+    assert (await put_auto_trigger(AutoTriggerBody(enabled=True)))["enabled"] is True
+    assert _auto_trigger_payload()["enabled"] is True
+    assert (await put_auto_trigger(AutoTriggerBody(enabled=False)))["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_orb_toggle_live_rejected(monkeypatch) -> None:
+    from fastapi import HTTPException
+
+    from api.routes.trading import AutoTriggerBody, put_auto_trigger
+
+    monkeypatch.setattr(atp, "_auto_trigger_blocked", lambda: True)
+    with pytest.raises(HTTPException) as exc:
+        await put_auto_trigger(AutoTriggerBody(enabled=True))
+    assert exc.value.status_code == 409
+    assert atp.get_auto_trigger_enabled() is False
+
+
+@pytest.mark.asyncio
+async def test_orb_loop_dispatches_after_observation(monkeypatch) -> None:
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from core import audit
+    from strategy.orb import loop
+
+    events = []
+    monkeypatch.setattr(loop.time, "monotonic", lambda: -1)
+
+    async def observe():
+        events.append("observe")
+
+    monkeypatch.setattr(loop, "observe", observe)
+    monkeypatch.setattr(audit, "create_audit", lambda: object())
+    monkeypatch.setattr(
+        atp, "enqueue_auto_approve_open_buys", lambda **kwargs: events.append("queue")
+    )
+    monkeypatch.setattr(loop.asyncio, "sleep", AsyncMock(side_effect=asyncio.CancelledError))
+    with pytest.raises(asyncio.CancelledError):
+        await loop._run()
+    assert events == ["observe", "queue"]

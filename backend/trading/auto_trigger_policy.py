@@ -18,8 +18,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-POLICY_PATH = Path(__file__).resolve().parents[1] / "data" / "auto_trigger.json"
-REDIS_KEY = "traido:auto_trigger"
+POLICY_PATH = Path(__file__).resolve().parents[1] / "data" / "orb_auto_trigger.json"
+REDIS_KEY = "traido:orb:auto_trigger"
 _LOCK = threading.Lock()
 _cached: bool | None = None
 _in_flight: set[str] = set()
