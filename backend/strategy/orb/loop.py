@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 
 from strategy.orb.runtime import observe
@@ -39,8 +40,16 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
 
 
 async def _run() -> None:
+    next_access_check = 0.0
     while True:
         try:
+            if time.monotonic() >= next_access_check:
+                from core.config import get_settings
+                from market_data.factory import create_market_data_port
+                from strategy.orb.data_access import check_access
+
+                await check_access(create_market_data_port(get_settings()))
+                next_access_check = time.monotonic() + 60
             await observe()
         except asyncio.CancelledError:
             raise

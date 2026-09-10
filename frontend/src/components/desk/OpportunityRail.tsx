@@ -27,6 +27,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh }: Props) {
   return <section className="opportunity-rail">
     <h2>Планы ORB</h2>
     <p>Пробой максимума 09:30–09:35 ET. Покупку подтверждаете вы. Выход — по стопу или до закрытия сессии.</p>
+    {plans.length > 0 && desk?.orb?.reason && <p role="alert">{orbReason(desk.orb.reason)}</p>}
     {!plans.length && <p>{orbReason(desk?.orb?.reason ?? (desk?.orb?.status === "ready" ? "ORB_NO_CANDIDATES" : "ORB_LOADING"))}</p>}
     {plans.map(plan => {
       const state = desk?.orb?.states?.[plan.symbol];

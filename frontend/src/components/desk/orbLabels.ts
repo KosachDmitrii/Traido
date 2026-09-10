@@ -1,6 +1,10 @@
 const reasons: Record<string,string> = {
   ORB_ATTEMPT_CONSUMED:"Решение по этому плану уже принято. Повторного входа сегодня не будет.",
   ORB_PUBLICATION_UNRESOLVED:"Связь с предложением требует восстановления. Повторный вход заблокирован.",
+  ORB_SIP_SUBSCRIPTION_REQUIRED:"Подписка Alpaca не разрешает свежие данные SIP. Подключите доступ к SIP в Plans & Features → Market Data. Доступ проверяется автоматически каждую минуту.",
+  ORB_SIP_ACCESS_DENIED:"Alpaca отказала в доступе к SIP (403). Проверьте подписку на данные SIP и используемые API-ключи. Новые входы недоступны.",
+  ORB_DATA_CREDENTIALS_REJECTED:"Alpaca отклонила API-ключи (401). Требуется исправить подключение данных.",
+  ORB_DATA_RATE_LIMITED:"Alpaca ограничила частоту запросов (429). Повторяем после паузы.",
   ORB_LOADING:"Загружаем данные открытия из Alpaca SIP.",
   ORB_NO_CANDIDATES:"В этой сессии нет кандидатов, прошедших условия ORB. Причины — в статистике отбора.",
   ORB_OPENING_RANGE_FORMING:"Ждём завершения диапазона 09:30–09:35 по Нью-Йорку.",

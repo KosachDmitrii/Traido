@@ -195,6 +195,7 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     ]
     entry_watches = []
     from core.clock import ET
+    from strategy.orb.data_access import DATA_ACCESS
     from strategy.orb.runtime import STATUS as orb_status
     from strategy.orb.store import read_session
 
@@ -207,6 +208,8 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
         },
         "rejections": {},
     }
+    if DATA_ACCESS.get("status") == "blocked":
+        orb.update(status="data_blocked", reason=DATA_ACCESS.get("reason"))
     return {
         "mode": settings.trading_mode.value,
         "orb": orb,

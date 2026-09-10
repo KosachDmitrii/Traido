@@ -268,20 +268,12 @@ class AlpacaMarketData:
         *,
         params: dict[str, Any],
     ) -> tuple[str, httpx.Response]:
-        """Use configured feed; on 403 (e.g. SIP without subscription) fall back to IEX."""
-        feeds = [self._feed]
-        # Never substitute a different exchange population for an explicit feed.
-        for feed in feeds:
-            req = {**params, "feed": feed}
-            try:
-                resp = await _paced_get(client, url, headers=self._headers(), params=req)
-                resp.raise_for_status()
-                return feed, resp
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code == 403 and feed != feeds[-1]:
-                    continue
-                raise
-        raise RuntimeError("alpaca feed fetch exhausted")
+        """Use the requested exchange population; never downgrade on access errors."""
+        resp = await _paced_get(
+            client, url, headers=self._headers(), params={**params, "feed": self._feed}
+        )
+        resp.raise_for_status()
+        return self._feed, resp
 
     def _headers(self) -> dict[str, str]:
         return {

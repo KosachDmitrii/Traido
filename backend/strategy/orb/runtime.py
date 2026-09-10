@@ -30,6 +30,7 @@ from strategy.orb import (
     evaluate_trigger,
     form_plan,
 )
+from strategy.orb.data_access import data_error_reason
 from strategy.orb.store import create_session, read_session, update_state
 from trading.scan_context import ScanContext, open_scan_context
 from trading.session_hours import us_equity_rth_open
@@ -91,8 +92,8 @@ async def discover(
         STATUS["counts"] = counts
         try:
             daily = await ctx.daily_bars(symbols, now - timedelta(days=45), start)
-        except Exception:
-            STATUS.update(status="data_blocked", reason="ORB_SERVICE_UNAVAILABLE")
+        except Exception as exc:
+            STATUS.update(status="data_blocked", reason=data_error_reason(exc))
             raise
         days = _previous_sessions(now, 15)
         base: list[str] = []
@@ -133,8 +134,8 @@ async def discover(
                 rows = await batch(
                     base, t, t + timedelta(minutes=5) - timedelta(microseconds=1), Timeframe.M5
                 )
-            except Exception:
-                STATUS.update(status="data_blocked", reason="ORB_SERVICE_UNAVAILABLE")
+            except Exception as exc:
+                STATUS.update(status="data_blocked", reason=data_error_reason(exc))
                 raise
             for symbol in base:
                 opening[symbol].extend(rows.get(symbol, []))
