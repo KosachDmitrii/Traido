@@ -14,8 +14,8 @@ const reasons: Record<string,string> = {
   ORB_DATA_FEED_MISMATCH:"Источник текущих данных отличается от источника сохранённого плана. Вход заблокирован.",
   ORB_SESSION_CONFIGURATION_CHANGED:"Источник или версия стратегии изменились после отбора. Сохранённые планы не переписываются; новый отбор — в следующей сессии.",
   ORB_IEX_DOLLAR_VOLUME_LOW:"Средний дневной оборот на IEX меньше $20 млн — порога ликвидности для этой версии.",
-  ORB_WAITING_BREAKOUT:"Ждём bid выше максимума открытия. Геометрия плана зафиксирована.",
-  ORB_BREAKOUT_CONFIRMED:"Пробой подтверждён котировкой; перед отправкой повторно проверяются цена и риск счёта.",
+  ORB_WAITING_BREAKOUT:"Ждём роста до цены входа. Цены в плане установлены на день.",
+  ORB_BREAKOUT_CONFIRMED:"Цена достигла уровня входа. Перед покупкой повторно проверяем цену и риск.",
   ORB_ENTRY_MISSED:"Цена выше предела покупки. Вход сейчас запрещён.",
   ORB_ENTRY_EXPIRED:"Время новых входов по этому плану истекло.",
   ORB_QUOTE_STALE:"Ждём свежую котировку Alpaca.",
@@ -31,6 +31,6 @@ const reasons: Record<string,string> = {
   PORTFOLIO_DRAWDOWN_UNAVAILABLE:"Недоступна просадка счёта.",
 };
 export const orbReason = (reason: string) => reasons[reason] ?? reason;
-export const orbState = (state?:string) => ({EXECUTED:"Исполнено",SKIPPED:"Пропущено",EXPIRED:"Истёк",DISCARDED:"Снят",APPROVING:"Проверяем исполнение",APPROVED:"Одобрено",WAIT:"Ожидание пробоя",BUY_ALLOWED:"Проверка входа",BLOCKED:"Вход заблокирован",DATA_BLOCKED:"Нет данных",NO_TRADE:"Нет входа"}[state ?? ""] ?? "План");
+export const orbState = (state?:string) => ({EXECUTED:"Исполнено",SKIPPED:"Пропущено",EXPIRED:"Истёк",DISCARDED:"Снят",APPROVING:"Проверяем исполнение",APPROVED:"Одобрено",WAIT:"Ждём цену входа",BUY_ALLOWED:"Проверка входа",BLOCKED:"Вход заблокирован",DATA_BLOCKED:"Нет данных",NO_TRADE:"Нет входа"}[state ?? ""] ?? "План");
 export const px = (value: unknown) => value == null || !Number.isFinite(Number(value)) ? "—" : Number(value).toFixed(2);
 export const etTime = (value:string) => new Date(value).toLocaleTimeString("ru-RU",{timeZone:"America/New_York",hour:"2-digit",minute:"2-digit"});

@@ -31,7 +31,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
       <header className={styles.heading}><div><span className={styles.eyebrow}>ORB · ALPACA PAPER</span><h1>Торговые возможности</h1><p>От ожидания пробоя до подтверждения покупки — каждый план перед глазами.</p></div><span className={styles.mode}><ShieldCheck size={15} />Ручное подтверждение</span></header>
       <div className={styles.summary}>
         <div><Layers size={18} /><span>Планы сессии</span><strong>{desk ? plans.length : "—"}</strong></div>
-        <div><Clock3 size={18} /><span>Ждут пробоя</span><strong>{desk?.orb ? Object.values(desk.orb.states ?? {}).filter(s => s.state === "WAIT").length : "—"}</strong></div>
+        <div><Clock3 size={18} /><span>Ждут цены входа</span><strong>{desk?.orb ? Object.values(desk.orb.states ?? {}).filter(s => s.state === "WAIT").length : "—"}</strong></div>
         <div><ArrowUpRight size={18} /><span>Предложения покупки</span><strong>{desk ? buys.filter(o => o.candidate.strategy_version === "orb@1.1.0").length : "—"}</strong></div>
       </div>
       <div className={styles.sectionHead}><h2>Планы ORB</h2><span>Диапазон открытия · 09:30–09:35 ET</span></div>
@@ -53,21 +53,21 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
       return <article key={plan.symbol} className={`opp-card ${styles.card}`} data-buyable={buyable}>
         <div className={styles.cardHead}><div className={styles.identity}><div><h3>{plan.symbol}</h3><span className={styles.strategy}>ORB · Покупка</span></div></div><strong className={styles.status}>{buyable ? "Можно подтвердить" : orbState(state?.state)}</strong></div>
         <dl className={styles.prices}>
-          <div><dt>Сейчас · ask</dt><dd>{px(ask)}</dd></div>
-          <div><dt>Пробой</dt><dd>{px(plan.trigger)}</dd></div>
-          <div><dt>Стоп</dt><dd>{px(plan.stop)}</dd></div>
-          <div><dt>Лимит покупки</dt><dd>{px(plan.max_entry)}</dd></div>
+          <div><dt>Цена сейчас</dt><dd>{px(ask)}</dd></div>
+          <div><dt>Цена входа</dt><dd>{px(plan.trigger)}</dd></div>
+          <div><dt>Защитный стоп</dt><dd>{px(plan.stop)}</dd></div>
+          <div><dt>Не покупать выше</dt><dd>{px(plan.max_entry)}</dd></div>
         </dl>
-        <p className={styles.brief}>{reasons.length === 1 && reasons[0] === "ORB_WAITING_BREAKOUT" ? "Ждём пробоя диапазона открытия." : reasons.map(orbReason).join(" · ")}</p>
+        <p className={styles.brief}>{reasons.length === 1 && reasons[0] === "ORB_WAITING_BREAKOUT" ? "Ждём роста до цены входа." : reasons.map(orbReason).join(" · ")}</p>
         <details className={styles.details}>
           <summary>Подробнее о плане</summary>
           <dl className={styles.facts}>
-            <div><dt>Диапазон открытия</dt><dd>{px(plan.range_low)}–{px(plan.range_high)}</dd></div>
-            <div><dt>Относительный объём</dt><dd>{Number(plan.relative_volume).toFixed(2)}×</dd></div>
-            <div><dt>Вход до</dt><dd>{etTime(plan.entry_deadline)} ET</dd></div>
-            <div><dt>Выход до</dt><dd>{etTime(plan.exit_at)} ET</dd></div>
+            <div><dt>Цены первых 5 минут</dt><dd>{px(plan.range_low)}–{px(plan.range_high)}</dd></div>
+            <div><dt>Объём к обычному за 5 минут</dt><dd>{Number(plan.relative_volume).toFixed(2)}×</dd></div>
+            <div><dt>Покупка до</dt><dd>{etTime(plan.entry_deadline)} ET</dd></div>
+            <div><dt>Закрытие позиции до</dt><dd>{etTime(plan.exit_at)} ET</dd></div>
           </dl>
-          <p className={styles.brief}>Уровни плана зафиксированы на сессию. Перед покупкой цена и риск проверяются повторно.</p>
+          <p className={styles.brief}>Цены в плане установлены на день. Перед покупкой проверяем цену и риск ещё раз.</p>
         </details>
         {opp && <>
           <label className={styles.quantity}>Количество акций <input aria-label={`Количество ${plan.symbol}`} type="number" min={1} max={maxQty} value={qty}
