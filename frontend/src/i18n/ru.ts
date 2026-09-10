@@ -131,7 +131,7 @@ export const ru: Record<MessageKey, string> = {
   "strip.journal.exp": "Матожид.",
   "strip.journal.readonly": "Только чтение",
   "strip.evaluation.title": "Оценка",
-  "strip.evaluation.sub": "Walk-forward после комиссии, спреда и проскальзывания",
+  "strip.evaluation.sub": "Отбор ORB и результаты Paper",
   "strip.evaluation.univ": "Вселенная",
   "strip.evaluation.bench": "Бенчмарк",
   "strip.evaluation.oos": "Вне выборки",

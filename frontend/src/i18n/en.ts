@@ -129,7 +129,7 @@ export const en = {
   "strip.journal.exp": "Exp",
   "strip.journal.readonly": "Read-only",
   "strip.evaluation.title": "Evaluation",
-  "strip.evaluation.sub": "Walk-forward results after commission, spread and slippage",
+  "strip.evaluation.sub": "ORB selection and Paper results",
   "strip.evaluation.univ": "Univ",
   "strip.evaluation.bench": "Bench",
   "strip.evaluation.oos": "Out-of-sample",

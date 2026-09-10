@@ -99,8 +99,8 @@ function usePageMeta(): PageMeta {
         sub: t("strip.evaluation.sub"),
         chips: [
           { label: t("strip.evaluation.univ"), value: String(universe) },
-          { label: t("strip.evaluation.bench"), value: "SPY" },
-          { label: t("strip.evaluation.oos"), accent: true },
+          { label: "ORB" },
+          { label: "Paper", accent: true },
         ],
       };
     case "/strategies":

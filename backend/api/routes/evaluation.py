@@ -18,6 +18,7 @@ from core.universe import default_universe
 from market_data.factory import create_market_data_port
 from market_data.providers.company_name import attach_company_names, get_company_name_resolver
 from quant.backtesting.service import MarketDataUnavailable, evaluate_symbol
+from strategy.orb.evaluation import paper_evaluation
 from trading.f3_diagnostics import write_forward_report
 from trading.historical_mfe import ensure_seeded_from_aftermath, sync_from_paper_journal
 
@@ -37,6 +38,12 @@ async def diagnostics_f3() -> dict:
     ensure_seeded_from_aftermath()
     sync_from_paper_journal()
     return write_forward_report()
+
+
+@router.get("/evaluation/orb-paper")
+async def orb_paper_evaluation() -> dict:
+    """Actual journal outcomes for the active ORB version only."""
+    return paper_evaluation()
 
 
 @router.get("/evaluation/{symbol}")

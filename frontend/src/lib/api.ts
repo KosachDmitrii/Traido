@@ -934,3 +934,15 @@ export async function fetchJournalPage(page: number, pageSize: number, signal?: 
   if (!res.ok) throw new Error("journal_unavailable");
   return res.json();
 }
+
+
+export type OrbEvaluation = {
+  strategy_version: string; trade_count: number; wins: number; losses: number; breakeven: number;
+  pnl: string | null; win_rate: number | null; expectancy: string | null; profit_factor: number | null;
+  first_closed_at: string | null; last_closed_at: string | null;
+};
+export async function fetchOrbEvaluation(signal?: AbortSignal): Promise<OrbEvaluation> {
+  const response = await fetch(apiUrl("/api/v1/evaluation/orb-paper"), { headers: apiHeaders(), signal });
+  if (!response.ok) throw new Error("orb_evaluation_unavailable");
+  return response.json();
+}
