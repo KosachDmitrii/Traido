@@ -193,3 +193,26 @@ def build_review(
             f"Journal: {report.trade_count} trades · expectancy {report.expectancy}",
         )
     return report
+
+
+def journal_page(*, page: int = 1, page_size: int = 10, engine=None) -> dict[str, Any]:
+    """Read a bounded page of actual trades, excluding backtest rows."""
+    SessionLocal = session_factory(engine)
+    with SessionLocal() as session:
+        query = session.query(TradeJournalRow).filter(TradeJournalRow.backtest_run_id.is_(None))
+        total = query.count()
+        page_count = max(1, (total + page_size - 1) // page_size)
+        page = min(max(1, page), page_count)
+        rows = (
+            query.order_by(TradeJournalRow.closed_at.desc().nullslast(), TradeJournalRow.id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+            .all()
+        )
+        return {
+            "items": [_row_to_dict(row) for row in rows],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "page_count": page_count,
+        }

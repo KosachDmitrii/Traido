@@ -920,3 +920,17 @@ export type OrbState = { state: string; reasons: string[]; bid?: string | null; 
 export type OrbSession = { status: string; feed?: string; reason?: string | null; session?: string;
   plans?: Record<string, OrbPlan>; states?: Record<string, OrbState>;
   counts?: Record<string, number>; rejection_counts?: Record<string, number> };
+
+
+export type JournalTrade = NonNullable<ReviewPayload["recent"]>[number] & {
+  qty?: string;
+  closed_at?: string | null;
+};
+export type JournalPageResponse = {
+  items: JournalTrade[]; total: number; page: number; page_size: number; page_count: number;
+};
+export async function fetchJournalPage(page: number, pageSize: number, signal?: AbortSignal): Promise<JournalPageResponse> {
+  const res = await fetch(apiUrl(`/api/v1/review/trades?page=${page}&page_size=${pageSize}`), { headers: apiHeaders(), signal });
+  if (!res.ok) throw new Error("journal_unavailable");
+  return res.json();
+}

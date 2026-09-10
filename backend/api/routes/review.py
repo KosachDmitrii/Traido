@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
-from agents.review.agent import build_review
+from agents.review.agent import build_review, journal_page
 from broker.factory import create_broker
 from core.config import get_settings
 from market_data.providers.company_name import attach_company_names
@@ -84,3 +84,13 @@ async def positions() -> dict:
             )
     await attach_company_names(merged, settings.finnhub_api_key)
     return {"positions": merged, "count": len(merged)}
+
+
+@router.get("/review/trades")
+async def review_trades(
+    page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100)
+) -> dict:
+    """Paginated trade history; independent of the review's recent-trade cap."""
+    payload = journal_page(page=page, page_size=page_size)
+    await attach_company_names(payload["items"], get_settings().finnhub_api_key)
+    return payload

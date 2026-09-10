@@ -1,0 +1,50 @@
+.page { display: grid; gap: 24px; padding-top: 8px; }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.eyebrow { color: var(--td-accent-pressed); font-size: 11px; letter-spacing: .08em; font-weight: 600; }
+.heading h1 { font-size: 28px; font-weight: 600; letter-spacing: -.025em; margin: 8px 0; }
+.heading p { margin: 0; color: var(--td-text-muted); font-size: 14px; }
+.badge { display: flex; gap: 7px; align-items: center; border-radius: var(--td-radius-pill); background: #eff6ff; color: var(--td-accent-pressed); padding: 8px 12px; font-size: 12px; white-space: nowrap; }
+.stats { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 16px; }
+.stats > div { background: var(--td-surface-2); border: 1px solid var(--td-border); border-radius: 12px; padding: 20px; }
+.stats span { display: flex; gap: 8px; align-items: center; color: var(--td-text-muted); font-size: 12px; }
+.stats svg { color: var(--td-accent); flex-shrink: 0; }
+.stats strong { display: block; margin-top: 14px; font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.scope { color: var(--td-text-muted); font-size: 11px; line-height: 1.5; margin: 12px 0 0; }
+.history { border: 1px solid var(--td-border); border-radius: 16px; overflow: hidden; background: var(--td-surface); }
+.tableHead { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 24px; flex-wrap: wrap; }
+.tableHead h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.tableHead > span { font-size: 12px; color: var(--td-text-muted); }
+.scroll { overflow-x: auto; }
+.scroll:focus-visible { outline: 2px solid var(--td-accent); outline-offset: -2px; }
+.scroll table { width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; }
+.scroll th { padding: 12px 20px; border-block: 1px solid var(--td-border); color: var(--td-text-muted); background: var(--td-surface-2); font-size: 11px; font-weight: 500; }
+.scroll td { padding: 17px 20px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.scroll tr + tr td { border-top: 1px solid var(--td-border); }
+.scroll tbody tr:hover { background: var(--td-surface-2); }
+.identity { display: flex; gap: 10px; align-items: center; }
+.identity small { display: block; color: var(--td-text-muted); font-size: 11px; margin-top: 4px; white-space: normal; max-width: 180px; }
+.symbolIcon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: #eff6ff; color: var(--td-accent-pressed); font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.pnl, .strategy { display: inline-block; background: var(--td-surface-muted); border-radius: 6px; padding: 5px 8px; font-size: 12px; }
+.pnl[data-tone="positive"] { color: #047857; background: var(--td-bull-muted); }
+.pnl[data-tone="negative"] { color: var(--td-bear); background: var(--td-bear-muted); }
+.strategy { color: var(--td-text-muted); font-size: 11px; }
+.footer { padding: 12px 24px; border-top: 1px solid var(--td-border); display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.footer > span { font-size: 12px; color: var(--td-text-muted); }
+.footer > div { flex: 1; }
+.empty { padding: 44px 24px; text-align: center; border-top: 1px solid var(--td-border); background: var(--td-surface-2); }
+.empty svg { color: var(--td-accent); }
+.empty h3 { font-size: 16px; font-weight: 500; margin: 16px 0; }
+.notes { border: 1px solid var(--td-border); border-radius: 12px; padding: 18px 22px; }
+.notes summary { cursor: pointer; font-size: 14px; font-weight: 500; }
+.notes summary span { margin-left: 10px; font-size: 12px; color: var(--td-text-muted); }
+.notes li { font-size: 13px; color: var(--td-text-muted); line-height: 1.7; }
+@media(max-width:640px) {
+  .heading { align-items: start; flex-direction: column; }
+  .heading h1 { font-size: 24px; }
+  .stats { gap: 8px; }
+  .stats > div { padding: 12px; }
+  .stats span { align-items: start; flex-direction: column; font-size: 11px; }
+  .stats strong { font-size: 22px; }
+  .footer { padding: 12px 16px; }
+  .footer > div { min-width: 100%; }
+}
