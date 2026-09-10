@@ -29,7 +29,8 @@ PARAMETERS = {
     "exit": "session_close",
     "exit_buffer_seconds": 60,
     "entry_cutoff_minutes_before_exit": 5,
-    "max_entry_drift_r": "0.25",
+    "max_entry_drift_r": "1.0",
+    "entry_policy_revision": "paper-flex-1",
     "supported_feeds": ["iex", "sip"],
     "default_paper_feed": "iex",
 }
@@ -209,9 +210,9 @@ def form_plan(
     stop = (trigger - atr * Decimal("0.10")).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
     if stop <= 0 or stop >= trigger:
         return blocked("ORB_INVALID_STOP")
-    max_entry = (trigger + (trigger - stop) * Decimal("0.25")).quantize(
-        Decimal("0.01"), rounding=ROUND_FLOOR
-    )
+    max_entry = (
+        trigger + (trigger - stop) * Decimal(str(PARAMETERS["max_entry_drift_r"]))
+    ).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
     plan = OrbPlan(
         symbol=symbol.upper(),
         session=str(local.date()),

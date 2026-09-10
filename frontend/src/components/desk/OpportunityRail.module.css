@@ -69,7 +69,7 @@
 .rail .levels { margin-top: 18px; }
 .rail .levels > div { padding: 10px; }
 .rail .levels dd { font-size: 13px; }
-.rail .actions { flex-direction: column; }
+
 .rail .actions > button { width: 100%; }
 @media(max-width:800px) { .rail { border-left: 0; border-top: 1px solid var(--td-border); } }
 
@@ -93,3 +93,6 @@
 .facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 
 .companyName { margin: 7px 0 0; color: var(--td-text-muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+
+:is(.page, .rail) .actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+:is(.page, .rail) .actions > button { width: 100%; min-width: 0; height: 40px; min-height: 40px; padding: 0 10px; border-radius: 8px; font-size: 12px; line-height: 1.2; }

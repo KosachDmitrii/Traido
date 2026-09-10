@@ -74,7 +74,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
           <label className={styles.quantity}>Количество акций <input aria-label={`Количество ${plan.symbol}`} type="number" min={1} max={maxQty} value={qty}
             onChange={e=>setQuantities(q=>({...q,[plan.symbol]:Math.max(1,Math.min(maxQty,Math.floor(Number(e.target.value)||1)))}))} /></label>
           <p className={styles.risk}>Риск при максимальной цене входа до стопа: ${((Number(plan.max_entry)-Number(plan.stop))*qty).toFixed(2)} плюс комиссии и проскальзывание. Стоп не гарантирует эту цену.</p>
-          <div className={styles.actions}><Button loading={busy === `${opp.id}:approve`} disabled={!buyable || busy !== null || qty < 1} onClick={()=>void decide(opp,"approve",qty)}>{busy === `${opp.id}:approve` ? "Проверяем…" : "Подтвердить покупку"}</Button>{" "}
+          <div className={styles.actions}><Button loading={busy === `${opp.id}:approve`} disabled={!buyable || busy !== null || qty < 1} onClick={()=>void decide(opp,"approve",qty)}>{busy === `${opp.id}:approve` ? "Проверяем…" : "Купить"}</Button>{" "}
           <Button variant="ghost" loading={busy === `${opp.id}:skip`} disabled={busy !== null} onClick={()=>void decide(opp,"skip",qty)}>Пропустить</Button></div>
         </>}
       </article>;

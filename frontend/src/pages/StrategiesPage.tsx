@@ -48,7 +48,7 @@ export function StrategiesPage() {
         <section className={styles.card}><h2><Target size={18} />{ru ? "Вход и риск" : "Entry & risk"}</h2><ul>
           <li>{ru ? "Триггер: максимум диапазона открытия + $0.01." : "Trigger: opening-range high + $0.01."}</li>
           <li>{ru ? "Стоп ниже триггера на" : "Stop below trigger by"} {v("stop_atr_fraction")} ATR.</li>
-          <li>{ru ? "Максимальная доплата к триггеру" : "Maximum premium above trigger"}: {v("max_entry_drift_r")}R.</li>
+          <li>{ru ? "Допуск выше цены входа" : "Maximum premium above trigger"}: {v("max_entry_drift_r")}R — {ru ? "R здесь — расстояние от цены входа до стопа. Экспериментальный допуск для Paper." : "R is the distance from the trigger to the stop. Experimental Paper allowance."}</li>
           <li>{ru ? "Количество акций определяется проверкой риска счёта; параметры плана фиксируются после отбора." : "Account risk checks determine quantity; plan parameters are fixed after selection."}</li>
           <li>{ru ? "Перед отправкой проверяются котировка, цена, доступность входа и риск. Наличие плана ещё не разрешает покупку." : "Quote, price, entry availability and risk are checked before submission. A plan alone does not authorize a purchase."}</li>
         </ul></section>

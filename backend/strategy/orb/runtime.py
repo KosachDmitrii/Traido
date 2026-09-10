@@ -58,6 +58,14 @@ async def discover(
             if existing.get("version") != VERSION or saved_feed != feed_name:
                 STATUS.update(status="data_blocked", reason="ORB_SESSION_CONFIGURATION_CHANGED")
                 return dict(STATUS)
+            # This rollout is Paper-only and cannot modify a published plan.
+            from core.config import get_settings
+            from core.enums import BrokerEnvironment
+            from strategy.orb.store import upgrade_unpublished_entry_limits
+
+            if get_settings().broker_env is BrokerEnvironment.PAPER:
+                existing = upgrade_unpublished_entry_limits(day, now=now) or existing
+                STATUS.update(existing)
             return existing
         STATUS.clear()
         STATUS.update(
@@ -171,6 +179,8 @@ async def discover(
             "parameters": PARAMETERS,
             "session": day,
             "status": "ready",
+            "entry_policy_rollout": PARAMETERS["entry_policy_revision"],
+            "entry_policy_changes": [],
             "created_at": now.isoformat(),
             "counts": counts,
             "reason": None,

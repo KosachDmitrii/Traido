@@ -65,7 +65,7 @@ def test_measured_plan_has_no_score_or_manufactured_target():
     assert p.daily_atr == 4
     assert p.trigger == D("101.01")
     assert p.stop == D("100.61")
-    assert p.max_entry == D("101.11")
+    assert p.max_entry == D("101.41")
     assert p.exit_at.astimezone(ET).time() == time(15, 59)
     assert "target" not in p.model_fields
     assert "quality" not in p.model_fields
@@ -76,7 +76,7 @@ def test_measured_plan_has_no_score_or_manufactured_target():
     "bid,ask,reason",
     [
         ("101.00", "101.04", "ORB_WAITING_BREAKOUT"),  # ask alone cannot create a break
-        ("101.11", "101.12", "ORB_ENTRY_MISSED"),
+        ("101.41", "101.42", "ORB_ENTRY_MISSED"),
         ("102", "101", "ORB_QUOTE_INVALID"),
     ],
 )
@@ -85,7 +85,7 @@ def test_explicit_price_boundaries(bid, ask, reason):
 
 
 def test_approval_cannot_increase_the_limit_past_the_fixed_plan():
-    assert evaluate_trigger(plan(), quote(), now=NOW, limit_price=D("101.12")).state == "NO_TRADE"
+    assert evaluate_trigger(plan(), quote(), now=NOW, limit_price=D("101.42")).state == "NO_TRADE"
     assert (
         evaluate_trigger(plan(), quote(), now=NOW, limit_price=D("101.03")).state == "DATA_BLOCKED"
     )
@@ -154,3 +154,10 @@ def test_bad_plan_geometry_cannot_be_deserialized():
     raw["stop"] = raw["trigger"]
     with pytest.raises(ValidationError):
         OrbPlan.model_validate(raw)
+
+
+def test_wider_paper_entry_accepts_new_band_but_not_above_limit():
+    p = plan()
+    assert evaluate_trigger(p, quote("101.20", "101.21"), now=NOW).state == "BUY_ALLOWED"
+    assert evaluate_trigger(p, quote("101.40", "101.41"), now=NOW).state == "BUY_ALLOWED"
+    assert evaluate_trigger(p, quote("101.41", "101.42"), now=NOW).state == "NO_TRADE"

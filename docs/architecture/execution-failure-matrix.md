@@ -454,3 +454,18 @@ strict side boundaries, and invalid reference prices.
 | No Alpaca observed risk period | Weekly risk/drawdown unknown; entries blocked |
 | Risk store unavailable/suspended | Unknown risk; defensive execution remains available |
 | Legacy venue journal has unresolved/open state | Refuse cutover; never reconcile it through Alpaca |
+
+## Paper entry allowance rollout (2026-09-10)
+
+`paper-flex-1` widens the maximum entry premium from 0.25 to 1.0 times the
+trigger-to-stop distance. This is an experimental execution allowance, not
+validated profitability. Risk sizing uses the maximum entry price and the
+unchanged stop; the account's monetary risk cap is unchanged.
+
+| Situation | Behaviour |
+|---|---|
+| Unpublished, unexpired strict ORB plan in Paper | One-time locked revision of max entry, with old/new limit, timestamp, reason and previous parameters retained in evidence |
+| Plan already has an opportunity ID | Preserve the full original plan and its limit, regardless of opportunity status |
+| Concurrent publication with an older plan | Same session row lock and full-plan comparison refuse stale geometry |
+| Quote above the revised maximum / below trigger / stale | Refuse or wait through the existing gates; no market-order fallback |
+| Existing position or protective stop | Unchanged |

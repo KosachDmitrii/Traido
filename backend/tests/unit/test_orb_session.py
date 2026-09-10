@@ -119,3 +119,40 @@ async def test_unknown_feed_is_visible_data_block_and_never_a_fake_no_setup():
     assert result["reason"] == "ORB_UNSUPPORTED_FEED"
     assert read_session("2026-09-09") is None
     assert ctx.daily_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_paper_rollout_changes_only_unpublished_limits_and_records_old_plan():
+    from copy import deepcopy
+    from decimal import ROUND_FLOOR, Decimal
+
+    from database.models.orb import OrbSessionRow
+    from database.session import session_factory
+    from strategy.orb.store import upgrade_unpublished_entry_limits
+
+    original = await discover(Context(["AAPL", "MSFT"]), Universe(["AAPL", "MSFT"]), now=NOW)
+    legacy = deepcopy(original)
+    legacy.pop("entry_policy_rollout")
+    legacy.pop("entry_policy_changes")
+    for plan in legacy["plans"].values():
+        trigger, stop = Decimal(plan["trigger"]), Decimal(plan["stop"])
+        plan["max_entry"] = str(
+            (trigger + (trigger - stop) * Decimal("0.25")).quantize(
+                Decimal("0.01"), rounding=ROUND_FLOOR
+            )
+        )
+        plan["evidence"]["parameters"].pop("entry_policy_revision", None)
+        plan["evidence"]["parameters"]["max_entry_drift_r"] = "0.25"
+    legacy["states"]["MSFT"]["opportunity_id"] = "already-published"
+    with session_factory()() as db:
+        row = db.get(OrbSessionRow, "2026-09-09")
+        row.payload = legacy
+        db.commit()
+    upgraded = upgrade_unpublished_entry_limits("2026-09-09", now=NOW)
+    assert upgraded["plans"]["MSFT"] == legacy["plans"]["MSFT"]
+    before, after = legacy["plans"]["AAPL"], upgraded["plans"]["AAPL"]
+    assert Decimal(after["max_entry"]) > Decimal(before["max_entry"])
+    assert after["stop"] == before["stop"]
+    assert after["trigger"] == before["trigger"]
+    assert after["evidence"]["entry_policy_change"]["old_max_entry"] == before["max_entry"]
+    assert upgrade_unpublished_entry_limits("2026-09-09", now=NOW) == upgraded

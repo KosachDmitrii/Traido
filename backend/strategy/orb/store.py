@@ -1,4 +1,4 @@
-"""Session selection is write-once; updates cannot move entry/stop geometry."""
+"""Frozen session selection with an audited, one-time unpublished limit upgrade."""
 
 from copy import deepcopy
 from typing import Any
@@ -45,3 +45,65 @@ def update_state(day: str, symbol: str, state: dict[str, Any]) -> None:
             payload["states"][symbol]["opportunity_id"] = current["opportunity_id"]
         row.payload = payload
         db.commit()
+
+
+def upgrade_unpublished_entry_limits(day: str, *, now) -> dict[str, Any] | None:
+    """Apply the user-authorized Paper rollout only before any publication.
+
+    Publication takes the same row lock and compares the complete plan, so a
+    candidate evaluated against an older limit cannot commit after this change.
+    Existing proposals, positions, triggers and stops are never rewritten.
+    """
+    from decimal import ROUND_FLOOR, Decimal
+
+    from strategy.orb import PARAMETERS, OrbPlan
+
+    revision = PARAMETERS["entry_policy_revision"]
+    with session_factory()() as db:
+        row = db.scalar(select(OrbSessionRow).where(OrbSessionRow.session == day).with_for_update())
+        if row is None:
+            return None
+        payload = deepcopy(row.payload)
+        if payload.get("entry_policy_rollout") == revision:
+            return payload
+        revisions = []
+        for symbol, raw in payload.get("plans", {}).items():
+            state = payload.get("states", {}).get(symbol, {})
+            if state.get("opportunity_id"):
+                continue
+            plan = OrbPlan.model_validate(raw)
+            if now >= plan.entry_deadline:
+                continue
+            previous_parameters = plan.evidence.get("parameters", {})
+            if previous_parameters.get("entry_policy_revision") == revision:
+                continue
+            old_limit = (plan.trigger + (plan.trigger - plan.stop) * Decimal("0.25")).quantize(
+                Decimal("0.01"), rounding=ROUND_FLOOR
+            )
+            if plan.max_entry != old_limit:
+                continue
+            new_limit = (
+                plan.trigger
+                + (plan.trigger - plan.stop) * Decimal(str(PARAMETERS["max_entry_drift_r"]))
+            ).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
+            evidence = deepcopy(plan.evidence)
+            change = {
+                "symbol": symbol,
+                "revision": revision,
+                "at": now.isoformat(),
+                "old_max_entry": str(plan.max_entry),
+                "new_max_entry": str(new_limit),
+                "previous_parameters": previous_parameters,
+                "reason": "USER_REQUESTED_PAPER_ENTRY_SIMPLIFICATION",
+            }
+            evidence["entry_policy_change"] = change
+            evidence["parameters"] = deepcopy(PARAMETERS)
+            updated = {**raw, "max_entry": str(new_limit), "evidence": evidence}
+            payload["plans"][symbol] = OrbPlan.model_validate(updated).model_dump(mode="json")
+            revisions.append(change)
+        payload["entry_policy_rollout"] = revision
+        payload["entry_policy_changes"] = revisions
+        payload["parameters"] = deepcopy(PARAMETERS)
+        row.payload = payload
+        db.commit()
+        return payload
