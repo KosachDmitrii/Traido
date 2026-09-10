@@ -16,29 +16,33 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const buys = desk?.buy_opportunities ?? [];
   const planPriority = (symbol: string) => {
-    const opp = buys.find(o => o.candidate.symbol === symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0"].includes(o.candidate.strategy_version ?? ""));
+    const opp = buys.find(o => o.candidate.symbol === symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0"].includes(o.candidate.strategy_version ?? ""));
     if (!opp) return 2;
     const qty = Math.floor(Number(opp.proposed_qty ?? opp.risk?.sized_qty ?? 0));
     return opp.viability?.buyable === true && desk?.session?.entries_allowed !== false && qty > 0 ? 0 : 1;
   };
-  const plans = Object.values(desk?.orb?.plans ?? {}).sort((a, b) => planPriority(a.symbol) - planPriority(b.symbol));
+  const plans = Object.values(desk?.orb?.plans ?? {}).filter(plan => {
+    const state = desk?.orb?.states?.[plan.symbol];
+    return !["EXECUTED", "EXPIRED", "DISCARDED", "APPROVED"].includes(state?.state ?? "")
+      && !(state?.reasons ?? []).includes("ORB_ENTRY_EXPIRED");
+  }).sort((a, b) => planPriority(a.symbol) - planPriority(b.symbol));
   async function decide(opp: BuyOpportunity, decision: "approve" | "skip", qty: number) {
     setBusy(`${opp.id}:${decision}`);
     try {
       const result = await decideBuy(opp.id, decision, qty, { expectedDecisionVersion: opp.decision_version ?? 0 });
       onFlash({ kind: "ok", title: decision === "skip" ? "Предложение пропущено" : "Ответ на запрос покупки",
-        detail: decision === "skip" ? "Повторного входа по этому плану сегодня не будет." : `Статус: ${result.status ?? "получен"}. Исполнение проверяется у брокера.` });
+        detail: decision === "skip" ? "Сейчас не покупаем. План снова предложит вход после нового движения цены." : `Статус: ${result.status ?? "получен"}. Исполнение проверяется у брокера.` });
     } catch (error) {
       onFlash({ kind: "error", title: "Запрос не выполнен", detail: humanizeError(error instanceof Error ? error.message : String(error)).detail });
     } finally { setBusy(null); await onRefresh(); }
   }
   return <section className={layout === "page" ? styles.page : styles.rail}>
     {layout === "page" ? <>
-      <header className={styles.heading}><div><span className={styles.eyebrow}>ORB · ALPACA PAPER</span><h1>Торговые возможности</h1><p>От ожидания пробоя до подтверждения покупки — каждый план перед глазами.</p></div><span className={styles.mode}><ShieldCheck size={15} />Ручное подтверждение</span></header>
+      <header className={styles.heading}><div><span className={styles.eyebrow}>ORB · ALPACA PAPER</span><h1>Торговые возможности</h1><p>От наблюдения за ценой до покупки — каждый план перед глазами.</p></div><span className={styles.mode}><ShieldCheck size={15} />Ручное подтверждение</span></header>
       <div className={styles.summary}>
         <div><Layers size={18} /><span>Планы сессии</span><strong>{desk ? plans.length : "—"}</strong></div>
         <div><Clock3 size={18} /><span>Ждут цены входа</span><strong>{desk?.orb ? Object.values(desk.orb.states ?? {}).filter(s => s.state === "WAIT").length : "—"}</strong></div>
-        <div><ArrowUpRight size={18} /><span>Предложения покупки</span><strong>{desk ? buys.filter(o => ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0"].includes(o.candidate.strategy_version ?? "")).length : "—"}</strong></div>
+        <div><ArrowUpRight size={18} /><span>Предложения покупки</span><strong>{desk ? buys.filter(o => ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0"].includes(o.candidate.strategy_version ?? "")).length : "—"}</strong></div>
       </div>
       <div className={styles.sectionHead}><h2>Планы ORB</h2><span>Диапазон открытия · 09:30–09:35 ET</span></div>
     </> : <>
@@ -50,7 +54,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
     <div className={styles.grid}>
     {plans.map(plan => {
       const state = desk?.orb?.states?.[plan.symbol];
-      const opp = buys.find(o => o.candidate.symbol === plan.symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0"].includes(o.candidate.strategy_version ?? ""));
+      const opp = buys.find(o => o.candidate.symbol === plan.symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0"].includes(o.candidate.strategy_version ?? ""));
       const maxQty = Math.max(0, Math.floor(Number(opp?.proposed_qty ?? opp?.risk?.sized_qty ?? 0)));
       const qty = Math.min(maxQty, quantities[plan.symbol] ?? maxQty);
       const buyable = !!opp && opp.viability?.buyable === true && desk?.session?.entries_allowed !== false && maxQty > 0;
@@ -74,7 +78,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
             <div><dt>Покупка до</dt><dd>{etTime(plan.entry_deadline)} ET</dd></div>
             <div><dt>Закрытие позиции до</dt><dd>{etTime(plan.exit_at)} ET</dd></div>
           </dl>
-          <p className={styles.brief}>Цены в плане установлены на день. Перед покупкой проверяем цену и риск ещё раз.</p>
+          <p className={styles.brief}>{plan.version === "orb@1.4.0" ? "Эксперимент Paper: ранний вход до максимума первых 5 минут. " : ""}Цены в плане установлены на день. Перед покупкой проверяем цену и риск ещё раз.</p>
         </details>
         {opp && <>
           <label className={styles.quantity}>Количество акций <input aria-label={`Количество ${plan.symbol}`} type="number" min={1} max={maxQty} value={qty}

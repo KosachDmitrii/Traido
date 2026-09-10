@@ -96,3 +96,71 @@ def test_admission_write_failure_rolls_back_the_opportunity(monkeypatch):
         .get(result.symbol, {})
         .get("opportunity_id")
     )
+
+
+def test_skip_requires_cooldown_fresh_reset_and_new_admission():
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from core.enums import OpportunityStatus
+    from strategy.orb.store import rearm_skipped_plan
+    from trading.opportunities import OpportunityStore
+
+    result, final = proposed()
+    opp = publish_orb(result, final, TradingMode.CONFIRMATION, now=RTH_INSTANT)
+    store = OpportunityStore()
+    store.claim(
+        opp.id,
+        from_status=OpportunityStatus.AWAITING_CONFIRMATION,
+        to_status=OpportunityStatus.SKIPPED,
+    )
+    day, symbol = result.candidate.orb_plan["session"], result.symbol
+    below = final.quote.model_copy(
+        update={"bid": Decimal(result.candidate.orb_plan["trigger"]) - Decimal("0.01")}
+    )
+    assert not rearm_skipped_plan(day, symbol, str(opp.id), below, now=RTH_INSTANT)
+    later = RTH_INSTANT + timedelta(seconds=61)
+    # Unchanged above-entry prices and stale data cannot undo a skip.
+    assert not rearm_skipped_plan(
+        day, symbol, str(opp.id), final.quote.model_copy(update={"ts": later}), now=later
+    )
+    assert not rearm_skipped_plan(day, symbol, str(opp.id), below, now=later)
+    assert rearm_skipped_plan(
+        day, symbol, str(opp.id), below.model_copy(update={"ts": later}), now=later
+    )
+    assert not rearm_skipped_plan(
+        day, symbol, str(opp.id), below.model_copy(update={"ts": later}), now=later
+    )
+    state = read_session(day)["states"][symbol]
+    assert state["skipped_opportunity_ids"] == [str(opp.id)]
+    assert "opportunity_id" not in state
+    assert store.get(opp.id).status is OpportunityStatus.SKIPPED
+    with pytest.raises(ValueError, match="ORB_STALE_REARM_ADMISSION"):
+        publish_orb(result, final, TradingMode.CONFIRMATION, now=later)
+    final.quote = final.quote.model_copy(update={"ts": later + timedelta(seconds=1)})
+    new = publish_orb(result, final, TradingMode.CONFIRMATION, now=later + timedelta(seconds=1))
+    assert new.id != opp.id
+    assert new.creation_admission_record_id != opp.creation_admission_record_id
+    assert (
+        publish_orb(result, final, TradingMode.CONFIRMATION, now=later + timedelta(seconds=1)).id
+        == new.id
+    )
+
+
+@pytest.mark.parametrize("status", ["executed", "approving", "awaiting_confirmation", "discarded"])
+def test_rearm_never_releases_non_skipped_claim(status):
+    from core.enums import OpportunityStatus
+    from strategy.orb.store import rearm_skipped_plan
+    from trading.opportunities import OpportunityStore
+
+    result, final = proposed()
+    opp = publish_orb(result, final, TradingMode.CONFIRMATION, now=RTH_INSTANT)
+    if status != "awaiting_confirmation":
+        OpportunityStore().claim(
+            opp.id,
+            from_status=OpportunityStatus.AWAITING_CONFIRMATION,
+            to_status=OpportunityStatus(status),
+        )
+    day = result.candidate.orb_plan["session"]
+    assert not rearm_skipped_plan(day, result.symbol, str(opp.id), final.quote, now=RTH_INSTANT)
+    assert read_session(day)["states"][result.symbol]["opportunity_id"] == str(opp.id)

@@ -50,7 +50,7 @@ def evidence(now=NOW):
 
 def plan():
     d, o = evidence()
-    result = form_plan("AAPL", d, o, now=NOW, feed="sip")
+    result = form_plan("AAPL", d, o, now=NOW, feed="sip", version="orb@1.3.0")
     assert result.plan is not None
     return result.plan
 
@@ -186,3 +186,19 @@ def test_new_registry_version_preserves_registered_strict_parameters():
         key="orb@1.1.0", name="orb", version_tag="1.1.0", parameters=LEGACY_PARAMETERS
     )
     assert unchanged["parameter_hash"] == old["parameter_hash"]
+
+
+def test_early_paper_entry_is_lower_with_same_stop_and_chase_ceiling():
+    d, o = evidence()
+    p = form_plan("AAPL", d, o, now=NOW, feed="sip").plan
+    old = plan()
+    assert p.trigger == D("100.81") < old.trigger
+    assert p.stop == old.stop and p.max_entry == old.max_entry
+    assert evaluate_trigger(p, quote("100.81", "100.83"), now=NOW).state == "BUY_ALLOWED"
+    assert evaluate_trigger(old, quote("100.81", "100.83"), now=NOW).state == "WAIT"
+    assert evaluate_trigger(p, quote("100.80", "100.83"), now=NOW).state == "WAIT"
+    assert evaluate_trigger(p, quote("101.42", "101.44"), now=NOW).state == "NO_TRADE"
+    assert evaluate_trigger(p, None, now=NOW).state == "DATA_BLOCKED"
+    assert (
+        evaluate_trigger(p, quote(ts=NOW - timedelta(seconds=6)), now=NOW).state == "DATA_BLOCKED"
+    )

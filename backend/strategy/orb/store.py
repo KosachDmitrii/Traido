@@ -65,10 +65,8 @@ def upgrade_unpublished_entry_limits(day: str, *, now) -> dict[str, Any] | None:
 
     Publication takes the same row lock and compares the complete plan, so a
     candidate evaluated against an older limit cannot commit after this change.
-    Existing proposals, positions, triggers and stops are never rewritten.
+    Existing proposals and positions are never rewritten. Unpublished plans are rebuilt from captured source bars.
     """
-    from decimal import ROUND_FLOOR, Decimal
-
     from strategy.orb import PARAMETERS, VERSION, OrbPlan
 
     revision = PARAMETERS["entry_policy_revision"]
@@ -90,36 +88,113 @@ def upgrade_unpublished_entry_limits(day: str, *, now) -> dict[str, Any] | None:
             previous_parameters = plan.evidence.get("parameters", {})
             if previous_parameters.get("entry_policy_revision") == revision:
                 continue
-            old_limit = (plan.trigger + (plan.trigger - plan.stop) * Decimal("0.25")).quantize(
-                Decimal("0.01"), rounding=ROUND_FLOOR
+            from core.schemas import Bar
+            from strategy.orb import form_plan
+
+            rebuilt = form_plan(
+                symbol,
+                [Bar.model_validate(b) for b in plan.evidence.get("daily", [])],
+                [Bar.model_validate(b) for b in plan.evidence.get("opening", [])],
+                now=now,
+                feed=plan.source.removeprefix("alpaca:"),
+                version=VERSION,
             )
-            if plan.max_entry != old_limit:
+            if rebuilt.plan is None:
                 continue
-            new_limit = (
-                plan.trigger
-                + (plan.trigger - plan.stop) * Decimal(str(PARAMETERS["max_entry_drift_r"]))
-            ).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
-            evidence = deepcopy(plan.evidence)
+            updated = rebuilt.plan.model_dump(mode="json")
             change = {
                 "symbol": symbol,
                 "revision": revision,
                 "at": now.isoformat(),
+                "old_trigger": str(plan.trigger),
+                "new_trigger": str(rebuilt.plan.trigger),
                 "old_max_entry": str(plan.max_entry),
-                "new_max_entry": str(new_limit),
+                "new_max_entry": str(rebuilt.plan.max_entry),
                 "previous_parameters": previous_parameters,
                 "old_version": plan.version,
                 "new_version": VERSION,
                 "reason": "USER_REQUESTED_PAPER_ENTRY_SIMPLIFICATION",
             }
-            evidence["entry_policy_change"] = change
-            evidence["parameters"] = deepcopy(PARAMETERS)
-            updated = {**raw, "version": VERSION, "max_entry": str(new_limit), "evidence": evidence}
-            payload["plans"][symbol] = OrbPlan.model_validate(updated).model_dump(mode="json")
+            updated["evidence"]["entry_policy_change"] = change
+            payload["plans"][symbol] = updated
             revisions.append(change)
         payload["version"] = VERSION
         payload["entry_policy_rollout"] = revision
-        payload["entry_policy_changes"] = revisions
+        payload["entry_policy_changes"] = [*payload.get("entry_policy_changes", []), *revisions]
         payload["parameters"] = deepcopy(PARAMETERS)
         row.payload = payload
         db.commit()
         return payload
+
+
+def rearm_skipped_plan(day: str, symbol: str, opportunity_id: str, quote, *, now) -> bool:
+    """Release only a durable SKIPPED claim after cooldown and a fresh price reset.
+
+    A new proposal must pass the entire publication/admission path with a new ID.
+    Never release an executed, approving or unresolved claim.
+    """
+    from datetime import datetime, timedelta
+    from uuid import UUID
+
+    from core.enums import OpportunityStatus
+    from database.models.desk import OpportunityRow
+    from strategy.orb import OrbPlan, evaluate_trigger
+
+    with session_factory()() as db:
+        row = db.scalar(select(OrbSessionRow).where(OrbSessionRow.session == day).with_for_update())
+        if row is None:
+            return False
+        payload = deepcopy(row.payload)
+        state = payload.get("states", {}).get(symbol, {})
+        if state.get("opportunity_id") != opportunity_id:
+            return False
+        opp = db.get(OpportunityRow, UUID(opportunity_id))
+        if opp is None or opp.status != OpportunityStatus.SKIPPED.value:
+            return False
+        plan = OrbPlan.model_validate(payload["plans"][symbol])
+        if now >= plan.entry_deadline:
+            return False
+        if not state.get("skip_rearm_after"):
+            state.update(
+                state="WAIT",
+                reasons=["ORB_SKIPPED_WAITING_RESET"],
+                skip_rearm_after=(now + timedelta(seconds=60)).isoformat(),
+            )
+            payload["states"][symbol] = state
+            row.payload = payload
+            db.commit()
+            return False
+        # Reset must also be below the new entry if this skipped plan will be upgraded.
+        from core.config import get_settings
+        from core.enums import BrokerEnvironment
+        from core.schemas import Bar
+        from strategy.orb import VERSION, form_plan
+
+        reset_plan = plan
+        if get_settings().broker_env is BrokerEnvironment.PAPER and plan.version != VERSION:
+            rebuilt = form_plan(
+                symbol,
+                [Bar.model_validate(b) for b in plan.evidence.get("daily", [])],
+                [Bar.model_validate(b) for b in plan.evidence.get("opening", [])],
+                now=now,
+                feed=plan.source.removeprefix("alpaca:"),
+            )
+            if rebuilt.plan is None:
+                return False
+            reset_plan = rebuilt.plan
+        decision = evaluate_trigger(reset_plan, quote, now=now)
+        if now < datetime.fromisoformat(state["skip_rearm_after"]) or decision.reasons != [
+            "ORB_WAITING_BREAKOUT"
+        ]:
+            return False
+        # A skipped proposal cannot have reached the broker: SKIP and APPROVE share CAS.
+        state.setdefault("skipped_opportunity_ids", []).append(opportunity_id)
+        state.pop("opportunity_id")
+        state.pop("skip_rearm_after", None)
+        state.update(state="WAIT", reasons=["ORB_WAITING_BREAKOUT"], rearmed_at=now.isoformat())
+        payload["states"][symbol] = state
+        # Permit a new, versioned geometry rollout only after the skipped claim is released.
+        payload.pop("entry_policy_rollout", None)
+        row.payload = payload
+        db.commit()
+        return True

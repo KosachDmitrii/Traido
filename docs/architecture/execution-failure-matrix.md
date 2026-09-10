@@ -487,3 +487,21 @@ unchanged stop; the account's monetary risk cap is unchanged.
 | Expansion data request fails | Preserve the existing session; do not replace it with an empty selection |
 | Existing 1.1 or 1.2 proposal | Revalidate with its original version and captured parameters |
 | Additional plans become eligible | All entry, sizing, exposure and execution gates still apply |
+
+
+## Experimental early Paper entry (ORB 1.4.0) and skip rearming
+
+| Situation | Behaviour |
+|---|---|
+| New 1.4 plan | Lower the old high + one-cent trigger by min(25% opening range, 0.05 daily ATR), rounded up to cents; retain original stop and maximum entry |
+| Existing unpublished plan | Rebuild from captured bars with the new version; retain old/new geometry and parameters in evidence |
+| Already published proposal or position | Preserve geometry and execution state; final admission still uses its original policy |
+| User skips | Keep the original proposal SKIPPED; observe the plan for at least 60 seconds and require a fresh quote below the applicable entry level |
+| Fresh reset followed by qualifying entry | New opportunity ID and new creation/approval admission; historical skipped proposal stays immutable |
+| Executed, approving, discarded or unresolved claim | Never release for another entry |
+| Publication using a quote older than the reset | Refuse ORB_STALE_REARM_ADMISSION |
+| Missing/stale quote, risk cap, spread, reconciliation, account limit | Existing gates apply; no synthetic data or forced orders |
+| Finished or expired plan | Hide from active opportunities; persist history |
+
+Early entry is an experimental Paper hypothesis, not a confirmed breakout or proven improvement.
+Results of 1.4.0 are attributed separately from previous versions.

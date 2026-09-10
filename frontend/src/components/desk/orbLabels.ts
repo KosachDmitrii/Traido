@@ -1,4 +1,5 @@
 const reasons: Record<string,string> = {
+  ORB_SKIPPED_WAITING_RESET:"Пропущено сейчас. Ждём нового движения цены для повторного предложения.",
   ORB_ATTEMPT_CONSUMED:"Решение по этому плану уже принято. Повторного входа сегодня не будет.",
   ORB_PUBLICATION_UNRESOLVED:"Связь с предложением требует восстановления. Повторный вход заблокирован.",
   ORB_SIP_SUBSCRIPTION_REQUIRED:"Подписка Alpaca не разрешает свежие данные SIP. Подключите доступ к SIP в Plans & Features → Market Data. Доступ проверяется автоматически каждую минуту.",

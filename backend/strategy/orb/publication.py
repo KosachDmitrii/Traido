@@ -53,6 +53,8 @@ def publish_orb(
             if existing is None:
                 raise ValueError("ORB_PUBLICATION_UNRESOLVED")
             return _from_row(existing)
+        if state.get("rearmed_at") and final.quote.ts < datetime.fromisoformat(state["rearmed_at"]):
+            raise ValueError("ORB_STALE_REARM_ADMISSION")
         opp = TradeOpportunity(
             id=uuid4(),
             candidate=candidate,

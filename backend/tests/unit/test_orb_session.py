@@ -123,7 +123,7 @@ async def test_unknown_feed_is_visible_data_block_and_never_a_fake_no_setup():
 @pytest.mark.asyncio
 async def test_paper_rollout_changes_only_unpublished_limits_and_records_old_plan():
     from copy import deepcopy
-    from decimal import ROUND_FLOOR, Decimal
+    from decimal import Decimal
 
     from database.models.orb import OrbSessionRow
     from database.session import session_factory
@@ -133,16 +133,18 @@ async def test_paper_rollout_changes_only_unpublished_limits_and_records_old_pla
     legacy = deepcopy(original)
     legacy.pop("entry_policy_rollout")
     legacy.pop("entry_policy_changes")
-    for plan in legacy["plans"].values():
-        trigger, stop = Decimal(plan["trigger"]), Decimal(plan["stop"])
-        plan["version"] = "orb@1.1.0"
-        plan["max_entry"] = str(
-            (trigger + (trigger - stop) * Decimal("0.25")).quantize(
-                Decimal("0.01"), rounding=ROUND_FLOOR
-            )
-        )
-        plan["evidence"]["parameters"].pop("entry_policy_revision", None)
-        plan["evidence"]["parameters"]["max_entry_drift_r"] = "0.25"
+    from core.schemas import Bar
+    from strategy.orb import form_plan
+
+    for symbol, plan in legacy["plans"].items():
+        legacy["plans"][symbol] = form_plan(
+            symbol,
+            [Bar.model_validate(b) for b in plan["evidence"]["daily"]],
+            [Bar.model_validate(b) for b in plan["evidence"]["opening"]],
+            now=NOW,
+            feed="sip",
+            version="orb@1.1.0",
+        ).plan.model_dump(mode="json")
     legacy["states"]["MSFT"]["opportunity_id"] = "already-published"
     with session_factory()() as db:
         row = db.get(OrbSessionRow, "2026-09-09")
@@ -153,7 +155,7 @@ async def test_paper_rollout_changes_only_unpublished_limits_and_records_old_pla
     before, after = legacy["plans"]["AAPL"], upgraded["plans"]["AAPL"]
     assert Decimal(after["max_entry"]) > Decimal(before["max_entry"])
     assert after["stop"] == before["stop"]
-    assert after["trigger"] == before["trigger"]
+    assert Decimal(after["trigger"]) <= Decimal(before["trigger"])
     assert after["evidence"]["entry_policy_change"]["old_max_entry"] == before["max_entry"]
     assert upgrade_unpublished_entry_limits("2026-09-09", now=NOW) == upgraded
 

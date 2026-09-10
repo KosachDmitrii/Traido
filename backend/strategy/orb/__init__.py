@@ -13,8 +13,8 @@ from core.clock import ET
 from core.schemas import Bar, Quote
 from trading.session_hours import is_market_holiday, session_close, us_equity_rth_open
 
-VERSION = "orb@1.3.0"
-SUPPORTED_VERSIONS = frozenset({"orb@1.1.0", "orb@1.2.0", VERSION})
+VERSION = "orb@1.4.0"
+SUPPORTED_VERSIONS = frozenset({"orb@1.1.0", "orb@1.2.0", "orb@1.3.0", VERSION})
 # Paper implementation parameters; statistical profitability is not certified.
 PARAMETERS = {
     "opening_minutes": 5,
@@ -37,7 +37,15 @@ PARAMETERS = {
 }
 
 
-FLEX_PARAMETERS = {k: v for k, v in PARAMETERS.items() if k != "selection_scope"}
+ALL_PARAMETERS = dict(PARAMETERS)
+PARAMETERS = {
+    **ALL_PARAMETERS,
+    "entry_policy_revision": "paper-early-1",
+    "early_entry_range_fraction": "0.25",
+    "early_entry_atr_cap": "0.05",
+}
+
+FLEX_PARAMETERS = {k: v for k, v in ALL_PARAMETERS.items() if k != "selection_scope"}
 FLEX_PARAMETERS["top_n"] = 20
 LEGACY_PARAMETERS = {k: v for k, v in FLEX_PARAMETERS.items() if k != "entry_policy_revision"}
 LEGACY_PARAMETERS["max_entry_drift_r"] = "0.25"
@@ -86,7 +94,9 @@ class OrbPlan(BaseModel):
         )
         if any(not n.is_finite() or n <= 0 for n in numbers):
             raise ValueError("ORB_INVALID_GEOMETRY")
-        if not (self.stop < self.trigger <= self.max_entry) or self.trigger <= self.range_high:
+        if not (self.stop < self.trigger <= self.max_entry) or (
+            self.version != VERSION and self.trigger <= self.range_high
+        ):
             raise ValueError("ORB_INVALID_GEOMETRY")
         if any(
             t.tzinfo is None
@@ -148,7 +158,11 @@ def form_plan(
     parameters = (
         PARAMETERS
         if version == VERSION
-        else (FLEX_PARAMETERS if version == "orb@1.2.0" else LEGACY_PARAMETERS)
+        else (
+            ALL_PARAMETERS
+            if version == "orb@1.3.0"
+            else (FLEX_PARAMETERS if version == "orb@1.2.0" else LEGACY_PARAMETERS)
+        )
     )
     if now.tzinfo is None:
         return blocked("ORB_TIMEZONE_REQUIRED")
@@ -233,6 +247,16 @@ def form_plan(
     max_entry = (
         trigger + (trigger - stop) * Decimal(str(parameters["max_entry_drift_r"]))
     ).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
+    # Experimental early entry uses observed opening range, never the current price.
+    # Preserve the old stop and chase ceiling; only lower the entry threshold.
+    if version == VERSION:
+        discount = min(
+            (today.high - today.low) * Decimal(parameters["early_entry_range_fraction"]),
+            atr * Decimal(parameters["early_entry_atr_cap"]),
+        )
+        trigger = (trigger - discount).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
+        if trigger <= stop:
+            return blocked("ORB_INVALID_STOP")
     plan = OrbPlan(
         symbol=symbol.upper(),
         version=version,

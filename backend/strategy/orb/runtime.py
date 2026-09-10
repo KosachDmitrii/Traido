@@ -220,7 +220,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
     plan = OrbPlan.model_validate(stored["plans"][symbol])
     prior = stored.get("states", {}).get(symbol, {})
     if prior.get("opportunity_id"):
-        # One attempt per symbol/session; restart, skip, stop-out cannot generate another entry.
+        # Executed/unknown claims stay consumed; a skipped plan requires a fresh reset.
         from uuid import UUID
 
         from trading.opportunities import OPPORTUNITIES
@@ -235,6 +235,18 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             return result.model_copy(
                 update={"status": "data_blocked", "errors": ["ORB_PUBLICATION_UNRESOLVED"]}
             )
+        if opp.status is OpportunityStatus.SKIPPED:
+            from strategy.orb.store import rearm_skipped_plan, upgrade_unpublished_entry_limits
+
+            quoter = getattr(ctx.market_data, "get_quote", None)
+            quote = await quoter(symbol) if quoter else None
+            if rearm_skipped_plan(plan.session, symbol, str(opp.id), quote, now=now):
+                from core.config import get_settings
+                from core.enums import BrokerEnvironment
+
+                if get_settings().broker_env is BrokerEnvironment.PAPER:
+                    upgrade_unpublished_entry_limits(plan.session, now=now)
+            return result
         if opp.status is not OpportunityStatus.AWAITING_CONFIRMATION:
             update_state(
                 plan.session,
