@@ -919,7 +919,9 @@ export type OrbPlan = {
 };
 export type OrbState = { state: string; reasons: string[]; bid?: string | null; ask?: string | null;
   opportunity_id?: string; observed_at?: string; quote_at?: string };
-export type OrbSession = { status: string; feed?: string; reason?: string | null; session?: string;
+export type OrbExecution = { stage: string; opportunity_id: string; last_outcome?: string | null;
+  last_error?: string | null; retry_at?: string | null; attempts: number };
+export type OrbSession = { execution?: Record<string, OrbExecution>; status: string; feed?: string; reason?: string | null; session?: string;
   plans?: Record<string, OrbPlan>; states?: Record<string, OrbState>;
   counts?: Record<string, number>; rejection_counts?: Record<string, number> };
 

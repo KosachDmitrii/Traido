@@ -505,3 +505,15 @@ unchanged stop; the account's monetary risk cap is unchanged.
 
 Early entry is an experimental Paper hypothesis, not a confirmed breakout or proven improvement.
 Results of 1.4.0 are attributed separately from previous versions.
+
+
+## Auto-buy presentation
+
+| Situation | Behaviour |
+|---|---|
+| Auto-buy enabled | Hide manual Buy and show authoritative per-proposal state; quantity is read-only |
+| Worker queued / processing | Distinguish queued, checking admission, and checking execution; never infer a fill from a valid quote |
+| Retry after refusal | Show persisted failure reason, attempts and earliest retry time |
+| Durable execution / refusal / skip | Show terminal state even if worker flags lag; no terminal action buttons |
+| Mode or execution state changes | Included in desk ETag so the browser cannot keep stale controls via 304 |
+| Status projection | Read-only, batched database lookup; never submits or changes a trade |

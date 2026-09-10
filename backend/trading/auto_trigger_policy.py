@@ -628,3 +628,51 @@ def enqueue_auto_approve_open_buys(*, audit: Any) -> int:
 async def maybe_auto_approve_open_buys(*, audit: Any) -> int:
     """Approve every open BUY card. Tests may await this; the desk enqueues."""
     return enqueue_auto_approve_open_buys(audit=audit)
+
+
+def orb_execution_statuses(states: dict[str, Any]) -> dict[str, Any]:
+    """Read-only UI projection; queue activity never implies a broker fill."""
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from database.models.desk import OpportunityRow
+    from database.session import session_factory
+    from trading.opportunities import _from_row
+
+    ids = {}
+    for symbol, state in states.items():
+        try:
+            ids[UUID(state["opportunity_id"])] = symbol
+        except (KeyError, ValueError, TypeError):
+            continue
+    if not ids:
+        return {}
+    with _LOCK:
+        active, queued = set(_in_flight), set(_queued)
+    result = {}
+    with session_factory()() as db:
+        for row in db.scalars(select(OpportunityRow).where(OpportunityRow.id.in_(ids))):
+            opp = _from_row(row)
+            stage = row.status.upper()
+            if stage == "AWAITING_CONFIRMATION":
+                stage = (
+                    "CHECKING"
+                    if str(opp.id) in active
+                    else "QUEUED"
+                    if str(opp.id) in queued
+                    else opp.auto_trigger_last_outcome or "WAITING"
+                )
+            elif stage == "APPROVING":
+                stage = "SUBMITTED" if opp.submitted_at else "CHECKING_EXECUTION"
+            result[ids[opp.id]] = {
+                "stage": stage,
+                "opportunity_id": str(opp.id),
+                "last_outcome": opp.auto_trigger_last_outcome,
+                "last_error": opp.auto_trigger_last_error,
+                "retry_at": opp.auto_trigger_retry_at.isoformat()
+                if opp.auto_trigger_retry_at
+                else None,
+                "attempts": opp.auto_trigger_attempts,
+            }
+    return result

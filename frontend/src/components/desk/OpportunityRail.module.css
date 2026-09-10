@@ -96,3 +96,12 @@
 
 :is(.page, .rail) .actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 :is(.page, .rail) .actions > button { width: 100%; min-width: 0; height: 40px; min-height: 40px; padding: 0 10px; border-radius: 8px; font-size: 12px; line-height: 1.2; }
+
+.autoStatus { margin: 14px 0; padding: 12px; border-radius: 10px; background: #f5f6f8; border: 1px solid var(--td-border); }
+.autoTitle { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.autoStatus p { margin: 6px 0 0; font-size: 12px; line-height: 1.5; color: var(--td-text-muted); }
+.autoStatus small { display: block; margin-top: 6px; color: var(--td-text-muted); font-size: 10px; }
+.autoStatus[data-tone="active"] { background: #eff5ff; border-color: #bad2ff; }
+.autoStatus[data-tone="warning"] { background: #fff8ee; border-color: #f0d6ad; }
+.autoStatus[data-tone="success"] { background: #eaf8f2; border-color: #bde4d2; }
+:is(.page, .rail) .actions[data-auto="true"] { grid-template-columns: minmax(0, 1fr); }

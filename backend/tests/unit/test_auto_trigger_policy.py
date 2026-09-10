@@ -392,3 +392,59 @@ def test_price_wait_retry_does_not_grow_to_five_minutes(monkeypatch):
             error="LIQUIDITY_GATE_REJECTED:ORB_WAITING_BREAKOUT",
         )
         assert 4.9 <= (until - before).total_seconds() <= 5.5
+
+
+def test_execution_status_projection_preserves_retry_and_tracks_queue_without_writes():
+    from datetime import timedelta
+
+    from core.enums import TradingMode
+    from strategy.orb.publication import publish_orb
+    from tests.conftest import RTH_INSTANT
+    from tests.unit.test_orb_publication import proposed
+    from trading.opportunities import OpportunityStore
+
+    OPPORTUNITIES = OpportunityStore()
+
+    result, final = proposed()
+    opp = publish_orb(result, final, TradingMode.CONFIRMATION, now=RTH_INSTANT)
+    opp = OPPORTUNITIES.update(
+        opp.model_copy(
+            update={
+                "auto_trigger_last_outcome": "DATA_BLOCKED",
+                "auto_trigger_last_error": "LIQUIDITY_GATE_REJECTED:ORB_QUOTE_STALE",
+                "auto_trigger_retry_at": RTH_INSTANT + timedelta(seconds=30),
+                "auto_trigger_attempts": 2,
+            }
+        )
+    )
+    states = {result.symbol: {"opportunity_id": str(opp.id)}}
+    original = OPPORTUNITIES.get(opp.id).model_dump()
+    data = atp.orb_execution_statuses(states)[result.symbol]
+    assert data["stage"] == "DATA_BLOCKED" and data["attempts"] == 2
+    assert data["last_error"].endswith("ORB_QUOTE_STALE")
+    atp._queued.add(str(opp.id))
+    assert atp.orb_execution_statuses(states)[result.symbol]["stage"] == "QUEUED"
+    atp._in_flight.add(str(opp.id))
+    assert atp.orb_execution_statuses(states)[result.symbol]["stage"] == "CHECKING"
+    assert OPPORTUNITIES.get(opp.id).model_dump() == original
+
+
+def test_executed_status_wins_over_stale_worker_flags():
+    from core.enums import OpportunityStatus, TradingMode
+    from strategy.orb.publication import publish_orb
+    from tests.conftest import RTH_INSTANT
+    from tests.unit.test_orb_publication import proposed
+    from trading.opportunities import OpportunityStore
+
+    OPPORTUNITIES = OpportunityStore()
+
+    result, final = proposed()
+    opp = publish_orb(result, final, TradingMode.CONFIRMATION, now=RTH_INSTANT)
+    OPPORTUNITIES.claim(
+        opp.id,
+        from_status=OpportunityStatus.AWAITING_CONFIRMATION,
+        to_status=OpportunityStatus.EXECUTED,
+    )
+    atp._in_flight.add(str(opp.id))
+    states = {result.symbol: {"opportunity_id": str(opp.id)}}
+    assert atp.orb_execution_statuses(states)[result.symbol]["stage"] == "EXECUTED"

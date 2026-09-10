@@ -211,6 +211,9 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
         },
         "rejections": {},
     }
+    from trading.auto_trigger_policy import orb_execution_statuses
+
+    orb["execution"] = orb_execution_statuses(orb.get("states", {}))
     if (
         orb_status.get("session") == orb.get("session")
         and orb_status.get("reason") == "ORB_SESSION_CONFIGURATION_CHANGED"
@@ -364,6 +367,7 @@ def _etag_for(payload: dict) -> str:
         ],
         "pos": [(p.get("symbol"), p.get("qty")) for p in payload.get("positions") or []],
         "orb": payload.get("orb"),
+        "auto_trigger": payload.get("auto_trigger"),
         "watches": [
             (
                 w.get("id"),
