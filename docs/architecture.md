@@ -40,7 +40,7 @@ Traido will eventually touch real money. Stage 0 exists to make irreversible mis
 - Deterministic risk checks and position sizing
 - Human confirmation of BUY and discretionary SELL
 - Automatic protective stop placement after approved entry
-- Paper broker (IBKR Paper or Alpaca Paper via adapter)
+- Paper broker (Alpaca Paper via adapter)
 - Full trade journal for later Review Agent
 - Audit log of the entire decision chain
 
@@ -242,7 +242,7 @@ Reject / skip paths always write audit events with reason codes.
 | Macro | FRED | same |
 | News | Single news provider adapter | multi-source |
 | Fundamentals | Stub / optional SEC later | EDGAR XBRL |
-| Portfolio / orders | IBKR Paper **or** Alpaca Paper | Live IBKR |
+| Portfolio / orders | Alpaca Paper | Disabled |
 
 **Cost discipline:** do not bind V1 to $199/mo feeds. Interfaces must accept a richer provider later without agent changes.
 
@@ -333,7 +333,7 @@ See [`docs/architecture/vendor-lock.md`](architecture/vendor-lock.md).
 | Concern | Choice |
 |---------|--------|
 | Paper broker | **Alpaca Paper** |
-| Live broker (future) | **IBKR** (Stage 7+) |
+| Live broker (future) | Disabled; no live adapter |
 | OHLCV V1 | **Alpaca Market Data** |
 | Scale scan (future) | Massive (optional) |
 | News | **Finnhub** |
@@ -351,7 +351,7 @@ See [`docs/architecture/vendor-lock.md`](architecture/vendor-lock.md).
 - [x] V1 scope / out-of-scope accepted
 - [x] Confirm-first flow accepted
 - [x] Design tokens accepted (Cabin/MedSync soft UI locked)
-- [x] Vendor stack locked (Alpaca paper + data, IBKR live later, Finnhub, FRED, Telegram)
+- [x] Vendor stack locked (Alpaca Paper + IEX data, live disabled, Finnhub, FRED, Telegram)
 - [x] Stage 1 authorized
 
 **Stage 0 freeze complete. Stage 1 in progress.**

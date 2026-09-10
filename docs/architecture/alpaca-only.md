@@ -19,7 +19,7 @@ Sources: [Alpaca Paper rules](https://docs.alpaca.markets/us/docs/paper-trading)
 ## Implementation
 
 The removed adapter, native transport, dependency extra, broker selector,
-Gateway deployment scripts, proxy and tunnel are no longer part of the runtime.
+Socket deployment scripts, proxy and tunnel are no longer part of the runtime.
 The legacy selection PUT returns 410. GET reports Alpaca, Paper and actual feed.
 An unsupported deployment selector blocks startup/construction. Old file/Redis
 backend preferences no longer control execution. Only the exact HTTPS Paper

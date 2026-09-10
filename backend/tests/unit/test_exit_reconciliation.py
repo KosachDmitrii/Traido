@@ -537,7 +537,7 @@ async def test_a_correctly_sized_stop_is_left_alone(ledger: PositionLedger) -> N
 
 class _UnreadableBroker(_Broker):
     async def list_open_orders(self) -> list[OrderRecord]:
-        raise RuntimeError("gateway dropped the session")
+        raise RuntimeError("broker connection dropped")
 
 
 async def test_unreadable_open_orders_leave_protection_unverified_not_assumed(
