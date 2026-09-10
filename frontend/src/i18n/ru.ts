@@ -3,6 +3,9 @@ import type { MessageKey } from "./en";
 /** Russian UI copy — must cover every MessageKey. */
 
 export const ru: Record<MessageKey, string> = {
+  "agents.board.agent": "Агент",
+  "agents.board.lastResult": "Последний результат",
+
   "agents.meta.scanner.blurb": "Сканер",
   "agents.meta.scanner.tip": "Отбирает инструменты и запускает проверку торговых условий.",
   "agents.meta.context.blurb": "Контекст рынка",
@@ -372,7 +375,7 @@ export const ru: Record<MessageKey, string> = {
   "agents.node.aria": "{name}, {status}",
   "agents.pipeline.aria": "Пайплайн",
   "agents.board.title": "Доска статусов",
-  "agents.board.sub": "Компактный вид · наведите на узел за деталями",
+  "agents.board.sub": "Текущее состояние команды · нажмите на агента, чтобы раскрыть результат",
 
   "opportunities.buysTitle": "Предложения на покупку · {n}",
   "opportunities.sellsTitle": "Предложения на продажу · {n}",

@@ -1,6 +1,9 @@
 /** English UI copy — source of truth for message keys. */
 
 export const en = {
+  "agents.board.agent": "Agent",
+  "agents.board.lastResult": "Last result",
+
   "agents.meta.scanner.blurb": "Scanner",
   "agents.meta.scanner.tip": "Selects instruments and starts checking trade conditions.",
   "agents.meta.context.blurb": "Market context",
@@ -368,7 +371,7 @@ export const en = {
   "agents.node.aria": "{name}, {status}",
   "agents.pipeline.aria": "Pipeline",
   "agents.board.title": "Status board",
-  "agents.board.sub": "Compact readout · hover nodes for detail",
+  "agents.board.sub": "Team state · select an agent to see its last result",
 
   "opportunities.buysTitle": "Buy proposals · {n}",
   "opportunities.sellsTitle": "Sell proposals · {n}",

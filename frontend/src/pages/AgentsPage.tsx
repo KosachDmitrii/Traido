@@ -1,3 +1,4 @@
+import board from "./AgentBoard.module.css";
 import { useCallback, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import type { LucideIcon } from "lucide-react";
@@ -304,29 +305,30 @@ export function AgentsPage() {
         })}
       </section>
 
-      <section className="ag-sheet card">
+      <section className={board.board}>
         <div className="card-head">
           <div>
             <h2>{t("agents.board.title")}</h2>
             <div className="sub">{t("agents.board.sub")}</div>
           </div>
         </div>
-        <div className="ag-sheet__rows">
+        <div className={board.tableHead} aria-hidden="true"><span>{t("agents.board.agent")}</span><span>{t("agents.tip.status")}</span><span>{t("agents.tip.symbol")}</span><span>{t("agents.tip.score")}</span><span>{t("agents.tip.updated")} · ET</span></div>
+        <div className={board.rows}>
           {ordered.map((a) => {
             const meta = AGENT_META[a.id];
             const Icon = meta?.icon ?? Cpu;
             const status = agentDisplayStatus(a);
             return (
-              <div className={`ag-row ag-row--${status}`} key={a.id}>
-                <span className={`ag-row__ico ag-row__ico--${meta?.accent || "taupe"}`}>
-                  <Icon size={14} strokeWidth={1.5} absoluteStrokeWidth aria-hidden />
-                </span>
-                <strong>{a.name}</strong>
-                <span className={`ag-row__pill ag-row__pill--${status}`}>{statusLabel(status, t)}</span>
-                <span className="ag-row__score mono">{formatScore(a, t)}</span>
-                <span className="ag-row__detail">{a.detail || a.last_symbol || "—"}</span>
-                <span className="ag-row__time mono">{formatExchangeTime(a.updated_at)}</span>
-              </div>
+              <details className={board.row} data-status={status} key={a.id}>
+                <summary>
+                  <span className={board.identity}><span className={board.icon}><Icon size={17} strokeWidth={1.5} aria-hidden /></span><span><strong>{a.name}</strong><small>{meta ? t(meta.blurbKey) : ""}</small></span></span>
+                  <span className={board.status}><i />{statusLabel(status, t)}</span>
+                  <span className={board.symbol}>{a.last_symbol || "—"}</span>
+                  <span className={board.score}>{formatScore(a, t)}</span>
+                  <span className={board.updated}><time title={formatExchangeDateTime(a.updated_at)}>{formatExchangeTime(a.updated_at)}</time><ChevronRight size={14} aria-hidden /></span>
+                </summary>
+                <div className={board.detail}><strong>{t("agents.board.lastResult")}</strong><p>{a.detail || t("agents.waiting")}</p></div>
+              </details>
             );
           })}
         </div>
