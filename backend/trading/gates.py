@@ -99,8 +99,8 @@ def measure_spread(
     A quote older than `max_age_sec` is reported STALE rather than used: in a
     fast tape a two-minute-old spread describes a market that no longer exists.
 
-    When ``last_price`` is supplied on IEX, spread uses buy-side friction vs
-    the last print when it sits inside the book (see ``entry_spread``).
+    Spread always uses the observed bid and ask. A last trade cannot make
+    a wide or uncertain quote acceptable.
     """
     if quote is None:
         return SPREAD_UNAVAILABLE

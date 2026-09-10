@@ -1,6 +1,6 @@
 """Unified entry spread gate — desk preview, WAIT, admission, and approve.
 
-One measurement rule (IEX buy-friction vs last print; SIP full book), one
+One measurement rule (full observed bid/ask width on every feed), one
 ceiling from ``get_entry_thresholds()``, one feed resolver (IEX on paper, SIP
 on live unless ``ALPACA_DATA_FEED`` overrides).
 """
@@ -47,7 +47,7 @@ def resolve_spread_reference_price(
     facts_price: float | None = None,
     card_entry: float | None = None,
 ) -> float | None:
-    """Canonical last for IEX buy-friction — tape first, then live facts, then mid."""
+    """Reference price for diagnostics only; never a replacement for bid/ask."""
     if tape_last is not None and tape_last > 0:
         return float(tape_last)
     if facts_price is not None and facts_price > 0:

@@ -29,7 +29,7 @@ def test_resolve_reference_prefers_tape_last() -> None:
     assert resolve_spread_reference_price(q, tape_last=100.0, card_entry=99.0) == 100.0
 
 
-def test_iex_uses_buy_friction_not_book_width() -> None:
+def test_iex_wide_book_rejected_despite_nearby_last() -> None:
     q = _quote(90.0, 100.01)
     now = RTH_INSTANT.astimezone(UTC)
     th = thresholds_for(0)
@@ -41,8 +41,8 @@ def test_iex_uses_buy_friction_not_book_width() -> None:
         feed="iex",
     )
     assert gate.bps is not None
-    assert gate.bps < 5.0
-    assert gate.acceptable is True
+    assert gate.bps > 1000
+    assert gate.acceptable is False
 
 
 def test_desk_and_admission_share_same_gate_at_weak_level() -> None:

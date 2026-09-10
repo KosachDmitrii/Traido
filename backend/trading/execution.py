@@ -1593,6 +1593,51 @@ class ExecutionService:
                 )
                 if check.state != "BUY_ALLOWED":
                     raise ValueError(",".join(check.reasons))
+                plan = OrbPlan.model_validate(inp.orb_plan)
+                if (
+                    intent.symbol != plan.symbol
+                    or inp.strategy_version != plan.version
+                    or intent.limit_price is None
+                    or inp.limit_price is None
+                    or intent.limit_price > inp.limit_price
+                ):
+                    raise ValueError("ORB_GEOMETRY_CHANGED")
+                # Approval is historical evidence, not the latest executable quote.
+                fresh_quote, fresh_spread, _ = await self._top_of_book(intent.symbol)
+                fresh_check = evaluate_trigger(
+                    plan, fresh_quote, now=self._clock(), limit_price=intent.limit_price
+                )
+                reasons = [] if fresh_check.state == "BUY_ALLOWED" else list(fresh_check.reasons)
+                if not fresh_spread.is_live or fresh_spread.bps is None:
+                    reasons.append("LIVE_QUOTE_REQUIRED")
+                elif fresh_spread.bps > self.liquidity_policy.max_spread_bps:
+                    reasons.append("SPREAD_TOO_WIDE")
+                await self.audit.append(
+                    "EntrySubmissionPriceChecked",
+                    "execution",
+                    {
+                        "intent_id": str(intent.id),
+                        "symbol": intent.symbol,
+                        "strategy_version": plan.version,
+                        "limit_price": str(intent.limit_price),
+                        "plan_ceiling": str(plan.max_entry),
+                        "quote": fresh_quote.model_dump(mode="json") if fresh_quote else None,
+                        "spread_bps": fresh_spread.bps,
+                        "max_spread_bps": self.liquidity_policy.max_spread_bps,
+                        "reasons": reasons,
+                    },
+                    pipeline_run_id=opp.candidate.pipeline_run_id,
+                    entity_type="order_intent",
+                    entity_id=str(intent.id),
+                )
+                if reasons:
+                    raise ValueError(",".join(reasons))
+                # Audit persistence itself may have taken long enough to expire the quote.
+                last_check = evaluate_trigger(
+                    plan, fresh_quote, now=self._clock(), limit_price=intent.limit_price
+                )
+                if last_check.state != "BUY_ALLOWED":
+                    raise ValueError(",".join(last_check.reasons))
             except ValueError as exc:
                 # The broker was never contacted; this is a known rejection, not UNKNOWN.
                 self.intents.transition(intent.id, IntentStatus.REJECTED, last_error=str(exc))

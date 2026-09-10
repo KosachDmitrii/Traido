@@ -92,7 +92,7 @@ def test_3_a_stale_quote_refuses_the_entry(desk) -> None:
 
 
 def test_4_a_wide_spread_refuses_the_entry(desk) -> None:
-    """Spread refusal uses IEX buy-friction vs last — not raw book width alone."""
+    """A wide observed book blocks entry, regardless of the last traded price."""
     from trading.entry_policy import get_entry_thresholds
 
     th = get_entry_thresholds()

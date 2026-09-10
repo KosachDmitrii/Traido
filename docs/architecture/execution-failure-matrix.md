@@ -560,3 +560,21 @@ User decision (2026-09-10): buy at or below the displayed entry reference; do no
 | Skipped plan | After cooldown, require a fresh price above the new ceiling to rearm; a subsequent qualifying pullback needs new admission |
 
 Regression coverage: policy price boundaries; real execution path with zero broker orders above ceiling and a capped LIMIT plus protection within it; migration versus proposal statuses; old publication/approval rejection; retry timing.
+
+
+## Last-hop entry price check
+
+| Situation | Behaviour |
+|---|---|
+| Quote changes after approval commit | Re-read quote before broker submission; evaluate against the immutable plan and approved limit |
+| Offer above ceiling, bid below stop, stale/missing quote, or spread above existing cap | Reject unsubmitted intent; zero broker orders |
+| Request would exceed the sealed approval limit or mismatches the plan symbol/version | ORB_GEOMETRY_CHANGED; zero broker orders |
+| Submission-check audit takes too long | Recheck quote age after audit; reject expired evidence |
+| Price check passes | Persist observed quote, spread, ceiling and limit; send the original capped LIMIT only |
+
+A capped limit constrains execution price, not future market value. This guard does not certify a profitable entry.
+
+| IEX last print near/above ask despite a wide book | Use full observed bid/ask width; last price cannot reduce measured spread to zero |
+| Nonfinite or crossed quote | Spread unavailable; never admit |
+
+Regression: AXP screenshot 318.55/320.98 measures 75.99 bps regardless of last print, exceeding the default 30 bps execution cap. This later quote is not evidence of the historical submission quote.
