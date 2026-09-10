@@ -1,0 +1,30 @@
+.strategy { border-top: 3px solid var(--td-accent); }
+.subtitle { margin: 8px 0 18px; color: var(--td-text-muted); font-size: 13px; line-height: 1.6; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 20px 0; }
+.metrics > div { min-width: 0; padding: 16px; border: 1px solid var(--td-border); border-radius: 12px; background: var(--td-bg); }
+.metrics dt { margin-bottom: 10px; color: var(--td-text-muted); font-size: 12px; line-height: 1.5; }
+.metrics dd { margin: 0; font-size: 17px; font-weight: 600; line-height: 1.4; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.metrics small { font-size: 11px; color: var(--td-text-muted); }
+.note { font-size: 12px; line-height: 1.6; color: var(--td-text-muted); margin: 0; }
+.badge { display: inline-flex; align-items: center; flex-shrink: 0; padding: 6px 10px; border-radius: 8px; background: #eff6ff; color: #2563eb; font-size: 11px; font-weight: 600; }
+.ready { color: #008664; }
+.badge.ready { background: #e6f6f0; }
+.details { margin: 16px 0; color: var(--td-text-muted); font-size: 12px; line-height: 1.7; }
+.details summary { cursor: pointer; font-weight: 600; color: var(--td-text); padding: 8px 0; }
+.details p { margin: 8px 0; }
+.account { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.risk { margin-top: 24px; padding-top: 24px; border-top: 1px solid var(--td-border); }
+.heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.heading h4 { font-size: 17px; margin: 0; }
+.notice { padding: 14px 16px; border: 1px solid #f0dfba; border-radius: 10px; background: #fffbf2; color: #806137; font-size: 12px; line-height: 1.7; }
+.actions { display: flex; align-items: flex-start; flex-direction: column; gap: 16px; margin-top: 20px; }
+.confirm { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; line-height: 1.6; cursor: pointer; }
+.confirm input { width: 18px; height: 18px; margin-top: 2px; flex-shrink: 0; accent-color: var(--td-accent); }
+.error { color: #be123c; font-size: 13px; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .metrics { grid-template-columns: 1fr; gap: 8px; }
+  .metrics > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px; }
+  .metrics dt { margin: 0; }
+  .metrics dd { text-align: right; font-size: 15px; }
+  .actions > button { width: 100%; }
+}

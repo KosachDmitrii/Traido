@@ -1,10 +1,12 @@
+import panels from "@/styles/SettingsPanels.module.css";
 import { useEffect, useState } from "react";
-import { useT } from "@/i18n/I18nProvider";
+import { useI18n } from "@/i18n/I18nProvider";
 import { invalidateDeskEtag, paperRiskPeriod, type PaperRiskSnapshot } from "@/lib/api";
-import { Button } from "@/ui";
+import { Button, LoadingDots } from "@/ui";
 
 export function PaperRiskPeriod() {
-  const t = useT();
+  const { t, locale } = useI18n();
+  const ru = locale === "ru";
   const [snapshot, setSnapshot] = useState<PaperRiskSnapshot | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -38,22 +40,28 @@ export function PaperRiskPeriod() {
   }
   const active = snapshot?.risk_history_status === "observed_period";
   const startable = snapshot?.risk_history_status === "not_started";
-  return <section aria-label={t("riskPeriod.title")}>
-    <h4>{t("riskPeriod.title")}</h4>
-    <p className="settings-card__lead">{t("riskPeriod.description")}</p>
-    {error && <p role="alert">{error}</p>}
+  const money = (value: string | number | null | undefined) => value == null ? "—" : new Intl.NumberFormat(ru ? "ru-RU" : "en-US", { style: "currency", currency: "USD" }).format(Number(value));
+  const status = active ? (ru ? "Наблюдение активно" : "Observation active") : startable ? (ru ? "Не начат" : "Not started") : snapshot?.risk_history_status === "suspended" ? (ru ? "Приостановлен" : "Suspended") : (ru ? "Статус недоступен" : "Status unavailable");
+  return <section className={panels.risk} aria-label={t("riskPeriod.title")}>
+    <div className={panels.heading}><h4>{ru ? "Учёт риска" : "Risk tracking"}</h4><span className={`${panels.badge} ${active ? panels.ready : ""}`}>{status}</span></div>
+    <p className={panels.subtitle}>{ru ? "Капитал и просадка с начала наблюдения." : "Equity and drawdown since observation began."}</p>
+    {error && <p role="alert" className={panels.error}>{error}</p>}
+    {!snapshot && !error && <LoadingDots ariaLabel={t("common.loading")} />}
     {snapshot && <>
-      <p>{t("riskPeriod.account", { account: snapshot.risk_account_id ?? "—", equity: snapshot.equity })}</p>
-      <p>{t("riskPeriod.status", { status: snapshot.risk_history_status ?? "—" })}</p>
-      {snapshot.risk_period_started_at && <p>{t("riskPeriod.started", { date: new Date(snapshot.risk_period_started_at).toLocaleString() })}</p>}
-      {active && <p>{t("riskPeriod.metrics", { pnl: snapshot.week_pnl ?? "—", dd: snapshot.drawdown_pct?.toFixed(2) ?? "—" })}</p>}
-      <p className="settings-card__lead">{t("riskPeriod.fundingWarning")}</p>
-      {(active || startable) && <>
-        <label><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} /> {t(active ? "riskPeriod.confirmSuspend" : "riskPeriod.confirmStart")}</label>
-        <div className="settings-card__actions"><Button loading={busy} disabled={busy || !confirmed} onClick={() => void commit(active ? "suspend" : "start")}>
+      <dl className={panels.metrics}>
+        <div><dt>{ru ? "Текущий капитал" : "Current equity"}</dt><dd>{money(snapshot.equity)}</dd></div>
+        <div><dt>{ru ? "Изменение от наблюдаемой базы недели" : "Change from observed weekly baseline"}</dt><dd>{active ? money(snapshot.week_pnl) : "—"}</dd></div>
+        <div><dt>{ru ? "Наблюдаемая просадка" : "Observed drawdown"}</dt><dd>{active && snapshot.drawdown_pct != null ? `${snapshot.drawdown_pct.toFixed(2)}%` : "—"}</dd></div>
+      </dl>
+      {snapshot.risk_period_started_at && <p className={panels.subtitle}>{t("riskPeriod.started", { date: new Date(snapshot.risk_period_started_at).toLocaleString(ru ? "ru-RU" : "en-US") })}</p>}
+      <details className={panels.details}><summary>{ru ? "Как рассчитываются показатели" : "How metrics are calculated"}</summary><p>{t("riskPeriod.description")}</p><p className={panels.account}>{ru ? "Счёт: " : "Account: "}{snapshot.risk_account_id ?? "—"}</p></details>
+      <div className={panels.notice}>{t("riskPeriod.fundingWarning")}</div>
+      {(active || startable) && <div className={panels.actions}>
+        <label className={panels.confirm}><input type="checkbox" checked={confirmed} disabled={busy} onChange={e => setConfirmed(e.target.checked)} /><span>{t(active ? "riskPeriod.confirmSuspend" : "riskPeriod.confirmStart")}</span></label>
+        <Button variant={active ? "light" : "accent"} loading={busy} disabled={busy || !confirmed} onClick={() => void commit(active ? "suspend" : "start")}>
           {t(active ? "riskPeriod.suspend" : "riskPeriod.start")}
-        </Button></div>
-      </>}
+        </Button>
+      </div>}
     </>}
   </section>;
 }

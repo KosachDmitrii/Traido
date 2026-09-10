@@ -1,3 +1,4 @@
+import panels from "@/styles/SettingsPanels.module.css";
 import { runScanner, setKillSwitch, setAutoTrigger } from "@/lib/api";
 import { executionBrokerLabelKey } from "@/lib/brokerLabel";
 import { PaperRiskPeriod } from "@/components/desk/PaperRiskPeriod";
@@ -169,7 +170,7 @@ export function SettingsPage() {
 
       <article className="settings-card">
         <div className="settings-card__body">
-          <h3>{locale === "ru" ? "Автоматическая покупка · Alpaca Paper" : "Automatic buying · Alpaca Paper"}</h3>
+          <h3>{locale === "ru" ? "Автоматическая покупка" : "Automatic buying"}</h3>
           <p className="settings-card__lead">{locale === "ru"
             ? "При включении система сама покупает по допущенным планам ORB, включая уже ожидающие предложения. Перед каждой покупкой заново проверяются цена, срок входа и риск."
             : "When enabled, eligible ORB plans are bought automatically, including pending proposals. Price, entry deadline and risk are rechecked before every purchase."}</p>
@@ -187,11 +188,19 @@ export function SettingsPage() {
         </div>
       </article>
 
-      <article className="settings-card"><div className="settings-card__body">
-        <h3>Opening Range Breakout · Paper</h3>
-        <p>Диапазон 09:30–09:35 ET, отбор по относительному объёму. Геометрия фиксируется на сессию. Вход — ручное подтверждение или автоматическая покупка Paper, выход — стоп или конец сессии.</p>
-        <p>Котировки и объёмы: Alpaca {(desk?.orb?.feed ?? "iex").toUpperCase()}{(desk?.orb?.feed ?? "iex") === "iex" ? " (данные одной биржи)" : ""}. Позиции и исполнение: Alpaca Paper. Ограничения риска счёта проверяются перед каждым ордером.</p>
-      </div></article>
+      <article className={`settings-card ${panels.strategy}`}>
+        <div className="settings-card__body">
+          <div className="settings-card__head"><h3>Opening Range Breakout</h3><span className={panels.badge}>ORB · Paper</span></div>
+          <p className={panels.subtitle}>{locale === "ru" ? "План на сессию: от диапазона открытия до выхода из позиции." : "A session plan, from the opening range to the position exit."}</p>
+          <dl className={panels.metrics}>
+            <div><dt>{locale === "ru" ? "Диапазон открытия" : "Opening range"}</dt><dd>09:30–09:35 <small>ET</small></dd></div>
+            <div><dt>{locale === "ru" ? "Отбор" : "Selection"}</dt><dd>{locale === "ru" ? "Относительный объём" : "Relative volume"}</dd></div>
+            <div><dt>{locale === "ru" ? "Вход" : "Entry"}</dt><dd>{!trigger ? "—" : trigger.enabled ? (locale === "ru" ? "Автоматический" : "Automatic") : (locale === "ru" ? "С подтверждением" : "Confirmation")}</dd></div>
+            <div><dt>{locale === "ru" ? "Выход" : "Exit"}</dt><dd>{locale === "ru" ? "Стоп / конец сессии" : "Stop / session close"}</dd></div>
+          </dl>
+          <p className={panels.note}>{locale === "ru" ? "Параметры плана фиксируются на сессию. Цена и риск проверяются перед каждым ордером." : "Plan parameters are fixed for the session. Price and risk are checked before every order."}</p>
+        </div>
+      </article>
 
       <article className="settings-card">
         <div className="settings-card__icon" aria-hidden>
@@ -204,26 +213,17 @@ export function SettingsPage() {
               {t(executionBrokerLabelKey(desk?.broker_backend?.backend))}
             </span>
           </div>
-          <p className="settings-card__lead">{t("settings.broker.lead")}</p>
-          <ul className="settings-points">
-            <li>{t("settings.broker.what", { feed: (desk?.orb?.feed ?? "iex").toUpperCase() })}</li>
-            <li>{t("settings.broker.keeps")}</li>
-            <li>{t("settings.broker.hint")}</li>
-          </ul>
-          <p className="settings-card__lead">
-            {t("settings.broker.status", {
-              state: brokerConnectionStateLabel(t, desk?.broker_backend?.connection_state),
-            })}
-            {desk?.broker_backend?.broker_class
-              ? ` · ${t("settings.broker.class", { name: desk.broker_backend.broker_class })}`
-              : null}
-            {desk?.broker_backend?.environment
-              ? ` · ${desk.broker_backend.environment}`
-              : null}
-            {desk?.broker_backend?.account_id
-              ? ` · ${t("settings.broker.account", { id: desk.broker_backend.account_id })}`
-              : null}
-          </p>
+          <dl className={panels.metrics}>
+            <div><dt>{locale === "ru" ? "Подключение" : "Connection"}</dt><dd className={desk?.broker_backend?.connection_state?.toUpperCase() === "READY" ? panels.ready : undefined}>{brokerConnectionStateLabel(t, desk?.broker_backend?.connection_state)}</dd></div>
+            <div><dt>{locale === "ru" ? "Рыночные данные" : "Market data"}</dt><dd>Alpaca {desk?.orb?.feed?.toUpperCase() ?? "—"}</dd></div>
+            <div><dt>{locale === "ru" ? "Среда исполнения" : "Execution environment"}</dt><dd>{desk?.broker_backend?.environment ?? "—"}</dd></div>
+          </dl>
+          <details className={panels.details}>
+            <summary>{locale === "ru" ? "Счёт и особенности исполнения" : "Account and execution details"}</summary>
+            <p className={panels.account}>{desk?.broker_backend?.account_id ?? "—"}</p>
+            <p>{t("settings.broker.keeps")}</p>
+            <p>{t("settings.broker.hint")}</p>
+          </details>
           {desk?.broker_backend?.broker_class === "MockPaperBroker" ? (
             <p className="settings-card__lead">{t("settings.broker.mockWarning")}</p>
           ) : null}
