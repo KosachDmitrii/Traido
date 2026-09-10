@@ -393,6 +393,7 @@ class ExecutionService:
             "orb@1.3.0",
             "orb@1.4.0",
             "orb@1.5.0",
+            "orb@2.0.0",
         }:
             raise RuntimeError("STRATEGY_RETIRED:ORB_REQUIRED")
 
@@ -700,6 +701,7 @@ class ExecutionService:
             "orb@1.3.0",
             "orb@1.4.0",
             "orb@1.5.0",
+            "orb@2.0.0",
         }:
             from strategy.orb import OrbPlan, evaluate_trigger
 
@@ -914,11 +916,17 @@ class ExecutionService:
             )
             raise RuntimeError(f"ENTRY_STATE_UNKNOWN:{exc}") from exc
 
+        entry_wait = self.fill_timeout
+        if opp.candidate.strategy_version == "orb@2.0.0":
+            until = datetime.fromisoformat(
+                opp.candidate.orb_plan["evidence"]["retest"]["valid_until"]
+            )
+            entry_wait = min(entry_wait, max(0.0, (until - self._clock()).total_seconds()))
         try:
             entry_fill = await wait_for_fill(
                 self.broker,
                 entry_submitted.broker_order_id or "",
-                timeout_sec=self.fill_timeout,
+                timeout_sec=entry_wait,
             )
         except RuntimeError as exc:
             settled, settled_status = await self._settle_stalled_entry(
@@ -1193,6 +1201,7 @@ class ExecutionService:
             "orb@1.3.0",
             "orb@1.4.0",
             "orb@1.5.0",
+            "orb@2.0.0",
         }:
             from strategy.orb import OrbPlan, evaluate_trigger
 
@@ -1565,6 +1574,7 @@ class ExecutionService:
             "orb@1.3.0",
             "orb@1.4.0",
             "orb@1.5.0",
+            "orb@2.0.0",
         }:
             from strategy.orb import OrbPlan, evaluate_trigger
             from trading.admission_records import ADMISSION_RECORDS
@@ -1820,7 +1830,29 @@ class ExecutionService:
             )
             return None, IntentStatus.UNKNOWN
 
+        if final.status not in {
+            OrderStatus.FILLED,
+            OrderStatus.CANCELED,
+            OrderStatus.REJECTED,
+            OrderStatus.EXPIRED,
+        }:
+            self._mark_unknown(intent, "entry cancellation not terminal")
+            await self.audit.append(
+                "EntryStateUnknown",
+                "execution",
+                {
+                    "order_id": oid,
+                    "intent_id": str(intent.id),
+                    "broker_status": final.status.value,
+                    "note": "entry cancellation not terminal",
+                },
+                pipeline_run_id=pipeline_run_id,
+            )
+            return None, IntentStatus.UNKNOWN
         if (final.filled_qty or Decimal(0)) <= 0:
+            if final.status is OrderStatus.FILLED:
+                self._mark_unknown(intent, "filled entry without reported quantity")
+                return None, IntentStatus.UNKNOWN
             self._safe_transition(
                 intent, IntentStatus.CANCELED, last_broker_state=final.status.value
             )

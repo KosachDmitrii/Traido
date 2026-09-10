@@ -56,7 +56,7 @@ async def test_changed_quote_after_approval_checked_at_broker_boundary(mode):
     from broker.paper.mock import MockPaperBroker
     from core.enums import TradingMode
     from risk.risk_engine import RiskEngine
-    from strategy.orb import VERSION
+    from strategy.orb import PULLBACK_VERSION as VERSION
     from tests.orb_support import orb_ready_candidate
     from tests.support import CLEARED_EARNINGS, admission_ready_candidate, liquid_market_data
     from trading.opportunities import MemoryOpportunityStore

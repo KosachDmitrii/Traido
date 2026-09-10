@@ -47,7 +47,7 @@ export function PositionsPage() {
           <dl className={styles.levels}>
             <div><dt>{t("positions.col.avg")}</dt><dd>{money(p.avg_entry)}</dd></div>
             <div><dt>{ru ? "Стоп по плану" : "Planned stop"}</dt><dd>{Number(p.qty) < 0 ? "—" : money(p.stop)}</dd></div>
-            <div><dt>{ru ? "План выхода" : "Exit plan"}</dt><dd>{p.exit_policy === "session_close" ? (ru ? "До закрытия сессии" : "Before session close") : money(p.target)}</dd></div>
+            <div><dt>{ru ? "План выхода" : "Exit plan"}</dt><dd>{p.strategy_version === "orb@2.0.0" && p.target ? `${money(p.target)} · ${ru ? "стоп / время" : "stop / time"}` : p.exit_policy === "session_close" ? (ru ? "До закрытия сессии" : "Before session close") : money(p.target)}</dd></div>
             <div><dt>{t("positions.col.strategy")}</dt><dd>{p.strategy_version || "—"}</dd></div>
           </dl>
           {p.ledger_linked === false && <p className={styles.notice}>{t("desk.positions.unlinked")}</p>}

@@ -34,7 +34,10 @@ def publish_orb(
         raise ValueError("ORB_ADMISSION_REQUIRED")
     plan = OrbPlan.model_validate(candidate.orb_plan)
     now = now or datetime.now(UTC)
-    if now >= plan.entry_deadline:
+    deadline = plan.entry_deadline
+    if plan.version == "orb@2.0.0":
+        deadline = min(deadline, datetime.fromisoformat(plan.evidence["retest"]["valid_until"]))
+    if now >= deadline:
         raise ValueError("ORB_ENTRY_EXPIRED")
     with session_factory()() as db:
         row = db.scalar(
@@ -62,7 +65,7 @@ def publish_orb(
             status=OpportunityStatus.AWAITING_CONFIRMATION,
             trading_mode=mode,
             created_at=now,
-            expires_at=plan.entry_deadline,
+            expires_at=deadline,
             proposed_qty=risk.sized_qty,
             signal_detected_at=now,
             signal_price=plan.trigger,
@@ -103,6 +106,8 @@ def publish_orb(
             "reasons": [
                 "ORB_PRICE_WITHIN_LIMIT"
                 if plan.version == "orb@1.5.0"
+                else "ORB_RETEST_CONFIRMED"
+                if plan.version == "orb@2.0.0"
                 else "ORB_BREAKOUT_CONFIRMED"
             ],
             "opportunity_id": str(opp.id),

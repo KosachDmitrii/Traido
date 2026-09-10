@@ -39,6 +39,8 @@ def evaluate_sealed(inp: AdmissionInput) -> TradeAdmissionResult:
         or [
             "ORB_PRICE_WITHIN_LIMIT"
             if inp.strategy_version == "orb@1.5.0"
+            else "ORB_RETEST_CONFIRMED"
+            if inp.strategy_version == "orb@2.0.0"
             else "ORB_BREAKOUT_CONFIRMED"
         ],
         admission_version=inp.strategy_version,
@@ -101,6 +103,24 @@ async def final_admission(
     if rebuilt.plan is None:
         raise PretradeRejection("ORB_INVALIDATED", ",".join(rebuilt.reasons))
     fresh = rebuilt.plan
+    assessed_bars = opening
+    from strategy.orb import VERSION
+
+    if plan.version == VERSION:
+        from strategy.orb.retest import rebuild
+        from strategy.orb.retest_data import read_bars
+
+        rows = await read_bars(market_data, plan, now=now)
+        after_raw = plan.evidence.get("retest", {}).get("after")
+        replay = rebuild(
+            fresh, rows, now=now, after=datetime.fromisoformat(after_raw) if after_raw else None
+        )
+        if replay.state == "DATA_BLOCKED":
+            raise PretradeRejection("DATA_BLOCKED", ",".join(replay.reasons))
+        if replay.plan is None or replay.plan.evidence.get("retest") != plan.evidence.get("retest"):
+            raise PretradeRejection("ORB_INVALIDATED", ",".join(replay.reasons))
+        fresh = replay.plan
+        assessed_bars = opening + rows
     for key in ("trigger", "stop", "max_entry", "session", "entry_deadline", "exit_at"):
         if getattr(plan, key) != getattr(fresh, key):
             raise PretradeRejection("ORB_GEOMETRY_CHANGED", key)
@@ -125,9 +145,9 @@ async def final_admission(
         setup_type=SetupType.BREAKOUT_CONTINUATION,
         setup_quality=0,
         quote=quote,
-        bars_count=len(opening),
+        bars_count=len(assessed_bars),
         bar_timeframe="5m",
-        last_bar_ts=max(b.ts for b in opening),
+        last_bar_ts=max(b.ts for b in assessed_bars),
         market=market,
         sector_label=sector_label,
         sector_tradable=sector_tradable,
@@ -154,7 +174,7 @@ async def final_admission(
         quote=quote,
         snapshot=None,
         market_gate=gate,
-        bars_count=len(opening),
+        bars_count=len(assessed_bars),
         evaluated_at=now,
         last_bar_ts=inp.last_bar_ts,
         geometry_hash=gh,

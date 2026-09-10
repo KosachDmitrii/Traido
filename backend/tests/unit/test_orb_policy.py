@@ -206,7 +206,7 @@ def test_early_paper_entry_is_lower_with_same_stop_and_chase_ceiling():
 
 def test_pullback_policy_buys_below_reference_never_above_or_below_stop():
     d, o = evidence()
-    p = form_plan("AAPL", d, o, now=NOW, feed="sip").plan
+    p = form_plan("AAPL", d, o, now=NOW, feed="sip", version="orb@1.5.0").plan
     assert p.trigger == p.max_entry == D("100.81")
     assert p.stop == D("100.61")
     assert evaluate_trigger(p, quote("100.79", "100.81"), now=NOW).state == "BUY_ALLOWED"

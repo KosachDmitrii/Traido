@@ -188,7 +188,8 @@ async def discover(
             "reason": None,
             "plans": {p.symbol: p.model_dump(mode="json") for p in selected},
             "states": {
-                p.symbol: {"state": "WAIT", "reasons": ["ORB_WAITING_PULLBACK"]} for p in selected
+                p.symbol: {"state": "WAIT", "reasons": ["ORB_RETEST_WAIT_BREAKOUT"]}
+                for p in selected
             },
             "rejections": rejected,
             "rejection_counts": dict(Counter(r for rs in rejected.values() for r in rs)),
@@ -219,6 +220,118 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         return result.model_copy(update={"status": "no_trade", "errors": ["ORB_NOT_SELECTED"]})
     plan = OrbPlan.model_validate(stored["plans"][symbol])
     prior = stored.get("states", {}).get(symbol, {})
+    if plan.version == VERSION:
+        from uuid import UUID
+
+        from strategy.orb.retest import rebuild
+        from strategy.orb.retest_data import read_bars
+        from strategy.orb.store import replace_unclaimed_plan
+        from trading.opportunities import OPPORTUNITIES
+
+        linked = (
+            OPPORTUNITIES.get(UUID(prior["opportunity_id"]))
+            if prior.get("opportunity_id")
+            else None
+        )
+        if linked and (
+            linked.submitted_at is not None
+            or linked.auto_trigger_last_outcome == "UNKNOWN"
+            or linked.status
+            not in {
+                OpportunityStatus.AWAITING_CONFIRMATION,
+                OpportunityStatus.SKIPPED,
+                OpportunityStatus.DISCARDED,
+                OpportunityStatus.EXPIRED,
+            }
+        ):
+            return result.model_copy(
+                update={
+                    "status": linked.status.value,
+                    "opportunity": linked,
+                    "candidate": linked.candidate,
+                }
+            )
+        after = datetime.fromisoformat(prior["retest_after"]) if prior.get("retest_after") else None
+        reset = linked is not None and linked.status in {
+            OpportunityStatus.SKIPPED,
+            OpportunityStatus.DISCARDED,
+            OpportunityStatus.EXPIRED,
+        }
+        if reset and prior.get("retest_reset_id") != str(linked.id):
+            after = now + timedelta(seconds=60)
+            update_state(
+                plan.session,
+                symbol,
+                {"retest_after": after.isoformat(), "retest_reset_id": str(linked.id)},
+            )
+        rows = await read_bars(ctx.market_data, plan, now=now, cached=True)
+        now = datetime.now(UTC)
+        revised = rebuild(plan, rows, now=now, after=after)
+        revised_state = {
+            "state": revised.state,
+            "reasons": revised.reasons,
+            "observed_at": now.isoformat(),
+        }
+        if revised.plan is None:
+            update_state(plan.session, symbol, revised_state)
+            return result.model_copy(update={"status": "no_trade", "errors": revised.reasons})
+        if after:
+            revised_state["retest_after"] = after.isoformat()
+        if revised.plan and (revised.plan != plan or reset):
+            if not replace_unclaimed_plan(
+                plan.session,
+                symbol,
+                plan.model_dump(mode="json"),
+                revised.plan.model_dump(mode="json"),
+                revised_state,
+                now=now,
+            ):
+                return result
+            plan = revised.plan
+            prior = (read_session(plan.session) or {}).get("states", {}).get(symbol, {})
+        if plan.evidence.get("retest"):
+            quoter = getattr(ctx.market_data, "get_quote", None)
+            current = await quoter(symbol) if quoter else None
+            checked_at = datetime.now(UTC)
+            checked = evaluate_trigger(plan, current, now=checked_at)
+            valid_quote = current is not None and checked.state != "DATA_BLOCKED"
+            target = Decimal(plan.evidence["retest"]["target"])
+            if valid_quote and (current.bid <= plan.stop or current.bid >= target):
+                reset_plan = rebuild(plan, rows, now=checked_at, after=checked_at).plan
+                if reset_plan and replace_unclaimed_plan(
+                    plan.session,
+                    symbol,
+                    plan.model_dump(mode="json"),
+                    reset_plan.model_dump(mode="json"),
+                    {
+                        "state": "WAIT",
+                        "reasons": ["ORB_RETEST_INVALIDATED"],
+                        "retest_after": checked_at.isoformat(),
+                    },
+                    now=checked_at,
+                ):
+                    return result
+                return result.model_copy(
+                    update={"status": "data_blocked", "errors": ["ORB_RETEST_INVALIDATED"]}
+                )
+        if revised.state == "DATA_BLOCKED" or not plan.evidence.get("retest"):
+            quoter = getattr(ctx.market_data, "get_quote", None)
+            watched_quote = await quoter(symbol) if quoter else None
+            if watched_quote:
+                revised_state.update(
+                    bid=str(watched_quote.bid),
+                    ask=str(watched_quote.ask),
+                    quote_at=watched_quote.ts.isoformat(),
+                )
+            update_state(plan.session, symbol, revised_state)
+            return result.model_copy(
+                update={
+                    "status": "data_blocked"
+                    if revised.state == "DATA_BLOCKED"
+                    else "wait_for_entry",
+                    "errors": revised.reasons,
+                }
+            )
     if prior.get("opportunity_id"):
         # Executed/unknown claims stay consumed; a skipped plan requires a fresh reset.
         from uuid import UUID
@@ -265,6 +378,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         return result.model_copy(update={"status": "position_open"})
     quoter = getattr(ctx.market_data, "get_quote", None)
     quote = await quoter(symbol) if quoter else None
+    now = datetime.now(UTC)
     trigger = evaluate_trigger(plan, quote, now=now)
     state: dict[str, Any] = {
         "state": trigger.state,
@@ -305,7 +419,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         exit_policy="session_close",
         exit_at=plan.exit_at,
         orb_plan=plan.model_dump(mode="json"),
-        reasons=["ORB_BREAKOUT_CONFIRMED"],
+        reasons=trigger.reasons,
         strategy_version=plan.version,
         exec_timeframe=Timeframe.M5,
         setup_type=SetupType.BREAKOUT_CONTINUATION,

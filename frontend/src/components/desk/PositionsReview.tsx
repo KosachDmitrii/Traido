@@ -115,7 +115,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
               metrics.push(
                 { key: "mark", label: t("desk.positions.stat.mark"), value: fmtPx(p.mark) },
                 { key: "stop", label: t("desk.positions.stat.stop"), value: isShort ? "—" : fmtPx(p.stop) },
-                { key: "tgt", label: t("desk.positions.stat.tgt"), value: isShort ? "—" : p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
+                { key: "tgt", label: t("desk.positions.stat.tgt"), value: isShort ? "—" : p.strategy_version === "orb@2.0.0" && p.target ? `${fmtPx(p.target)} · стоп / время` : p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
               );
               return (
                 <div className="pos-row" key={p.symbol}>

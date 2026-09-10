@@ -249,6 +249,7 @@ def _orb_price_wait(error: str) -> bool:
     return bool(reasons) and reasons <= {
         "ORB_WAITING_BREAKOUT",
         "ORB_WAITING_PULLBACK",
+        "ORB_RETEST_WAIT_RECOVERY",
         "ORB_ENTRY_MISSED",
         "SPREAD_TOO_WIDE",
     }

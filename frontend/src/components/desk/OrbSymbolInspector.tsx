@@ -35,13 +35,16 @@ export function OrbSymbolInspector() {
     return d && !Number.isNaN(d.getTime()) ? d.toLocaleString(ru ? "ru-RU" : "en-US", {timeZone:"America/New_York", hour12:false}) + " ET" : "—";
   };
   const plan = data?.plan;
+  const retest = plan?.evidence?.retest;
+  const ready = plan?.version !== "orb@2.0.0" || !!retest;
   const metrics = [
     ["Bid · USD", px(data?.quote?.bid)], ["Ask · USD", px(data?.quote?.ask)],
     [ru ? "Диапазон открытия" : "Opening range", plan ? `${px(plan.range_low)}–${px(plan.range_high)}` : "—"],
-    [ru ? "Уровень пробоя" : "Breakout trigger", px(plan?.trigger)],
-    [ru ? "Стоп" : "Stop", px(plan?.stop)], [ru ? "Максимальная цена входа" : "Maximum entry", px(plan?.max_entry)],
+    [ru ? "Начало зоны покупки" : "Entry zone starts", ready ? px(plan?.trigger) : "—"],
+    [ru ? "Стоп" : "Stop", ready ? px(plan?.stop) : "—"], [ru ? "Максимальная цена входа" : "Maximum entry", ready ? px(plan?.max_entry) : "—"],
     [ru ? "Относительный объём" : "Relative volume", plan ? `${px(plan.relative_volume)}×` : "—"],
     ["ATR14", px(plan?.daily_atr)],
+    ...(plan?.version === "orb@2.0.0" ? [[ru ? "Цель выхода" : "Exit target", px(retest?.target)]] : []),
   ];
   const reasons = data?.rejections.length ? data.rejections : data?.state?.reasons ?? [];
   return <section className={styles.card}>
@@ -60,7 +63,7 @@ export function OrbSymbolInspector() {
       {data.outranked && <p className={styles.notice}>{ru ? "Условия ORB пройдены, но другие акции получили более высокий относительный объём." : "ORB conditions passed, but other symbols ranked higher by relative volume."}</p>}
       {reasons.map(reason=><p className={styles.notice} key={reason}>{orbReason(reason)}</p>)}
       {!plan && !reasons.length && !data.outranked && <p className={styles.notice}>{data.session_reason ? orbReason(data.session_reason) : (ru ? "Сохранённого плана или причины исключения для этого тикера нет." : "No saved plan or exclusion reason for this symbol.")}</p>}
-      {plan && <p className={styles.description}>{ru ? "Вход до" : "Entry deadline"} {time(plan.entry_deadline)} · {ru ? "Выход до" : "Exit deadline"} {time(plan.exit_at)}</p>}
+      {plan && <p className={styles.description}>{ru ? "Вход до" : "Entry deadline"} {time(retest?.valid_until ?? plan.entry_deadline)} · {ru ? "Выход до" : "Exit deadline"} {time(plan.exit_at)}</p>}
       <p className={styles.description}>{ru ? "Котировка — снимок на указанное время. Обновление цены не пересчитывает решение ORB. Состояние плана обновлено:" : "The quote is a snapshot at the displayed time. Refreshing it does not recalculate the ORB decision. Plan state observed:"} {time(data.state?.observed_at)}</p>
     </> : <p className={styles.description}>{ru ? "Введите тикер для просмотра." : "Enter a symbol to inspect."}</p>}
   </section>;

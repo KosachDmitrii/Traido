@@ -32,6 +32,7 @@ from core.desk_bus import DESK_BUS
 from core.enums import UserDecision
 from core.schemas import Position
 from market_data.providers.company_name import attach_company_names
+from strategy.orb.position_policy import observed_target
 from trading.decision_outcome import DECISION_OUTCOMES, DecisionOutcomeRecord
 from trading.desk_positions import protective_stop_for_display
 from trading.desk_viability import attach_buy_viability
@@ -186,7 +187,7 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
             "qty": str(r.qty),
             "avg_entry": str(r.avg_entry),
             "stop": _tick(r.stop_price),
-            "target": _tick(r.target_price),
+            "target": _tick(observed_target(r.payload or {}) or r.target_price),
             "exit_policy": (r.payload or {}).get("exit_policy"),
             "exit_at": (r.payload or {}).get("exit_at"),
             "strategy_version": r.strategy_version,
@@ -576,7 +577,9 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
                     "qty": str(p.qty),
                     "avg_entry": str(p.avg_entry),
                     "stop": _tick(stop_px),
-                    "target": _tick(meta.target_price) if meta else None,
+                    "target": _tick(observed_target(meta.payload or {}) or meta.target_price)
+                    if meta
+                    else None,
                     "exit_policy": (meta.payload or {}).get("exit_policy") if meta else None,
                     "exit_at": (meta.payload or {}).get("exit_at") if meta else None,
                     "strategy_version": meta.strategy_version if meta else None,
@@ -591,7 +594,7 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
                 "qty": str(r.qty),
                 "avg_entry": str(r.avg_entry),
                 "stop": _tick(r.stop_price),
-                "target": _tick(r.target_price),
+                "target": _tick(observed_target(r.payload or {}) or r.target_price),
                 "exit_policy": (r.payload or {}).get("exit_policy"),
                 "exit_at": (r.payload or {}).get("exit_at"),
                 "strategy_version": r.strategy_version,

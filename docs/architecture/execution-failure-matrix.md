@@ -578,3 +578,27 @@ A capped limit constrains execution price, not future market value. This guard d
 | Nonfinite or crossed quote | Spread unavailable; never admit |
 
 Regression: AXP screenshot 318.55/320.98 measures 75.99 bps regardless of last print, exceeding the default 30 bps execution cap. This later quote is not evidence of the historical submission quote.
+
+## ORB 2.0 Paper retest experiment
+
+| Situation | Behaviour |
+|---|---|
+| Opening-range selection only; no completed breakout, return and separate confirmation | WAIT; no executable proposal and no displayed provisional stop/entry |
+| Missing, duplicated, stale, malformed or wrong-symbol five-minute history | DATA_BLOCKED; approval reads fresh history and cannot reuse a cached authorization |
+| Confirmation close outside affordable geometry, or observed pre-retest high provides insufficient reward after modeled costs | No entry; never move the stop or manufacture a higher target to pass R/R |
+| Ask above frozen confirmation ceiling or bid below the entry floor | WAIT; never raise the limit to follow the quote |
+| Stop/target touched in a subsequent completed bar, or observed fresh bid reaches either before entry | Invalidate unclaimed plan; require another pattern |
+| Ten-minute signal deadline reached | Refuse new submission, expire proposal; resting-entry fill wait bounded by remaining signal lifetime, then existing cancel/reconcile path |
+| Skip or known unsubmitted discard | Persist a 60-second reset barrier; require a later full pattern and fresh admission/new opportunity ID |
+| Geometry replacement races approval | Shared row locks/CAS; only unsubmitted awaiting/skipped/discarded claims may be replaced; APPROVING, submitted, executed and UNKNOWN preserved |
+| Target reached on fresh bid for a v2 long position | Existing close owner requests exit, audits trigger, cancels/verifies stop and rereads holdings; no competing target SELL |
+| At least 30 minutes since opening and fresh bid no higher than actual average entry | Same close owner requests ORB_TIME_NO_PROGRESS |
+| Target/time quote unavailable | No inferred price exit; broker stop remains and scheduled session exit is still attempted independently of quote |
+| Existing legacy/open position | Original exit rules retained; no retroactive v2 target or stop |
+
+The limit bounds purchase price, not valuation or future P&L. Profit/time exits
+are monitored market closes, not guaranteed fills at target prices. Unknown
+broker state remains blocking. Parameters are an explicitly unvalidated Paper
+experiment, not a return forecast. Detailed specification: `orb-retest-v2.md`.
+
+| Entry cancellation acknowledged but broker still reports ACCEPTED/PARTIAL | Keep UNKNOWN and the symbol blocked; never pretend the resting entry was canceled, even if filled quantity is currently zero |

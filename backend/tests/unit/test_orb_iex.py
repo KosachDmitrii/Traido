@@ -24,7 +24,7 @@ def test_iex_volume_is_compared_with_iex_history_without_multiplying_it():
     daily, opening = evidence()
     daily = [b.model_copy(update={"volume": Decimal(250000)}) for b in daily]
     opening = [b.model_copy(update={"volume": b.volume / 20}) for b in opening]
-    decision = form_plan("AAPL", daily, opening, now=NOW, feed="iex")
+    decision = form_plan("AAPL", daily, opening, now=NOW, feed="iex", version="orb@1.5.0")
     assert decision.plan is not None
     assert decision.plan.mean_daily_volume == 250000
     assert decision.plan.relative_volume == 2
@@ -137,7 +137,7 @@ def test_iex_denial_does_not_request_a_sip_subscription():
 @pytest.mark.usefixtures("capital_path_ready")
 @pytest.mark.parametrize("above_limit", [False, True])
 async def test_pullback_execution_never_sends_buy_above_reference(above_limit):
-    from strategy.orb import VERSION
+    from strategy.orb import PULLBACK_VERSION as VERSION
 
     broker = MockPaperBroker()
     card = orb_ready_candidate(admission_ready_candidate(), feed="iex", version=VERSION)

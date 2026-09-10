@@ -362,3 +362,44 @@ async def test_the_risk_engine_rejects_a_symbol_with_unresolved_broker_state() -
 
     assert decision.verdict.value == "reject"
     assert "UNRESOLVED_BROKER_STATE" in decision.reasons
+
+
+@pytest.mark.parametrize("filled", [Decimal(0), Decimal(1)])
+async def test_cancel_acknowledgement_without_terminal_entry_state_stays_unknown(filled):
+    class PendingCancelBroker(MockPaperBroker):
+        async def cancel_order(self, broker_order_id):
+            return record
+
+        async def get_order(self, broker_order_id):
+            return record
+
+    intents = MemoryOrderIntentStore()
+    intent, _ = intents.create_or_get(
+        OrderIntent(
+            idempotency_key="pending-entry-cancel",
+            broker="mock",
+            symbol="AAPL",
+            side=OrderSide.BUY,
+            order_type=OrderType.LIMIT,
+            requested_qty=Decimal(2),
+            limit_price=Decimal(100),
+            status=IntentStatus.SUBMITTED,
+        )
+    )
+    record = OrderRecord(
+        id=uuid4(),
+        broker_order_id="pending-buy",
+        client_order_id="pending-entry-cancel",
+        symbol="AAPL",
+        side=OrderSide.BUY,
+        order_type=OrderType.LIMIT,
+        qty=Decimal(2),
+        limit_price=Decimal(100),
+        filled_qty=filled,
+        status=OrderStatus.PARTIAL if filled else OrderStatus.ACCEPTED,
+    )
+    service = _service(PendingCancelBroker(), MemoryOpportunityStore(), intents)
+    settled, status = await service._settle_stalled_entry(record, intent, pipeline_run_id=None)
+    assert settled is None and status == IntentStatus.UNKNOWN
+    assert intents.get(intent.id).status == IntentStatus.UNKNOWN
+    assert "AAPL" in intents.unresolved_symbols()

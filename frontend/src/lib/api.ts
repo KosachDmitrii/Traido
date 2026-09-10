@@ -916,6 +916,7 @@ export type OrbPlan = {
   symbol: string; session: string; trigger: string; stop: string; max_entry: string;
   range_high: string; range_low: string; relative_volume: string; daily_atr: string;
   range_end: string; entry_deadline: string; exit_at: string;
+  evidence?: { retest?: { phase: string; target: string; confirmed_at: string; valid_until: string; time_exit_minutes: number } };
 };
 export type OrbState = { state: string; reasons: string[]; bid?: string | null; ask?: string | null;
   opportunity_id?: string; observed_at?: string; quote_at?: string };

@@ -218,3 +218,43 @@ def test_pullback_rollout_retires_only_unclaimed_proposal(status):
     with pytest.raises(ValueError, match="ORB_PLAN_NOT_SELECTED"):
         publish_orb(result, final, TradingMode.CONFIRMATION, now=RTH_INSTANT + timedelta(seconds=2))
     assert upgrade_unpublished_entry_limits(day, now=RTH_INSTANT + timedelta(seconds=2)) == saved
+
+
+@pytest.mark.parametrize(
+    "status,replace",
+    [("awaiting_confirmation", True), ("skipped", True), ("approving", False), ("executed", False)],
+)
+def test_retest_geometry_replacement_cannot_cross_an_execution_claim(status, replace):
+    from core.enums import OpportunityStatus
+    from strategy.orb.store import replace_unclaimed_plan
+    from trading.opportunities import OpportunityStore
+
+    result, final = proposed()
+    opp = publish_orb(result, final, TradingMode.CONFIRMATION, now=RTH_INSTANT)
+    store = OpportunityStore()
+    if status != "awaiting_confirmation":
+        assert store.claim(
+            opp.id,
+            from_status=OpportunityStatus.AWAITING_CONFIRMATION,
+            to_status=OpportunityStatus(status),
+        )
+    old = result.candidate.orb_plan
+    new = dict(old)
+    new["name"] = "replacement for CAS test"
+    assert (
+        replace_unclaimed_plan(
+            old["session"], result.symbol, old, new, {"state": "WAIT"}, now=RTH_INSTANT
+        )
+        is replace
+    )
+    saved = read_session(old["session"])
+    if replace:
+        assert saved["plans"][result.symbol] == new
+        assert "opportunity_id" not in saved["states"][result.symbol]
+        # A stale competing worker cannot overwrite the winning geometry.
+        assert not replace_unclaimed_plan(
+            old["session"], result.symbol, old, old, {"state": "WAIT"}, now=RTH_INSTANT
+        )
+    else:
+        assert saved["plans"][result.symbol] == old
+        assert saved["states"][result.symbol]["opportunity_id"] == str(opp.id)

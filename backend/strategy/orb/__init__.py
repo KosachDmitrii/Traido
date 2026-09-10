@@ -13,8 +13,11 @@ from core.clock import ET
 from core.schemas import Bar, Quote
 from trading.session_hours import is_market_holiday, session_close, us_equity_rth_open
 
-VERSION = "orb@1.5.0"
-SUPPORTED_VERSIONS = frozenset({"orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", VERSION})
+PULLBACK_VERSION = "orb@1.5.0"
+VERSION = "orb@2.0.0"
+SUPPORTED_VERSIONS = frozenset(
+    {"orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", PULLBACK_VERSION, VERSION}
+)
 # Paper implementation parameters; statistical profitability is not certified.
 PARAMETERS = {
     "opening_minutes": 5,
@@ -51,6 +54,22 @@ PARAMETERS = {
     "entry_policy_revision": "paper-pullback-1",
     "entry_rule": "buy_at_or_below_reference",
     "max_entry_drift_r": "0",
+}
+
+PULLBACK_PARAMETERS = dict(PARAMETERS)
+PARAMETERS = {
+    **PULLBACK_PARAMETERS,
+    "entry_policy_revision": "paper-retest-1",
+    "entry_rule": "breakout_retest_confirmation",
+    "retest_band_atr": "0.05",
+    "retest_stop_buffer_atr": "0.02",
+    "setup_timeout_minutes": 60,
+    "signal_ttl_minutes": 10,
+    "time_exit_minutes": 30,
+    "min_effective_reward_risk": "1.5",
+    "cost_allowance_bps": "10",
+    "exit": "observed_target_or_stop_or_time_or_session",
+    "validation": "experimental_paper_not_backtested",
 }
 
 FLEX_PARAMETERS = {k: v for k, v in ALL_PARAMETERS.items() if k != "selection_scope"}
@@ -103,10 +122,10 @@ class OrbPlan(BaseModel):
         if any(not n.is_finite() or n <= 0 for n in numbers):
             raise ValueError("ORB_INVALID_GEOMETRY")
         if not (self.stop < self.trigger <= self.max_entry) or (
-            self.version not in {"orb@1.4.0", VERSION} and self.trigger <= self.range_high
+            self.version not in {"orb@1.4.0", PULLBACK_VERSION} and self.trigger <= self.range_high
         ):
             raise ValueError("ORB_INVALID_GEOMETRY")
-        if self.version == VERSION and self.max_entry != self.trigger:
+        if self.version == PULLBACK_VERSION and self.max_entry != self.trigger:
             raise ValueError("ORB_INVALID_GEOMETRY")
         if any(
             t.tzinfo is None
@@ -167,6 +186,7 @@ def form_plan(
         return blocked("ORB_INVALID_PROVENANCE")
     parameters = {
         VERSION: PARAMETERS,
+        PULLBACK_VERSION: PULLBACK_PARAMETERS,
         "orb@1.4.0": EARLY_PARAMETERS,
         "orb@1.3.0": ALL_PARAMETERS,
         "orb@1.2.0": FLEX_PARAMETERS,
@@ -257,7 +277,7 @@ def form_plan(
     ).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
     # Experimental early entry uses observed opening range, never the current price.
     # Preserve the old stop and chase ceiling; only lower the entry threshold.
-    if version in {"orb@1.4.0", VERSION}:
+    if version in {"orb@1.4.0", PULLBACK_VERSION}:
         discount = min(
             (today.high - today.low) * Decimal(parameters["early_entry_range_fraction"]),
             atr * Decimal(parameters["early_entry_atr_cap"]),
@@ -265,7 +285,7 @@ def form_plan(
         trigger = (trigger - discount).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
         if trigger <= stop:
             return blocked("ORB_INVALID_STOP")
-    if version == VERSION:
+    if version in {PULLBACK_VERSION, VERSION}:
         max_entry = trigger
     plan = OrbPlan(
         symbol=symbol.upper(),
@@ -298,7 +318,13 @@ def form_plan(
     )
     return OrbDecision(
         state="WAIT",
-        reasons=["ORB_WAITING_PULLBACK" if version == VERSION else "ORB_WAITING_BREAKOUT"],
+        reasons=[
+            "ORB_RETEST_WAIT_BREAKOUT"
+            if version == VERSION
+            else "ORB_WAITING_PULLBACK"
+            if version == PULLBACK_VERSION
+            else "ORB_WAITING_BREAKOUT"
+        ],
         plan=plan,
         measured=measured,
     )
@@ -341,6 +367,10 @@ def evaluate_trigger(
     ):
         return result("DATA_BLOCKED", "ORB_QUOTE_INVALID")
     if plan.version == VERSION:
+        from strategy.orb.retest import check_entry
+
+        return check_entry(plan, quote, now=now, limit_price=limit_price)
+    if plan.version == PULLBACK_VERSION:
         if quote.bid <= plan.stop:
             return result("NO_TRADE", "ORB_STOP_BREACHED")
         if quote.ask > plan.max_entry or (limit_price is not None and limit_price > plan.max_entry):

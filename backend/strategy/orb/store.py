@@ -141,7 +141,7 @@ def upgrade_unpublished_entry_limits(day: str, *, now) -> dict[str, Any] | None:
                 "previous_parameters": previous_parameters,
                 "old_version": plan.version,
                 "new_version": VERSION,
-                "reason": "USER_REQUESTED_PAPER_ENTRY_SIMPLIFICATION",
+                "reason": "USER_REQUESTED_PAPER_RETEST_ROLLOUT",
             }
             updated["evidence"]["entry_policy_change"] = change
             if pending is not None:
@@ -158,7 +158,7 @@ def upgrade_unpublished_entry_limits(day: str, *, now) -> dict[str, Any] | None:
                 state = deepcopy(state)
                 state.setdefault("replaced_opportunity_ids", []).append(state.pop("opportunity_id"))
                 state.update(
-                    state="WAIT", reasons=["ORB_WAITING_PULLBACK"], rearmed_at=now.isoformat()
+                    state="WAIT", reasons=["ORB_RETEST_WAIT_BREAKOUT"], rearmed_at=now.isoformat()
                 )
                 payload["states"][symbol] = state
                 change["replaced_opportunity_id"] = str(pending.id)
@@ -214,23 +214,29 @@ def rearm_skipped_plan(day: str, symbol: str, opportunity_id: str, quote, *, now
         from core.config import get_settings
         from core.enums import BrokerEnvironment
         from core.schemas import Bar
-        from strategy.orb import VERSION, form_plan
+        from strategy.orb import PULLBACK_VERSION, form_plan
 
         reset_plan = plan
-        if get_settings().broker_env is BrokerEnvironment.PAPER and plan.version != VERSION:
+        if (
+            get_settings().broker_env is BrokerEnvironment.PAPER
+            and plan.version != PULLBACK_VERSION
+        ):
             rebuilt = form_plan(
                 symbol,
                 [Bar.model_validate(b) for b in plan.evidence.get("daily", [])],
                 [Bar.model_validate(b) for b in plan.evidence.get("opening", [])],
                 now=now,
                 feed=plan.source.removeprefix("alpaca:"),
+                version=PULLBACK_VERSION,
             )
             if rebuilt.plan is None:
                 return False
             reset_plan = rebuilt.plan
         decision = evaluate_trigger(reset_plan, quote, now=now)
         reset_reason = (
-            "ORB_WAITING_PULLBACK" if reset_plan.version == VERSION else "ORB_WAITING_BREAKOUT"
+            "ORB_WAITING_PULLBACK"
+            if reset_plan.version == PULLBACK_VERSION
+            else "ORB_WAITING_BREAKOUT"
         )
         if now < datetime.fromisoformat(state["skip_rearm_after"]) or decision.reasons != [
             reset_reason
@@ -244,6 +250,64 @@ def rearm_skipped_plan(day: str, symbol: str, opportunity_id: str, quote, *, now
         payload["states"][symbol] = state
         # Permit a new, versioned geometry rollout only after the skipped claim is released.
         payload.pop("entry_policy_rollout", None)
+        row.payload = payload
+        db.commit()
+        return True
+
+
+def replace_unclaimed_plan(day, symbol, expected, replacement, state, *, now) -> bool:
+    """CAS geometry and retire only unsubmitted awaiting/explicitly skipped claims."""
+    from uuid import UUID
+
+    from core.enums import OpportunityStatus
+    from database.models.desk import OpportunityRow
+    from trading.opportunities import _from_row, _write_payload
+
+    with session_factory()() as db:
+        row = db.scalar(select(OrbSessionRow).where(OrbSessionRow.session == day).with_for_update())
+        if row is None or row.payload.get("plans", {}).get(symbol) != expected:
+            return False
+        payload = deepcopy(row.payload)
+        old_state = payload.get("states", {}).get(symbol, {})
+        next_state = {**old_state, **state}
+        if old_state.get("opportunity_id"):
+            pending = db.scalar(
+                select(OpportunityRow)
+                .where(OpportunityRow.id == UUID(old_state["opportunity_id"]))
+                .with_for_update()
+            )
+            if pending is None:
+                return False
+            opp = _from_row(pending)
+            if (
+                opp.status
+                not in {
+                    OpportunityStatus.AWAITING_CONFIRMATION,
+                    OpportunityStatus.SKIPPED,
+                    OpportunityStatus.DISCARDED,
+                    OpportunityStatus.EXPIRED,
+                }
+                or opp.submitted_at
+                or opp.auto_trigger_last_outcome == "UNKNOWN"
+            ):
+                return False
+            if opp.status == OpportunityStatus.AWAITING_CONFIRMATION:
+                _write_payload(
+                    db,
+                    opp.model_copy(
+                        update={
+                            "status": OpportunityStatus.DISCARDED,
+                            "auto_trigger_retry_at": None,
+                            "auto_trigger_last_error": "ORB_ENTRY_POLICY_REPLACED",
+                        }
+                    ),
+                )
+            next_state.setdefault("replaced_opportunity_ids", []).append(
+                next_state.pop("opportunity_id")
+            )
+            next_state["rearmed_at"] = now.isoformat()
+        payload["plans"][symbol] = replacement
+        payload.setdefault("states", {})[symbol] = next_state
         row.payload = payload
         db.commit()
         return True
