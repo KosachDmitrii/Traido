@@ -85,7 +85,7 @@ def _auto_trigger_payload() -> dict:
 
 
 def _entry_policy_payload() -> dict:
-    return {"strategy": "orb@1.1.0", "retired": True}
+    return {"strategy": "orb@1.2.0", "retired": True}
 
 
 def _broker_backend_desk_payload() -> dict:

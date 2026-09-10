@@ -136,6 +136,7 @@ async def test_paper_rollout_changes_only_unpublished_limits_and_records_old_pla
     legacy.pop("entry_policy_changes")
     for plan in legacy["plans"].values():
         trigger, stop = Decimal(plan["trigger"]), Decimal(plan["stop"])
+        plan["version"] = "orb@1.1.0"
         plan["max_entry"] = str(
             (trigger + (trigger - stop) * Decimal("0.25")).quantize(
                 Decimal("0.01"), rounding=ROUND_FLOOR

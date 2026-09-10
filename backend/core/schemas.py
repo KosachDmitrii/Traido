@@ -260,7 +260,7 @@ class TradeCandidate(StrictModel):
             )
         if self.exit_policy == "session_close":
             if (
-                self.strategy_version not in {"orb@1.0.0", "orb@1.1.0"}
+                self.strategy_version not in {"orb@1.0.0", "orb@1.1.0", "orb@1.2.0"}
                 or self.target is not None
                 or self.risk_reward is not None
                 or self.exit_at is None

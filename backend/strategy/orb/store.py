@@ -56,7 +56,7 @@ def upgrade_unpublished_entry_limits(day: str, *, now) -> dict[str, Any] | None:
     """
     from decimal import ROUND_FLOOR, Decimal
 
-    from strategy.orb import PARAMETERS, OrbPlan
+    from strategy.orb import PARAMETERS, VERSION, OrbPlan
 
     revision = PARAMETERS["entry_policy_revision"]
     with session_factory()() as db:
@@ -94,13 +94,16 @@ def upgrade_unpublished_entry_limits(day: str, *, now) -> dict[str, Any] | None:
                 "old_max_entry": str(plan.max_entry),
                 "new_max_entry": str(new_limit),
                 "previous_parameters": previous_parameters,
+                "old_version": plan.version,
+                "new_version": VERSION,
                 "reason": "USER_REQUESTED_PAPER_ENTRY_SIMPLIFICATION",
             }
             evidence["entry_policy_change"] = change
             evidence["parameters"] = deepcopy(PARAMETERS)
-            updated = {**raw, "max_entry": str(new_limit), "evidence": evidence}
+            updated = {**raw, "version": VERSION, "max_entry": str(new_limit), "evidence": evidence}
             payload["plans"][symbol] = OrbPlan.model_validate(updated).model_dump(mode="json")
             revisions.append(change)
+        payload["version"] = VERSION
         payload["entry_policy_rollout"] = revision
         payload["entry_policy_changes"] = revisions
         payload["parameters"] = deepcopy(PARAMETERS)

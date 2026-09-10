@@ -23,6 +23,7 @@ from core.enums import (
 from core.schemas import Bar, PipelineResult, TradeCandidate
 from strategy.orb import (
     PARAMETERS,
+    SUPPORTED_VERSIONS,
     VERSION,
     OrbPlan,
     _previous_sessions,
@@ -55,7 +56,7 @@ async def discover(
             STATUS.clear()
             STATUS.update(existing)
             saved_feed = existing.get("feed", existing.get("parameters", {}).get("feed"))
-            if existing.get("version") != VERSION or saved_feed != feed_name:
+            if existing.get("version") not in SUPPORTED_VERSIONS or saved_feed != feed_name:
                 STATUS.update(status="data_blocked", reason="ORB_SESSION_CONFIGURATION_CHANGED")
                 return dict(STATUS)
             # This rollout is Paper-only and cannot modify a published plan.
@@ -291,12 +292,12 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         exit_at=plan.exit_at,
         orb_plan=plan.model_dump(mode="json"),
         reasons=["ORB_BREAKOUT_CONFIRMED"],
-        strategy_version=VERSION,
+        strategy_version=plan.version,
         exec_timeframe=Timeframe.M5,
         setup_type=SetupType.BREAKOUT_CONTINUATION,
         entry_decision=EntryDecision.BUY_NOW,
-        admission_version=VERSION,
-        policy_version=VERSION,
+        admission_version=plan.version,
+        policy_version=plan.version,
         pipeline_run_id=result.pipeline_run_id,
     )
     market = await assess_market(ctx.settings.fred_api_key, now=now)
@@ -404,7 +405,7 @@ def retire_pending_legacy() -> int:
     count = 0
     for opp in OPPORTUNITIES.list_open():
         if (
-            opp.candidate.strategy_version != VERSION
+            opp.candidate.strategy_version not in SUPPORTED_VERSIONS
             and opp.status is OpportunityStatus.AWAITING_CONFIRMATION
         ):
             OPPORTUNITIES.update(opp.model_copy(update={"status": OpportunityStatus.DISCARDED}))

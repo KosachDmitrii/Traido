@@ -161,3 +161,28 @@ def test_wider_paper_entry_accepts_new_band_but_not_above_limit():
     assert evaluate_trigger(p, quote("101.20", "101.21"), now=NOW).state == "BUY_ALLOWED"
     assert evaluate_trigger(p, quote("101.40", "101.41"), now=NOW).state == "BUY_ALLOWED"
     assert evaluate_trigger(p, quote("101.41", "101.42"), now=NOW).state == "NO_TRADE"
+
+
+def test_old_plan_keeps_its_original_limit_and_version():
+    daily, opening = evidence()
+    old = form_plan("AAPL", daily, opening, now=NOW, feed="sip", version="orb@1.1.0").plan
+    assert old.version == "orb@1.1.0"
+    assert old.max_entry == D("101.11")
+    assert evaluate_trigger(old, quote("101.20", "101.21"), now=NOW).state == "NO_TRADE"
+    assert evaluate_trigger(old, quote(), now=NOW).state == "BUY_ALLOWED"
+
+
+def test_new_registry_version_preserves_registered_strict_parameters():
+    from strategy.orb import LEGACY_PARAMETERS, PARAMETERS, VERSION
+    from strategy.registry import ensure_builtin_strategies, register_version
+
+    old = register_version(
+        key="orb@1.1.0", name="orb", version_tag="1.1.0", parameters=LEGACY_PARAMETERS
+    )
+    versions = ensure_builtin_strategies()
+    assert versions[0]["key"] == VERSION
+    assert versions[0]["parameters"] == PARAMETERS
+    unchanged = register_version(
+        key="orb@1.1.0", name="orb", version_tag="1.1.0", parameters=LEGACY_PARAMETERS
+    )
+    assert unchanged["parameter_hash"] == old["parameter_hash"]

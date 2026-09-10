@@ -14,14 +14,14 @@ if TYPE_CHECKING:
 
 from core.enums import AdmissionDecision, DataHealthStatus, SetupType, Timeframe
 from core.schemas import AdmissionInput, TradeAdmissionResult
-from strategy.orb import VERSION, OrbPlan, evaluate_trigger, form_plan
+from strategy.orb import SUPPORTED_VERSIONS, OrbPlan, evaluate_trigger, form_plan
 
 
 def evaluate_sealed(inp: AdmissionInput) -> TradeAdmissionResult:
     reasons = []
     try:
         plan = OrbPlan.model_validate(inp.orb_plan)
-        if inp.strategy_version != VERSION or inp.stop_price != plan.stop:
+        if inp.strategy_version != plan.version or inp.stop_price != plan.stop:
             reasons.append("ORB_GEOMETRY_CHANGED")
         decision = evaluate_trigger(
             plan, inp.quote, now=inp.evaluated_at, limit_price=inp.limit_price
@@ -36,7 +36,7 @@ def evaluate_sealed(inp: AdmissionInput) -> TradeAdmissionResult:
         buy_ready=not reasons,
         setup_type=SetupType.BREAKOUT_CONTINUATION,
         reason_codes=reasons or ["ORB_BREAKOUT_CONFIRMED"],
-        admission_version=VERSION,
+        admission_version=inp.strategy_version,
     )
 
 
@@ -62,7 +62,10 @@ async def final_admission(
     from trading.market_gate import evaluate_market_gate
 
     now = now or datetime.now(UTC)
-    if candidate.strategy_version != VERSION or candidate.exit_policy != "session_close":
+    if (
+        candidate.strategy_version not in SUPPORTED_VERSIONS
+        or candidate.exit_policy != "session_close"
+    ):
         raise PretradeRejection("STRATEGY_RETIRED", "ORB_REQUIRED")
     feed = getattr(market_data, "_feed", None)
     if feed not in {"iex", "sip"}:
@@ -78,7 +81,7 @@ async def final_admission(
         mode="json"
     ):
         raise PretradeRejection("ORB_NOT_SELECTED", candidate.symbol)
-    if candidate.symbol != plan.symbol:
+    if candidate.symbol != plan.symbol or candidate.strategy_version != plan.version:
         raise PretradeRejection("ORB_GEOMETRY_CHANGED", "symbol")
     # Re-read today's range. Historical inputs are immutable and were captured at selection.
     today = await market_data.get_bars(
@@ -89,7 +92,7 @@ async def final_admission(
     )
     daily = [Bar.model_validate(b) for b in plan.evidence.get("daily", [])]
     opening = [Bar.model_validate(b) for b in plan.evidence.get("opening", [])][:-1] + today
-    rebuilt = form_plan(candidate.symbol, daily, opening, now=now, feed=feed)
+    rebuilt = form_plan(candidate.symbol, daily, opening, now=now, feed=feed, version=plan.version)
     if rebuilt.plan is None:
         raise PretradeRejection("ORB_INVALIDATED", ",".join(rebuilt.reasons))
     fresh = rebuilt.plan
@@ -126,9 +129,9 @@ async def final_admission(
         sector_benchmark=sector_benchmark,
         sector_provider=sector_provider,
         sector_source_ts=sector_source_ts,
-        strategy_version=VERSION,
-        policy_version=VERSION,
-        admission_version=VERSION,
+        strategy_version=plan.version,
+        policy_version=plan.version,
+        admission_version=plan.version,
         aggressiveness=0,
         opportunity_id=opportunity_id,
         decision_version=decision_version,

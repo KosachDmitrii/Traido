@@ -11,7 +11,7 @@ from core.enums import AdmissionDecision, OpportunityStatus, RiskVerdict, Tradin
 from core.schemas import PipelineResult, TradeOpportunity
 from database.models.orb import OrbSessionRow
 from database.session import session_factory
-from strategy.orb import VERSION, OrbPlan
+from strategy.orb import OrbPlan
 from trading.admission_records import ADMISSION_RECORDS
 from trading.final_admission import FinalAdmissionEvaluation
 from trading.opportunities import _write_payload
@@ -67,7 +67,7 @@ def publish_orb(
             published_at=now,
             published_price=candidate.entry,
             geometry_hash=final.geometry_hash,
-            policy_version=VERSION,
+            policy_version=plan.version,
             legacy=False,
         )
         _write_payload(db, opp)
@@ -88,7 +88,10 @@ def publish_orb(
             },
         )
         opp = opp.model_copy(
-            update={"creation_admission_record_id": rec.id, "creation_admission_version": VERSION}
+            update={
+                "creation_admission_record_id": rec.id,
+                "creation_admission_version": plan.version,
+            }
         )
         _write_payload(db, opp)
         payload = deepcopy(row.payload)

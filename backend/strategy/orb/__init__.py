@@ -13,7 +13,8 @@ from core.clock import ET
 from core.schemas import Bar, Quote
 from trading.session_hours import is_market_holiday, session_close, us_equity_rth_open
 
-VERSION = "orb@1.1.0"
+VERSION = "orb@1.2.0"
+SUPPORTED_VERSIONS = frozenset({"orb@1.1.0", VERSION})
 # Paper implementation parameters; statistical profitability is not certified.
 PARAMETERS = {
     "opening_minutes": 5,
@@ -34,6 +35,10 @@ PARAMETERS = {
     "supported_feeds": ["iex", "sip"],
     "default_paper_feed": "iex",
 }
+
+
+LEGACY_PARAMETERS = {k: v for k, v in PARAMETERS.items() if k != "entry_policy_revision"}
+LEGACY_PARAMETERS["max_entry_drift_r"] = "0.25"
 
 
 class OrbPlan(BaseModel):
@@ -123,13 +128,22 @@ def _previous_sessions(now: datetime, count: int) -> list[date]:
 
 
 def form_plan(
-    symbol: str, daily: list[Bar], opening_bars: list[Bar], *, now: datetime, feed: str
+    symbol: str,
+    daily: list[Bar],
+    opening_bars: list[Bar],
+    *,
+    now: datetime,
+    feed: str,
+    version: str = VERSION,
 ) -> OrbDecision:
     """Use only complete opening bars and prior complete daily sessions."""
 
     def blocked(reason: str) -> OrbDecision:
         return OrbDecision(state="DATA_BLOCKED", reasons=[reason])
 
+    if version not in SUPPORTED_VERSIONS:
+        return blocked("ORB_INVALID_PROVENANCE")
+    parameters = PARAMETERS if version == VERSION else LEGACY_PARAMETERS
     if now.tzinfo is None:
         return blocked("ORB_TIMEZONE_REQUIRED")
     if feed not in {"iex", "sip"}:
@@ -189,7 +203,7 @@ def form_plan(
     if feed == "sip" and mean_volume < 1000000:
         reasons.append("ORB_DAILY_VOLUME_LOW")
     mean_dollars = sum((b.close * b.volume for b in prior[-14:]), Decimal(0)) / 14
-    if feed == "iex" and mean_dollars < Decimal(str(PARAMETERS["iex_min_avg_dollar_volume"])):
+    if feed == "iex" and mean_dollars < Decimal(str(parameters["iex_min_avg_dollar_volume"])):
         reasons.append("ORB_IEX_DOLLAR_VOLUME_LOW")
     if atr <= Decimal("0.50"):
         reasons.append("ORB_ATR_LOW")
@@ -211,10 +225,11 @@ def form_plan(
     if stop <= 0 or stop >= trigger:
         return blocked("ORB_INVALID_STOP")
     max_entry = (
-        trigger + (trigger - stop) * Decimal(str(PARAMETERS["max_entry_drift_r"]))
+        trigger + (trigger - stop) * Decimal(str(parameters["max_entry_drift_r"]))
     ).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
     plan = OrbPlan(
         symbol=symbol.upper(),
+        version=version,
         session=str(local.date()),
         range_start=start,
         range_end=end,
@@ -238,7 +253,7 @@ def form_plan(
             "opening": [o[day].model_dump(mode="json") for day in days[-14:]]
             + [today.model_dump(mode="json")],
             "atr_method": "mean_of_14_true_ranges",
-            "parameters": PARAMETERS,
+            "parameters": dict(parameters),
         },
     )
     return OrbDecision(state="WAIT", reasons=["ORB_WAITING_BREAKOUT"], plan=plan, measured=measured)
@@ -254,7 +269,7 @@ def evaluate_trigger(
 
     if (
         now.tzinfo is None
-        or plan.version != VERSION
+        or plan.version not in SUPPORTED_VERSIONS
         or plan.source not in {"alpaca:iex", "alpaca:sip"}
     ):
         return result("DATA_BLOCKED", "ORB_INVALID_PROVENANCE")
