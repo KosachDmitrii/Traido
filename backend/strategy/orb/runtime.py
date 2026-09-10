@@ -220,6 +220,13 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         return result.model_copy(update={"status": "no_trade", "errors": ["ORB_NOT_SELECTED"]})
     plan = OrbPlan.model_validate(stored["plans"][symbol])
     prior = stored.get("states", {}).get(symbol, {})
+    if prior.get("opportunity_id"):
+        from strategy.orb.reentry import rearm_closed_trade
+
+        if await rearm_closed_trade(plan.session, symbol, ctx.broker, now=now):
+            stored = read_session(plan.session)
+            plan = OrbPlan.model_validate(stored["plans"][symbol])
+            prior = stored["states"][symbol]
     if plan.version == VERSION:
         from uuid import UUID
 

@@ -602,3 +602,19 @@ broker state remains blocking. Parameters are an explicitly unvalidated Paper
 experiment, not a return forecast. Detailed specification: `orb-retest-v2.md`.
 
 | Entry cancellation acknowledged but broker still reports ACCEPTED/PARTIAL | Keep UNKNOWN and the symbol blocked; never pretend the resting entry was canceled, even if filled quantity is currently zero |
+
+## Closed-position reentry lifecycle (`closed-position-reentry@1`)
+
+| Situation | Behaviour |
+|---|---|
+| Historical purchase executed, exact linked position closed with journal record | UI projects CLOSED rather than claiming a currently held position; completed card leaves active list |
+| Same symbol absent but no exact closed position/journal link | Never infer closure or release the old claim |
+| Closed trade, fresh broker reads show zero position and no resting symbol orders, no unresolved intent | Atomically seed a new watch plan under current strategy; retain original execution and journal |
+| Partial position, unexpected short, resting order, UNKNOWN or broker read failure | Keep old claim; no automatic reset and no new order |
+| New watch after closure | Full breakout/retest/confirmation must start after closed_at; fresh admission, geometry hash and opportunity ID required |
+| Concurrent/reset worker repeats | Session lock + old opportunity ID + geometry comparison permit only one reset |
+
+Trade frequency is not increased by recycling the old purchase signal. All
+portfolio and execution gates still apply to the new proposal. Reentry policy
+identity and prior position/entry IDs are stored in immutable plan evidence;
+existing strategy parameters and historical trade records are not rewritten.

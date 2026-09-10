@@ -26,6 +26,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
   };
   const plans = Object.values(desk?.orb?.plans ?? {}).filter(plan => {
     const state = desk?.orb?.states?.[plan.symbol];
+    if (desk?.orb?.execution?.[plan.symbol]?.stage === "CLOSED") return false;
     if (automatic && desk?.orb?.execution?.[plan.symbol]) return true;
     return !["EXECUTED", "EXPIRED", "DISCARDED", "APPROVED"].includes(state?.state ?? "")
       && !(state?.reasons ?? []).includes("ORB_ENTRY_EXPIRED");

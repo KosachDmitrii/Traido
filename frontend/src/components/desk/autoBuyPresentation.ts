@@ -11,7 +11,8 @@ export function autoBuyPresentation(execution?: OrbExecution, planState?: string
     CHECKING_EXECUTION: ["Покупка обрабатывается", "Проверяем состояние исполнения. Покупка ещё не подтверждена.", "active"],
     SUBMITTED: ["Заявка отправлена", "Ожидаем подтверждения исполнения у брокера.", "active"],
     APPROVED: ["Заявка одобрена", "Ожидаем подтверждения исполнения у брокера.", "active"],
-    EXECUTED: ["Куплено", "Исполнение подтверждено. Позиция доступна на странице «Позиции».", "success"],
+    EXECUTED: ["Покупка исполнена", "Заявка на покупку исполнена. Текущее состояние позиции — в разделе «Позиции».", "neutral"],
+    CLOSED: ["Сделка закрыта", "Результат сохранён в журнале. Новая покупка возможна по новому сигналу после проверки брокера.", "neutral"],
     WAIT: ["Ожидаем условия", "Последняя попытка не прошла. Повторим проверку автоматически.", "neutral"],
     DATA_BLOCKED: ["Ждём данные", "Покупка приостановлена до получения достоверных данных.", "warning"],
     OPERATIONAL_BLOCKED: ["Покупка приостановлена", "Проверка счёта или сервиса не пройдена. Предусмотрен повтор.", "warning"],
@@ -24,7 +25,7 @@ export function autoBuyPresentation(execution?: OrbExecution, planState?: string
   };
   const [title, detail, tone] = !available ? ["Автопокупка недоступна", "Автоматическая покупка недоступна в текущем режиме.", "warning"]
     : states[stage] ?? ["Уточняем статус", "Получаем состояние предложения с сервера.", "neutral"];
-  const terminal = ["EXECUTED", "DISCARDED", "EXPIRED", "SKIPPED", "TERMINAL_REJECT", "NO_TRADE"].includes(stage);
+  const terminal = ["EXECUTED", "CLOSED", "DISCARDED", "EXPIRED", "SKIPPED", "TERMINAL_REJECT", "NO_TRADE"].includes(stage);
   const loading = available && ["CHECKING", "CHECKING_EXECUTION", "SUBMITTED", "APPROVED"].includes(stage);
   const codes = execution?.last_error?.split(/[:,|]/).map(s => s.trim()).filter(Boolean) ?? [];
   const translated = codes.map(orbReason).filter((text, i) => text !== codes[i]);

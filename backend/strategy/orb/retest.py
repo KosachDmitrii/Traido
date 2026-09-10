@@ -38,7 +38,10 @@ def rebuild(
     )
     if initial.plan is None:
         return OrbDecision(state="NO_TRADE", reasons=["ORB_RETEST_INVALIDATED"])
+    reentry = base.evidence.get("reentry")
     base = initial.plan
+    if reentry:
+        base = base.model_copy(update={"evidence": {**base.evidence, "reentry": deepcopy(reentry)}})
 
     def result(state, reason, plan=None):
         return OrbDecision(state=state, reasons=[reason], plan=plan or base)
@@ -74,7 +77,7 @@ def rebuild(
     wait_reason = "ORB_RETEST_WAIT_BREAKOUT"
     for b in rows:
         end = b.ts + timedelta(minutes=5)
-        if after and end <= after:
+        if after and b.ts < after:
             continue
         if ready is not None:
             if (

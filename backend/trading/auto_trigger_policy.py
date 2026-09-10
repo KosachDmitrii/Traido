@@ -667,6 +667,11 @@ def orb_execution_statuses(states: dict[str, Any]) -> dict[str, Any]:
                 )
             elif stage == "APPROVING":
                 stage = "SUBMITTED" if opp.submitted_at else "CHECKING_EXECUTION"
+            if stage == "EXECUTED":
+                from strategy.orb.reentry import closed_position
+
+                if closed_position(db, opp.id) is not None:
+                    stage = "CLOSED"
             result[ids[opp.id]] = {
                 "stage": stage,
                 "opportunity_id": str(opp.id),
