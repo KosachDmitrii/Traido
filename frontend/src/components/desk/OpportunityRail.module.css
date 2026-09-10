@@ -72,3 +72,22 @@
 .rail .actions { flex-direction: column; }
 .rail .actions > button { width: 100%; }
 @media(max-width:800px) { .rail { border-left: 0; border-top: 1px solid var(--td-border); } }
+
+/* Compact plan cards, with supporting session parameters on demand. */
+:is(.page, .rail) .card { padding: 16px; border-radius: 12px; box-shadow: none; }
+:is(.page, .rail) .cardHead { align-items: center; gap: 8px; }
+:is(.page, .rail) .identity h3 { font-size: 17px; margin: 0; }
+:is(.page, .rail) .identity > div { display: flex; align-items: baseline; gap: 8px; }
+:is(.page, .rail) .strategy { font-size: 10px; }
+:is(.page, .rail) .status { padding: 4px 7px; border-radius: 6px; font-size: 10px; }
+.prices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; padding: 16px 0; margin: 12px 0 0; border-top: 1px solid var(--td-border); }
+.prices dt { color: var(--td-text-muted); font-size: 11px; margin-bottom: 4px; }
+.prices dd { font-size: 16px; font-weight: 600; margin: 0; font-variant-numeric: tabular-nums; }
+.brief { font-size: 12px; line-height: 1.6; color: var(--td-text-muted); margin: 0 0 12px; overflow-wrap: anywhere; }
+.details { border-top: 1px solid var(--td-border); padding-top: 10px; font-size: 11px; }
+.details summary { cursor: pointer; color: var(--td-text-muted); padding: 3px 0; }
+.details summary:focus-visible { outline: 2px solid var(--td-accent); outline-offset: 3px; }
+.facts { display: grid; gap: 10px; margin: 14px 0; }
+.facts > div { display: flex; justify-content: space-between; gap: 12px; }
+.facts dt { color: var(--td-text-muted); }
+.facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }

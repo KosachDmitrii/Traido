@@ -51,15 +51,24 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
       const reasons = opp && !opp.viability?.buyable ? opp.viability?.reasons ?? ["ORB_QUOTE_STALE"] : state?.reasons ?? ["ORB_WAITING_BREAKOUT"];
       const ask = opp?.viability?.measured?.ask ?? state?.ask;
       return <article key={plan.symbol} className={`opp-card ${styles.card}`} data-buyable={buyable}>
-        <div className={styles.cardHead}><div className={styles.identity}><span className={styles.symbolIcon}>{plan.symbol.slice(0,2)}</span><div><h3>{plan.symbol}</h3><span className={styles.strategy}>ORB · Покупка</span></div></div><strong className={styles.status}>{buyable ? "Можно подтвердить" : orbState(state?.state)}</strong></div>
-        {layout === "page" && <div className={styles.quote}><span>Сейчас · ask</span><strong>{px(ask)}<small> USD</small></strong></div>}
-        <dl className={styles.levels}>
-          {layout === "rail" && <div><dt>Сейчас · ask</dt><dd>{px(ask)}</dd></div>}<div><dt>Пробой</dt><dd>{px(plan.trigger)}</dd></div>
-          <div><dt>Стоп</dt><dd>{px(plan.stop)}</dd></div><div><dt>Максимум покупки</dt><dd>{px(plan.max_entry)}</dd></div>
-          <div><dt>Диапазон открытия</dt><dd>{px(plan.range_low)}–{px(plan.range_high)}</dd></div><div><dt>Относительный объём</dt><dd>{Number(plan.relative_volume).toFixed(2)}×</dd></div><div><dt>Выход до</dt><dd>{etTime(plan.exit_at)} ET</dd></div>
+        <div className={styles.cardHead}><div className={styles.identity}><div><h3>{plan.symbol}</h3><span className={styles.strategy}>ORB · Покупка</span></div></div><strong className={styles.status}>{buyable ? "Можно подтвердить" : orbState(state?.state)}</strong></div>
+        <dl className={styles.prices}>
+          <div><dt>Сейчас · ask</dt><dd>{px(ask)}</dd></div>
+          <div><dt>Пробой</dt><dd>{px(plan.trigger)}</dd></div>
+          <div><dt>Стоп</dt><dd>{px(plan.stop)}</dd></div>
+          <div><dt>Лимит покупки</dt><dd>{px(plan.max_entry)}</dd></div>
         </dl>
-        <p className={styles.deadline}><Clock3 size={13} aria-hidden />Вход до {etTime(plan.entry_deadline)} ET</p>
-        <p className={styles.reason}>{reasons.map(orbReason).join(" · ")}</p>
+        <p className={styles.brief}>{reasons.length === 1 && reasons[0] === "ORB_WAITING_BREAKOUT" ? "Ждём пробоя диапазона открытия." : reasons.map(orbReason).join(" · ")}</p>
+        <details className={styles.details}>
+          <summary>Подробнее о плане</summary>
+          <dl className={styles.facts}>
+            <div><dt>Диапазон открытия</dt><dd>{px(plan.range_low)}–{px(plan.range_high)}</dd></div>
+            <div><dt>Относительный объём</dt><dd>{Number(plan.relative_volume).toFixed(2)}×</dd></div>
+            <div><dt>Вход до</dt><dd>{etTime(plan.entry_deadline)} ET</dd></div>
+            <div><dt>Выход до</dt><dd>{etTime(plan.exit_at)} ET</dd></div>
+          </dl>
+          <p className={styles.brief}>Уровни плана зафиксированы на сессию. Перед покупкой цена и риск проверяются повторно.</p>
+        </details>
         {opp && <>
           <label className={styles.quantity}>Количество акций <input aria-label={`Количество ${plan.symbol}`} type="number" min={1} max={maxQty} value={qty}
             onChange={e=>setQuantities(q=>({...q,[plan.symbol]:Math.max(1,Math.min(maxQty,Math.floor(Number(e.target.value)||1)))}))} /></label>
