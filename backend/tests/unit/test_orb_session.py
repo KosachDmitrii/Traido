@@ -111,11 +111,11 @@ async def test_observation_update_cannot_erase_a_consumed_plan():
 
 
 @pytest.mark.asyncio
-async def test_iex_is_visible_data_block_and_never_a_fake_no_setup():
+async def test_unknown_feed_is_visible_data_block_and_never_a_fake_no_setup():
     ctx = Context(["AAPL"])
-    ctx.market_data._feed = "iex"
+    ctx.market_data._feed = "otc"
     result = await discover(ctx, Universe(["AAPL"]), now=NOW)
     assert result["status"] == "data_blocked"
-    assert result["reason"] == "ORB_SIP_REQUIRED"
+    assert result["reason"] == "ORB_UNSUPPORTED_FEED"
     assert read_session("2026-09-09") is None
     assert ctx.daily_calls == 0

@@ -497,6 +497,7 @@ class AlpacaMarketData:
             ask_size=Decimal(str(raw["as"])) if raw.get("as") is not None else None,
             ts=ts,
             source=self.source,
+            feed=self._feed,
         )
 
     async def get_last_price(self, symbol: str) -> float:

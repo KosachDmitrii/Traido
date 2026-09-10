@@ -108,7 +108,7 @@ def test_history_requires_same_opening_window_for_every_previous_session():
 
 def test_feed_does_not_silently_change_the_relative_volume_definition():
     d, o = evidence()
-    assert form_plan("AAPL", d, o, now=NOW, feed="iex").reasons == ["ORB_SIP_REQUIRED"]
+    assert form_plan("AAPL", d, o, now=NOW, feed="otc").reasons == ["ORB_UNSUPPORTED_FEED"]
 
 
 def test_current_daily_bar_cannot_leak_into_atr():

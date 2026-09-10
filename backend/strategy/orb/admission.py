@@ -64,9 +64,12 @@ async def final_admission(
     now = now or datetime.now(UTC)
     if candidate.strategy_version != VERSION or candidate.exit_policy != "session_close":
         raise PretradeRejection("STRATEGY_RETIRED", "ORB_REQUIRED")
-    if getattr(market_data, "_feed", None) != "sip":
-        raise PretradeRejection("DATA_BLOCKED", "ORB_SIP_REQUIRED")
+    feed = getattr(market_data, "_feed", None)
+    if feed not in {"iex", "sip"}:
+        raise PretradeRejection("DATA_BLOCKED", "ORB_UNSUPPORTED_FEED")
     plan = OrbPlan.model_validate(candidate.orb_plan)
+    if plan.source != f"alpaca:{feed}":
+        raise PretradeRejection("DATA_BLOCKED", "ORB_DATA_FEED_MISMATCH")
     from core.schemas import Bar
     from strategy.orb.store import read_session
 
@@ -86,7 +89,7 @@ async def final_admission(
     )
     daily = [Bar.model_validate(b) for b in plan.evidence.get("daily", [])]
     opening = [Bar.model_validate(b) for b in plan.evidence.get("opening", [])][:-1] + today
-    rebuilt = form_plan(candidate.symbol, daily, opening, now=now, feed="sip")
+    rebuilt = form_plan(candidate.symbol, daily, opening, now=now, feed=feed)
     if rebuilt.plan is None:
         raise PretradeRejection("ORB_INVALIDATED", ",".join(rebuilt.reasons))
     fresh = rebuilt.plan

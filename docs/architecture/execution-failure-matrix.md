@@ -434,3 +434,10 @@ strict side boundaries, and invalid reference prices.
 | Old UNKNOWN/in-flight entry | Keep durable recovery owner | Reconcile the original broker ID/client ID; never blind resubmit |
 | ORB fill without price target | Journal nullable target and original session exit timestamp | Protection and recovery retain the same geometry |
 | Session exit due, broker unavailable | Keep stop protection, record failure, retry due exit | Shared durable exit path reconciles existing intent before another order |
+
+| ORB IEX development failure | Required result |
+| --- | --- |
+| Quote/provider feed differs from saved plan | Refuse entry; never relabel stored bars |
+| Feed or strategy revision changes after daily selection | Keep saved evidence; require next-session selection |
+| IEX volume below consolidated share floor but dollar liquidity sufficient | Allow observation using IEX RVOL; execution still runs all liquidity/capital gates |
+| IEX request returns 403 | Report configured-feed access denial, not a SIP subscription requirement |

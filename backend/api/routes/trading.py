@@ -279,7 +279,7 @@ async def post_kill_switch(body: KillSwitchBody) -> dict:
 
 @router.get("/entry-policy")
 async def get_entry_policy() -> dict:
-    return {"strategy": "orb@1.0.0", "retired": True}
+    return {"strategy": "orb@1.1.0", "retired": True}
 
 
 @router.put("/entry-policy")

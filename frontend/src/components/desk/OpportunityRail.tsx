@@ -31,7 +31,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh }: Props) {
     {!plans.length && <p>{orbReason(desk?.orb?.reason ?? (desk?.orb?.status === "ready" ? "ORB_NO_CANDIDATES" : "ORB_LOADING"))}</p>}
     {plans.map(plan => {
       const state = desk?.orb?.states?.[plan.symbol];
-      const opp = buys.find(o => o.candidate.symbol === plan.symbol && o.candidate.strategy_version === "orb@1.0.0");
+      const opp = buys.find(o => o.candidate.symbol === plan.symbol && o.candidate.strategy_version === "orb@1.1.0");
       const maxQty = Math.max(0, Math.floor(Number(opp?.proposed_qty ?? opp?.risk?.sized_qty ?? 0)));
       const qty = Math.min(maxQty, quantities[plan.symbol] ?? maxQty);
       const buyable = !!opp && opp.viability?.buyable === true && desk?.session?.entries_allowed !== false && maxQty > 0;

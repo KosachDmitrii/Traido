@@ -49,13 +49,20 @@ async def discover(
     now = now or datetime.now(UTC)
     day = str(now.astimezone(ET).date())
     async with _discovery_lock:
+        feed_name = getattr(ctx.market_data, "_feed", None)
         existing = read_session(day)
         if existing is not None:
+            STATUS.clear()
             STATUS.update(existing)
+            saved_feed = existing.get("feed", existing.get("parameters", {}).get("feed"))
+            if existing.get("version") != VERSION or saved_feed != feed_name:
+                STATUS.update(status="data_blocked", reason="ORB_SESSION_CONFIGURATION_CHANGED")
+                return dict(STATUS)
             return existing
         STATUS.clear()
         STATUS.update(
             version=VERSION,
+            feed=feed_name,
             parameters=PARAMETERS,
             status="forming_range",
             session=day,
@@ -72,10 +79,8 @@ async def discover(
             )
             return dict(STATUS)
         feed = ctx.market_data
-        if getattr(feed, "_feed", None) != "sip" or not callable(
-            getattr(feed, "get_bars_batch", None)
-        ):
-            STATUS.update(status="data_blocked", reason="ORB_SIP_REQUIRED")
+        if feed_name not in {"iex", "sip"} or not callable(getattr(feed, "get_bars_batch", None)):
+            STATUS.update(status="data_blocked", reason="ORB_UNSUPPORTED_FEED")
             return dict(STATUS)
         STATUS.update(status="loading_history", reason=None)
         snapshot = await universe.get_scan_universe(tier=UniverseTier.BROAD, max_size=0)
@@ -93,7 +98,7 @@ async def discover(
         try:
             daily = await ctx.daily_bars(symbols, now - timedelta(days=45), start)
         except Exception as exc:
-            STATUS.update(status="data_blocked", reason=data_error_reason(exc))
+            STATUS.update(status="data_blocked", reason=data_error_reason(exc, feed=feed_name))
             raise
         days = _previous_sessions(now, 15)
         base: list[str] = []
@@ -117,11 +122,19 @@ async def discover(
                 )
                 / 14
             )
-            if adv < 1000000 or atr <= Decimal("0.50"):
+            mean_dollars = sum((b.close * b.volume for b in bs[-14:]), Decimal(0)) / 14
+            volume_low = (
+                adv < 1000000
+                if feed_name == "sip"
+                else mean_dollars < Decimal(str(PARAMETERS["iex_min_avg_dollar_volume"]))
+            )
+            if volume_low or atr <= Decimal("0.50"):
                 counts["base_rejected"] += 1
-                rejected[symbol] = (["ORB_DAILY_VOLUME_LOW"] if adv < 1000000 else []) + (
-                    ["ORB_ATR_LOW"] if atr <= Decimal("0.50") else []
-                )
+                rejected[symbol] = (
+                    ["ORB_DAILY_VOLUME_LOW" if feed_name == "sip" else "ORB_IEX_DOLLAR_VOLUME_LOW"]
+                    if volume_low
+                    else []
+                ) + (["ORB_ATR_LOW"] if atr <= Decimal("0.50") else [])
             else:
                 base.append(symbol)
         opening: dict[str, list[Bar]] = {s: [] for s in base}
@@ -135,14 +148,14 @@ async def discover(
                     base, t, t + timedelta(minutes=5) - timedelta(microseconds=1), Timeframe.M5
                 )
             except Exception as exc:
-                STATUS.update(status="data_blocked", reason=data_error_reason(exc))
+                STATUS.update(status="data_blocked", reason=data_error_reason(exc, feed=feed_name))
                 raise
             for symbol in base:
                 opening[symbol].extend(rows.get(symbol, []))
         plans: list[OrbPlan] = []
         for symbol in base:
             decision = form_plan(
-                symbol, daily.get(symbol, []), opening[symbol], now=now, feed="sip"
+                symbol, daily.get(symbol, []), opening[symbol], now=now, feed=feed_name
             )
             counts["opening_evaluated"] += 1
             if decision.plan is not None:
@@ -154,6 +167,7 @@ async def discover(
         counts.update(qualified=len(plans), selected=len(selected))
         payload = {
             "version": VERSION,
+            "feed": feed_name,
             "parameters": PARAMETERS,
             "session": day,
             "status": "ready",

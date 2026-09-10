@@ -13,13 +13,14 @@ from core.clock import ET
 from core.schemas import Bar, Quote
 from trading.session_hours import is_market_holiday, session_close, us_equity_rth_open
 
-VERSION = "orb@1.0.0"
+VERSION = "orb@1.1.0"
 # Paper implementation parameters; statistical profitability is not certified.
 PARAMETERS = {
     "opening_minutes": 5,
     "lookback_sessions": 14,
     "min_price": "5",
-    "min_daily_volume": 1000000,
+    "sip_min_daily_volume": 1000000,
+    "iex_min_avg_dollar_volume": "20000000",
     "min_daily_atr": "0.50",
     "min_relative_volume": "1",
     "top_n": 20,
@@ -29,7 +30,8 @@ PARAMETERS = {
     "exit_buffer_seconds": 60,
     "entry_cutoff_minutes_before_exit": 5,
     "max_entry_drift_r": "0.25",
-    "feed": "sip",
+    "supported_feeds": ["iex", "sip"],
+    "default_paper_feed": "iex",
 }
 
 
@@ -129,8 +131,8 @@ def form_plan(
 
     if now.tzinfo is None:
         return blocked("ORB_TIMEZONE_REQUIRED")
-    if feed != "sip":
-        return blocked("ORB_SIP_REQUIRED")
+    if feed not in {"iex", "sip"}:
+        return blocked("ORB_UNSUPPORTED_FEED")
     local = now.astimezone(ET)
     start = datetime.combine(local.date(), time(9, 30), ET)
     end = start + timedelta(minutes=5)
@@ -183,8 +185,11 @@ def form_plan(
     reasons = []
     if today.open <= 5:
         reasons.append("ORB_PRICE_BELOW_MINIMUM")
-    if mean_volume < 1000000:
+    if feed == "sip" and mean_volume < 1000000:
         reasons.append("ORB_DAILY_VOLUME_LOW")
+    mean_dollars = sum((b.close * b.volume for b in prior[-14:]), Decimal(0)) / 14
+    if feed == "iex" and mean_dollars < Decimal(str(PARAMETERS["iex_min_avg_dollar_volume"])):
+        reasons.append("ORB_IEX_DOLLAR_VOLUME_LOW")
     if atr <= Decimal("0.50"):
         reasons.append("ORB_ATR_LOW")
     if rv < 1:
@@ -195,6 +200,8 @@ def form_plan(
         "relative_volume": str(rv),
         "daily_atr": str(atr),
         "mean_daily_volume": str(mean_volume),
+        "mean_daily_dollar_volume": str(mean_dollars),
+        "feed": feed,
     }
     if reasons:
         return OrbDecision(state="NO_TRADE", reasons=reasons, measured=measured)
@@ -219,6 +226,7 @@ def form_plan(
         relative_volume=rv,
         daily_atr=atr,
         mean_daily_volume=mean_volume,
+        source=f"alpaca:{feed}",
         trigger=trigger,
         stop=stop,
         max_entry=max_entry,
@@ -243,7 +251,11 @@ def evaluate_trigger(
     ) -> OrbDecision:
         return OrbDecision(state=state, reasons=[reason], plan=plan)
 
-    if now.tzinfo is None or plan.version != VERSION or plan.source != "alpaca:sip":
+    if (
+        now.tzinfo is None
+        or plan.version != VERSION
+        or plan.source not in {"alpaca:iex", "alpaca:sip"}
+    ):
         return result("DATA_BLOCKED", "ORB_INVALID_PROVENANCE")
     if (
         not us_equity_rth_open(now)
@@ -255,6 +267,8 @@ def evaluate_trigger(
         return result("WAIT", "ORB_OPENING_RANGE_FORMING")
     if quote is None or quote.symbol.upper() != plan.symbol or quote.ts.tzinfo is None:
         return result("DATA_BLOCKED", "ORB_QUOTE_MISSING")
+    if quote.feed is not None and plan.source != f"alpaca:{quote.feed}":
+        return result("DATA_BLOCKED", "ORB_DATA_FEED_MISMATCH")
     age = (now - quote.ts).total_seconds()
     if age < -1 or age > 5:
         return result("DATA_BLOCKED", "ORB_QUOTE_STALE")

@@ -146,7 +146,7 @@ def evaluate_from_admission_input(
     tape_last: float | None = None,
 ) -> TradeAdmissionResult:
     """Evaluate admission from an immutable AdmissionInput — preferred capital path."""
-    if admission_input.strategy_version == "orb@1.0.0":
+    if admission_input.strategy_version == "orb@1.1.0":
         from strategy.orb.admission import evaluate_sealed
 
         return evaluate_sealed(admission_input)

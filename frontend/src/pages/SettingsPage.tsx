@@ -237,7 +237,7 @@ export function SettingsPage() {
       <article className="settings-card"><div className="settings-card__body">
         <h3>Opening Range Breakout · Paper</h3>
         <p>Диапазон 09:30–09:35 ET, отбор по относительному объёму. Геометрия фиксируется на сессию. Вход подтверждается вручную, выход — стоп или конец сессии.</p>
-        <p>Котировки и объёмы: Alpaca SIP. Позиции и исполнение: выбранный брокер. Ограничения риска счёта проверяются перед каждым ордером.</p>
+        <p>Котировки и объёмы: Alpaca {(desk?.orb?.feed ?? "iex").toUpperCase()}{(desk?.orb?.feed ?? "iex") === "iex" ? " (данные одной биржи)" : ""}. Позиции и исполнение: выбранный брокер. Ограничения риска счёта проверяются перед каждым ордером.</p>
       </div></article>
 
       <article className="settings-card">

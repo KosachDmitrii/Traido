@@ -493,3 +493,11 @@ entry and price-target exit descriptions above are historical. See
 parameters, their research source, application adaptations, lifecycle and
 validation contract. Risk authority, Paper-only broker execution, durable
 intents and protective reconciliation remain shared capital infrastructure.
+
+### ORB IEX development profile — 2026-09-10
+
+`orb@1.1.0` restores explicit `ALPACA_DATA_FEED=iex` and Paper's IEX default.
+Same-feed relative volume replaces the SIP-only restriction; IEX selection uses
+observed dollar liquidity rather than a consolidated share-volume threshold.
+Plans and quote metadata must agree on feed. Capital/execution controls are unchanged.
+See `docs/architecture/orb-replacement.md` for parameters and limitations.

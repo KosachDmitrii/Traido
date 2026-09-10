@@ -13,7 +13,7 @@ from strategy.orb import VERSION, _previous_sessions, form_plan
 from strategy.orb.store import read_session
 
 
-def orb_ready_candidate(candidate: TradeCandidate) -> TradeCandidate:
+def orb_ready_candidate(candidate: TradeCandidate, *, feed: str = "sip") -> TradeCandidate:
     if candidate.strategy_version == VERSION:
         return candidate
     from database.models.orb import OrbSessionRow
@@ -63,7 +63,7 @@ def orb_ready_candidate(candidate: TradeCandidate) -> TradeCandidate:
                 source="synthetic_orb",
             )
         )
-    decision = form_plan(candidate.symbol, daily, opening, now=now, feed="sip")
+    decision = form_plan(candidate.symbol, daily, opening, now=now, feed=feed)
     assert decision.plan is not None, decision.reasons
     plan = decision.plan
     with session_factory()() as db:

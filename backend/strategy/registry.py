@@ -21,7 +21,7 @@ from strategy import StrategyPromotionStage
 # Desk confirmation strategy — stamped onto every candidate / journal row.
 # Same key for paper and live; broker environment is orthogonal.
 LIVE_STRATEGY_NAME = "orb"
-LIVE_STRATEGY_TAG = "1.0.0"
+LIVE_STRATEGY_TAG = "1.1.0"
 LIVE_STRATEGY_KEY = f"{LIVE_STRATEGY_NAME}@{LIVE_STRATEGY_TAG}"
 
 # Legacy confluence key kept registered so old journal rows still promote.
@@ -159,7 +159,7 @@ def ensure_builtin_strategies() -> list[dict[str, Any]]:
         name=LIVE_STRATEGY_NAME,
         version_tag=LIVE_STRATEGY_TAG,
         parameters=LIVE_PARAMETERS,
-        notes="Desk multi-TF path (paper and live share this version key).",
+        notes="ORB Paper: explicit Alpaca IEX/SIP feed, immutable opening range and session exit.",
     )
     research = register_version(
         key=RESEARCH_STRATEGY_KEY,

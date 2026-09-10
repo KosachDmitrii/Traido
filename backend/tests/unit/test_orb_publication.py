@@ -38,7 +38,7 @@ def proposed():
         decision=AdmissionDecision.BUY_ALLOWED,
         admitted=True,
         buy_ready=True,
-        admission_version="orb@1.0.0",
+        admission_version="orb@1.1.0",
     )
     inp = AdmissionInput(
         orb_plan=c.orb_plan,

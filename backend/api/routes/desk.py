@@ -83,7 +83,7 @@ def _auto_trigger_payload() -> dict:
 
 
 def _entry_policy_payload() -> dict:
-    return {"strategy": "orb@1.0.0", "retired": True}
+    return {"strategy": "orb@1.1.0", "retired": True}
 
 
 def _broker_backend_desk_payload() -> dict:
@@ -200,14 +200,22 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     from strategy.orb.store import read_session
 
     orb = read_session(str(datetime.now(UTC).astimezone(ET).date())) or dict(orb_status)
+    from market_data.factory import resolve_alpaca_data_feed
+
     orb = {
         **orb,
+        "feed": resolve_alpaca_data_feed(settings),
         "plans": {
             s: {k: v for k, v in p.items() if k != "evidence"}
             for s, p in orb.get("plans", {}).items()
         },
         "rejections": {},
     }
+    if (
+        orb_status.get("session") == orb.get("session")
+        and orb_status.get("reason") == "ORB_SESSION_CONFIGURATION_CHANGED"
+    ):
+        orb.update(status="data_blocked", reason="ORB_SESSION_CONFIGURATION_CHANGED")
     if DATA_ACCESS.get("status") == "blocked":
         orb.update(status="data_blocked", reason=DATA_ACCESS.get("reason"))
     return {

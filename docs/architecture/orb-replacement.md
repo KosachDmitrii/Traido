@@ -1,6 +1,6 @@
 # ORB replacement decision — 2026-09-10
 
-The active strategy is `orb@1.0.0`. It replaces the desk's multi-timeframe pullback,
+The active strategy is `orb@1.1.0` (IEX development support). It replaces the desk's multi-timeframe pullback,
 arrival-quality score, aggressiveness slider and mandatory price-target/R:R admission.
 Historical executions, their evidence and protective orders are not rewritten.
 Unclaimed old proposals are withdrawn; an in-flight or UNKNOWN order retains its
@@ -48,9 +48,28 @@ Application adaptations, not universal trading standards:
   These additional gates and the application's risk sizing also differ from the
   paper. They must be visible separately from ORB observation.
 
-SIP is required for consolidated volume. An IEX setting or SIP entitlement
-failure is an explicit data block, not a silently substituted data source.
-There is no subscription purchase or artificial quote/volume fallback.
+The data feed is explicit. Paper defaults to IEX, as required by the user;
+SIP is only used when explicitly configured. The profile below supersedes the
+initial SIP-only implementation. No subscription is required for IEX.
+
+For IEX, the 1-million-share consolidated-volume condition is not applied.
+Selection instead requires at least $20 million of mean observed daily dollar
+volume over the 14-session baseline, matching the existing execution liquidity
+floor in units (execution independently checks its 20-bar history). Opening
+relative volume compares IEX with IEX for the same 5-minute window; no market-share
+multiplier invents consolidated volume. The existing execution liquidity,
+participation, spread, quote-age, and portfolio risk gates are unchanged. IEX
+prices and volumes describe one exchange, not NBBO or total US market turnover.
+This is a Paper development adaptation, not a reproduction of published SIP
+backtest results. SIP retains the original share-volume selection condition.
+
+Each plan records its feed. Quotes carry adapter feed metadata; a mismatched
+quote or provider is rejected. A saved session is never reinterpreted after a
+feed/version change; a new selection requires the next session. Prior versions
+remain readable for audit and existing-position recovery. The registry gets a
+new immutable version rather than rewriting the existing parameter hash.
+Access probes operate on the configured feed and IEX errors never request SIP
+subscription. There is no silent fallback or artificial quote/volume scaling.
 
 ## Persistence and execution
 
@@ -84,5 +103,5 @@ Tests of removed conviction ranking, top-40 rotation and score-based admission
 are replaced by the ORB contracts, not used as evidence of profitability.
 
 Production acceptance additionally requires successful migrations, health,
-confirmed SIP access, valid opening data and a complete observed session. A
+confirmed access to the configured feed, valid opening data and a complete observed session. A
 green unit suite alone does not establish those facts or a profitable strategy.

@@ -135,7 +135,7 @@ def assess_buy_viability(
             as_of=as_of,
         )
 
-    if candidate.strategy_version == "orb@1.0.0":
+    if candidate.strategy_version == "orb@1.1.0":
         from strategy.orb import OrbPlan, evaluate_trigger
 
         try:
