@@ -160,7 +160,7 @@ async def test_normalized_lly_unrealistic_target_blocks_with_zero_broker_calls(
             request_id=uuid4(),
             expected_decision_version=opp.decision_version,
         )
-    assert "TARGET_UNREALISTIC" in str(e.value) or "NO_TRADE" in str(e.value)
+    assert str(e.value) == "STRATEGY_RETIRED:ORB_REQUIRED"
     assert place.call_count == 0
     assert intents.list_by_key_prefix(f"entry:{opp.id}:") == []
 
@@ -217,16 +217,7 @@ async def test_raw_legacy_lly_requires_admission_zero_broker(
     detail = str(e.value)
     assert place.call_count == 0
     assert intents.list_by_key_prefix(f"entry:{opp.id}:") == []
-    assert any(
-        token in detail
-        for token in (
-            "ADMISSION_REQUIRED",
-            "BUY_REJECTED",
-            "MISSING_ENTRY_ZONE",
-            "PRICE_OUTSIDE",
-            "TARGET_PLAN_REQUIRED",
-        )
-    )
+    assert detail == "STRATEGY_RETIRED:ORB_REQUIRED"
 
 
 @pytest.mark.asyncio

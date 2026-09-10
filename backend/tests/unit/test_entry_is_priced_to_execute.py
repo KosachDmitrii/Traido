@@ -28,7 +28,7 @@ from core.schemas import TradeCandidate
 from risk.kill_switch import set_kill_switch
 from risk.risk_engine import RiskEngine
 from tests.support import CLEARED_EARNINGS, liquid_market_data
-from trading.execution import ENTRY_BUFFER_BPS, ExecutionService
+from trading.execution import ExecutionService
 from trading.exits import MemoryExitStore
 from trading.intents import INTENTS
 from trading.opportunities import MemoryOpportunityStore
@@ -104,12 +104,12 @@ async def test_the_buffer_above_the_offer_is_bounded() -> None:
     set_kill_switch(False)
     broker = MockPaperBroker()
 
-    await _approve(broker, market_price=66.47)
+    _, result = await _approve(broker, market_price=66.47)
 
-    ceiling = _ask(66.47) * (Decimal(1) + Decimal(str(ENTRY_BUFFER_BPS)) / Decimal(10_000))
+    ceiling = Decimal(result.candidate.orb_plan["max_entry"])
     entry = _entry_order(broker)
     assert entry.limit_price is not None
-    assert entry.limit_price <= ceiling.quantize(Decimal("0.01")) + Decimal("0.01")
+    assert entry.limit_price == ceiling
 
 
 @pytest.mark.asyncio
@@ -144,7 +144,7 @@ async def test_the_stop_does_not_move_with_the_entry() -> None:
     await _approve(broker, market_price=66.47)
 
     stop = next(o for o in broker.orders if o.order_type is OrderType.STOP)
-    assert stop.stop_price == CARD_STOP.quantize(Decimal("0.01"))
+    assert stop.stop_price == CARD_STOP.quantize(Decimal("0.01"), rounding="ROUND_FLOOR")
 
 
 @pytest.mark.asyncio
@@ -156,7 +156,7 @@ async def test_a_market_that_ran_past_the_target_is_refused() -> None:
     intents_before = len(INTENTS.list_by_key_prefix("entry:"))
     # The current approval path checks the executable entry zone before the
     # target/slippage guards. This quote fails that earlier, mandatory gate.
-    with pytest.raises(RuntimeError, match="^LIQUIDITY_GATE_REJECTED:ENTRY_OUTSIDE_ALLOWED_ZONE$"):
+    with pytest.raises(RuntimeError, match="^LIQUIDITY_GATE_REJECTED:ORB_ENTRY_MISSED$"):
         await _approve(broker, market_price=float(CARD_TARGET) + 1.0)
 
     assert not broker.orders, "an entry above its own target reached the broker"

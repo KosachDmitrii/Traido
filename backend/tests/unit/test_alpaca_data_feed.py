@@ -6,9 +6,9 @@ from core.config import Settings
 from market_data.factory import resolve_alpaca_data_feed
 
 
-def test_defaults_to_iex() -> None:
+def test_defaults_to_consolidated_sip_for_orb() -> None:
     s = Settings(ALPACA_DATA_FEED=None)
-    assert resolve_alpaca_data_feed(s) == "iex"
+    assert resolve_alpaca_data_feed(s) == "sip"
 
 
 def test_explicit_feed_overrides() -> None:

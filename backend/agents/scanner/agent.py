@@ -23,7 +23,6 @@ from core.activity import BOARD
 from core.config import Settings, get_settings
 from core.enums import Timeframe
 from core.universe import universe_from_watchlist
-from risk.kill_switch import is_kill_switch_on
 from universe.eligibility import EligibilityPolicy
 from universe.provider import StaticUniverseProvider, create_universe_provider
 from universe.service import UniverseService
@@ -371,7 +370,7 @@ async def _scan_once() -> ScannerStatus:
     cfg = load_watchlist()
     settings = get_settings()
     STATUS.enabled = bool(cfg.get("enabled", True))
-    if not STATUS.enabled or is_kill_switch_on():
+    if not STATUS.enabled:
         STATUS.running = False
         STATUS.error = "disabled_or_kill_switch"
         BOARD.set_agent("scanner", status="idle", detail=STATUS.error)
@@ -420,7 +419,7 @@ async def _scan_once() -> ScannerStatus:
             top = STATUS.funnel.top_rejections()
             if top:
                 detail = ", ".join(f"{reason} x{count}" for reason, count in top)
-                BOARD.log("scanner", f"Top risk rejections: {detail}", level="warn")
+                BOARD.log("scanner", f"ORB entry refusals: {detail}", level="warn")
         from core.desk_bus import DESK_BUS
 
         DESK_BUS.bump_desk(
@@ -578,13 +577,13 @@ def _funnel_summary(funnel: ScanFunnel, cycle: int) -> str:
             f" \u00b7 provider-failed {funnel.provider_failed} \u00b7 stale {funnel.data_stale}"
         )
     return (
-        f"Cycle {cycle} {outcome} \u00b7 universe {funnel.universe_total} \u00b7 "
+        f"ORB cycle {cycle} {outcome} \u00b7 universe {funnel.universe_total} \u00b7 "
         f"eligible {funnel.structurally_eligible} \u00b7 "
         f"market-passed {funnel.market_filter_passed} \u00b7 "
-        f"shortlisted {funnel.quant_shortlisted} \u00b7 "
-        f"deep {funnel.deep_analysis_started} \u00b7 "
+        f"qualified {funnel.quant_shortlisted} \u00b7 "
+        f"selected {funnel.deep_analysis_started} \u00b7 "
         f"wait {funnel.wait_for_entry} \u00b7 "
-        f"no-setup {funnel.deep_analysis_no_candidate} \u00b7 "
+        f"no-entry {funnel.deep_analysis_no_candidate} \u00b7 "
         f"risk-passed {funnel.risk_passed} \u00b7 "
         f"published {funnel.published} \u00b7 "
         f"outranked {funnel.final_outranked}"

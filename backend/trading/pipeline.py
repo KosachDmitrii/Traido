@@ -6,19 +6,15 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
-from agents.supervisor.agent import build_supervisor
 from core.activity import BOARD
 from core.audit import create_audit
 from core.config import Settings, get_settings
 from core.desk_bus import DESK_BUS
 from core.enums import (
     AdmissionDecision,
-    EntryDecision,
     EntryWatchStatus,
     InstrumentThesis,
     MarketRegimeLabel,
-    RiskVerdict,
-    SessionCohort,
     Timeframe,
 )
 from core.ports import MarketDataPort
@@ -36,15 +32,9 @@ from core.schemas import (
 )
 from database.session import session_factory
 from notifications.telegram import get_notifier
-from risk.context_builder import build_risk_context
-from risk.limits import default_risk_limits
-from risk.risk_engine import RiskEngine
 from trading.decision_outcome import DECISION_OUTCOMES
-from trading.entry_watches import ENTRY_WATCHES
 from trading.opportunities import OPPORTUNITIES, _write_payload, withdraw_unactionable
-from trading.pre_watch_eligibility import evaluate_pre_watch_eligibility
 from trading.scan_context import ScanContext, open_scan_context
-from trading.shadow_policy import record_shadow_async
 from trading.trade_admission import evaluate_trade_admission
 from trading.zone_arrival import ZoneArrivalFacts, evaluate_zone_arrival, zone_arrival_required
 
@@ -94,6 +84,8 @@ def zone_arrival_for_admission(
     if bundle.entry_zone_low is None or bundle.entry_zone_high is None:
         return None
     if len(bars) < 5:
+        return None
+    if candidate.target is None:
         return None
     now = datetime.now(UTC)
     atr = bundle.facts.atr if bundle.facts else None
@@ -147,441 +139,13 @@ async def run_symbol_pipeline(
     publish: bool = True,
     context: ScanContext | None = None,
 ) -> PipelineResult:
-    """Evaluate one symbol, and by default put the result on the desk.
+    """Evaluate only the persisted ORB session selection."""
+    from strategy.orb.runtime import evaluate_symbol
 
-    `publish=False` stops at the risk verdict and returns `risk_passed` without
-    creating anything. A caller that intends to rank what it finds needs that:
-    the desk has few slots, and a proposal that is written, notified and
-    audited is one the operator can act on. Nothing may create one it means to
-    take back.
-
-    `context` carries the cycle's vendors. Passing one is how a scan avoids
-    opening a broker connection per symbol — which against IBKR is not a cost
-    but a refusal. Omitting it builds a single-symbol context, for the routes
-    that evaluate one name on demand.
-    """
-    from trading.ledger import LEDGER
-
-    # Asked before anything is measured. One open position per symbol is a rule
-    # the desk enforces at the click, and it used to be enforced *only* there —
-    # so a symbol already held was analysed in full, ranked, offered a slot and
-    # notified about, and the resulting card could do nothing but collect a
-    # `POSITION_ALREADY_OPEN`. The analysis is the expensive half of a cycle.
-    if LEDGER.find_open_by_symbol(symbol) is not None:
-        BOARD.set_agent("risk", status="idle", detail="Position already open", symbol=symbol)
-        return PipelineResult(
-            pipeline_run_id=uuid4(),
-            symbol=symbol.upper(),
-            status="position_open",
-        )
-    settings = settings or get_settings()
     if context is None:
-        async with open_scan_context(settings) as solo:
-            return await run_symbol_pipeline(
-                symbol,
-                timeframes=timeframes,
-                settings=settings,
-                publish=publish,
-                context=solo,
-            )
-    # The cycle's own feed, not a new one. This factory used to be called here
-    # once per symbol and built a fresh market-data adapter every time, which is
-    # exactly what `ScanContext` was introduced to stop — and this was the one
-    # path in the cycle still doing it.
-    supervisor = build_supervisor(settings, market_data=context.market_data)
-    result = await supervisor.scan_symbol(symbol, timeframes=timeframes)
-
-    if result.candidate is None:
-        BOARD.set_agent("risk", status="idle", detail="No candidate")
-        return result
-
-    candidate = result.candidate
-
-    bundle = result.entry_decision
-    quote: Quote | None = None
-    if context.market_data is not None and hasattr(context.market_data, "get_quote"):
-        try:
-            get_quote = getattr(context.market_data, "get_quote", None)
-            if get_quote is not None:
-                quote = await get_quote(symbol)
-        except Exception:  # noqa: BLE001
-            quote = None
-
-    admission = None
-    if bundle is not None:
-        adm_entry = None
-        adm_stop = None
-        adm_target = None
-        adm_target_plan = bundle.target
-        stop_model = None
-        stop_source = None
-        stop_level = None
-        # WAIT cards are scored on zone-coherent plan levels, not the live ask.
-        from trading.wait_plan import derive_wait_levels, needs_wait_plan
-
-        if needs_wait_plan(bundle, candidate):
-            assert bundle.entry_zone_low is not None and bundle.entry_zone_high is not None
-            wait_levels = derive_wait_levels(bundle, candidate)
-            adm_entry = wait_levels.entry
-            adm_stop = wait_levels.stop
-            adm_target = wait_levels.target
-            adm_target_plan = wait_levels.target_plan
-            adm_target = adm_target_plan.price
-            stop_model = "structure"
-            stop_source = "entry_zone_low"
-            stop_level = float(bundle.entry_zone_low)
-            candidate = candidate.model_copy(
-                update={
-                    "entry_decision": EntryDecision.WAIT_FOR_ENTRY,
-                    "entry": wait_levels.entry,
-                    "stop": wait_levels.stop,
-                    "target": adm_target,
-                    "risk_reward": wait_levels.risk_reward,
-                    "target_model": adm_target_plan.model,
-                    "target_reachability": adm_target_plan.reachability,
-                }
-            )
-            bundle = bundle.model_copy(
-                update={"entry_decision": EntryDecision.WAIT_FOR_ENTRY, "target": adm_target_plan}
-            )
-            result = result.model_copy(update={"candidate": candidate, "entry_decision": bundle})
-        bars_h1: list[Bar] = []
-        last_bar_ts: datetime | None = None
-        zone_arrival: ZoneArrivalFacts | None = None
-        if context.market_data is not None and bundle is not None:
-            try:
-                end = datetime.now(UTC)
-                bars_h1 = await context.market_data.get_bars(
-                    symbol, Timeframe.H1, end - timedelta(days=60), end
-                )
-                if bars_h1:
-                    from trading.data_integrity import last_bar_timestamp
-
-                    last_bar_ts = last_bar_timestamp(bars_h1)
-                zone_arrival = zone_arrival_for_admission(
-                    symbol=symbol,
-                    candidate=candidate,
-                    bundle=bundle,
-                    bars=bars_h1,
-                )
-            except Exception:  # noqa: BLE001 — admission must not kill the scan
-                bars_h1 = []
-        admission = evaluate_trade_admission(
-            bundle=bundle,
-            candidate=candidate,
-            quote=quote,
-            entry=adm_entry,
-            stop=adm_stop,
-            target=adm_target,
-            target_plan=adm_target_plan,
-            stop_plan_model=stop_model,
-            stop_structural_source=stop_source,
-            stop_structural_level=stop_level,
-            zone_arrival=zone_arrival,
-            bars_count=len(bars_h1) if bars_h1 else None,
-            last_bar_ts=last_bar_ts,
-            require_bars=True,
-        )
-        if (
-            candidate.entry_decision is EntryDecision.WAIT_FOR_ENTRY
-            or candidate.observation_requirements
-        ):
-            from trading.pre_watch_eligibility import admission_for_wait_plan
-
-            admission = admission_for_wait_plan(admission)
-        from trading.admission_records import persist_admission
-
-        persist_admission(
-            symbol=symbol,
-            admission=admission,
-            pipeline_run_id=result.pipeline_run_id,
-            context={
-                "source": "pipeline",
-                "scan_id": str(context.scan_id),
-                "entry": str(adm_entry),
-                "stop": str(adm_stop),
-                "target": str(adm_target),
-                "target_plan": adm_target_plan.model_dump(mode="json") if adm_target_plan else None,
-                "stop_model": stop_model,
-                "stop_source": stop_source,
-                "stop_level": str(stop_level) if stop_level is not None else None,
-            },
-        )
-        snap = admission.snapshot
-        candidate = candidate.model_copy(
-            update={
-                "setup_quality": admission.setup_quality,
-                "admission_version": admission.admission_version,
-                "effective_rr_at_creation": admission.effective_rr,
-                "admission_snapshot": snap.model_dump(mode="json") if snap else {},
-            }
-        )
-        result = result.model_copy(update={"candidate": candidate, "trade_admission": admission})
-
-    # F3: shadow OLD (legacy would publish a BUY card) vs NEW entry decision.
-    # Never places a second broker order.
-    new_decision = candidate.entry_decision or EntryDecision.BUY_NOW
-    if admission is not None:
-        if admission.decision is AdmissionDecision.BUY_ALLOWED:
-            # WAIT cards score admission on zone-plan levels, not the live ask.
-            # That pass must not promote WAIT → BUY_NOW while price is still
-            # outside the zone — conversion belongs to the entry-watch loop.
-            if new_decision is not EntryDecision.WAIT_FOR_ENTRY:
-                new_decision = EntryDecision.BUY_NOW
-        elif admission.decision is AdmissionDecision.WAIT:
-            new_decision = EntryDecision.WAIT_FOR_ENTRY
-        elif admission.decision is AdmissionDecision.DATA_BLOCKED:
-            BOARD.set_agent(
-                "risk",
-                status="done",
-                detail="DATA_BLOCKED (admission)",
-                symbol=symbol,
-            )
-            BOARD.log(
-                "strategy",
-                f"DATA_BLOCKED · {','.join(admission.reason_codes[:4])}",
-                symbol=symbol,
-                level="warn",
-            )
-            return result.model_copy(update={"status": "data_blocked", "opportunity": None})
-        else:
-            new_decision = EntryDecision.NO_TRADE
-        candidate = candidate.model_copy(update={"entry_decision": new_decision})
-        result = result.model_copy(update={"candidate": candidate})
-    if candidate.thesis is not None:
-        await record_shadow_async(
-            candidate=candidate,
-            old_policy=EntryDecision.BUY_NOW,
-            new_policy=new_decision,
-            thesis=candidate.thesis,
-            session_cohort=candidate.session_cohort or SessionCohort.UNKNOWN,
-            entry_quality=candidate.entry_quality,
-            chase_reasons=list(candidate.chase_reasons),
-            reasons=list(candidate.reasons[:8]),
-        )
-
-    if new_decision is EntryDecision.NO_TRADE:
-        BOARD.set_agent("risk", status="done", detail="NO_TRADE (entry timing)", symbol=symbol)
-        BOARD.log("strategy", "NO_TRADE — thesis without edge at price", symbol=symbol)
-        return result.model_copy(update={"status": "no_trade", "opportunity": None})
-
-    if new_decision is EntryDecision.WAIT_FOR_ENTRY:
-        bundle = result.entry_decision
-        watch = None
-        if bundle is not None:
-            broker = context.broker
-            built = await build_risk_context(
-                symbol,
-                broker=broker,
-                market_data=context.market_data,
-                finnhub_api_key=settings.finnhub_api_key,
-                observation_only=True,
-                regime_tradable=regime_allows_long(result.market, now=datetime.now(UTC)),
-                news=(
-                    result.news.status
-                    if result.news and result.news.status.value != "not_checked"
-                    else None
-                ),
-            )
-            for note in built.notes:
-                BOARD.log("risk", note, symbol=symbol, level="warn")
-            observation_reasons = RiskEngine(default_risk_limits()).observation_reasons(
-                candidate, built.context
-            )
-            elig = evaluate_pre_watch_eligibility(
-                admission,
-                observation_risk_reasons=observation_reasons,
-                context=built.context,
-            )
-            DECISION_OUTCOMES.record(
-                symbol=symbol,
-                stage="pre_watch",
-                outcome=elig.outcome,
-                primary_reason=elig.reason_codes[0] if elig.reason_codes else elig.outcome,
-                reason_codes=elig.reason_codes,
-                admission=admission.decision if admission else None,
-                entry_decision=EntryDecision.WAIT_FOR_ENTRY,
-                risk_verdict=None,
-                pipeline_run_id=result.pipeline_run_id,
-            )
-            if not elig.eligible:
-                result = result.model_copy(
-                    update={"errors": list(dict.fromkeys([*result.errors, *elig.reason_codes]))}
-                )
-                if elig.outcome == "DATA_BLOCKED":
-                    BOARD.set_agent(
-                        "risk",
-                        status="done",
-                        detail="DATA_BLOCKED (pre-watch)",
-                        symbol=symbol,
-                    )
-                    return result.model_copy(update={"status": "data_blocked", "opportunity": None})
-                if elig.outcome == "OPERATIONAL_BLOCKED":
-                    BOARD.set_agent(
-                        "risk",
-                        status="done",
-                        detail="OPERATIONAL_BLOCKED (pre-watch)",
-                        symbol=symbol,
-                    )
-                    return result.model_copy(
-                        update={"status": "operational_blocked", "opportunity": None}
-                    )
-                BOARD.set_agent(
-                    "risk",
-                    status="done",
-                    detail=f"NO_TRADE (pre-watch) {elig.reason_codes[0] if elig.reason_codes else ''}",
-                    symbol=symbol,
-                )
-                return result.model_copy(update={"status": "no_trade", "opportunity": None})
-
-            watch = ENTRY_WATCHES.create_from_bundle(candidate, bundle)
-            from trading.admission_relaxation import record_funnel
-
-            record_funnel("wait_created")
-            from trading.admission_records import persist_admission
-            from trading.shadow_outcomes import SHADOW_OUTCOMES
-
-            adm_rec = None
-            if admission is not None:
-                adm_rec = persist_admission(
-                    symbol=symbol,
-                    admission=admission,
-                    watch_id=watch.id,
-                    pipeline_run_id=result.pipeline_run_id,
-                    context={"source": "watch_created"},
-                )
-            SHADOW_OUTCOMES.begin_from_watch(
-                watch,
-                origin="pipeline",
-                entry_decision=EntryDecision.WAIT_FOR_ENTRY,
-                admission=admission,
-                admission_record_id=adm_rec.id if adm_rec else None,
-            )
-            audit = create_audit()
-            await audit.append(
-                "EntryWatchCreated",
-                "entry_timing",
-                watch.model_dump(mode="json"),
-                pipeline_run_id=result.pipeline_run_id,
-                entity_type="entry_watch",
-                entity_id=str(watch.id),
-            )
-            DECISION_OUTCOMES.record(
-                symbol=symbol,
-                stage="watch_created",
-                outcome="WAIT",
-                primary_reason="PRE_WATCH_ELIGIBLE",
-                reason_codes=elig.reason_codes,
-                admission=admission.decision if admission else None,
-                entry_decision=EntryDecision.WAIT_FOR_ENTRY,
-                watch_status=EntryWatchStatus.WAITING,
-                risk_verdict=None,
-                pipeline_run_id=result.pipeline_run_id,
-                watch_id=watch.id,
-            )
-        BOARD.set_agent(
-            "risk",
-            status="done",
-            detail=f"WAIT quality {candidate.entry_quality}",
-            symbol=symbol,
-        )
-        BOARD.log(
-            "strategy",
-            f"WAIT_FOR_ENTRY · quality {candidate.entry_quality}/100 · no BUY card",
-            symbol=symbol,
-        )
-        return result.model_copy(
-            update={
-                "status": "wait_for_entry",
-                "opportunity": None,
-                "entry_watch": watch,
-            }
-        )
-
-    existing = [o for o in OPPORTUNITIES.list_open() if o.candidate.symbol == symbol.upper()]
-    if existing:
-        BOARD.set_agent(
-            "risk",
-            status="done",
-            detail="Existing opportunity",
-            symbol=symbol,
-        )
-        return result.model_copy(
-            update={
-                "status": "awaiting_confirmation",
-                "opportunity": existing[0],
-                "risk": existing[0].risk,
-            }
-        )
-
-    BOARD.set_agent("risk", status="working", detail="Checking limits", symbol=symbol)
-    broker = context.broker
-    audit = create_audit()
-    portfolio = await context.portfolio()
-
-    built = await build_risk_context(
-        symbol,
-        broker=broker,
-        market_data=context.market_data,
-        finnhub_api_key=settings.finnhub_api_key,
-        regime_tradable=regime_allows_long(result.market, now=datetime.now(UTC)),
-        news=result.news.status if result.news else None,
-    )
-    for note in built.notes:
-        BOARD.log("risk", note, symbol=symbol, level="warn")
-
-    risk = RiskEngine(default_risk_limits()).evaluate(candidate, portfolio, context=built.context)
-
-    await audit.append(
-        "RiskDecisionRecorded",
-        "risk_engine",
-        {**risk.model_dump(mode="json"), "context_notes": built.notes},
-        pipeline_run_id=result.pipeline_run_id,
-    )
-
-    if risk.verdict != RiskVerdict.PASS:
-        BOARD.set_agent(
-            "risk",
-            status="done",
-            detail="REJECT " + ",".join(risk.reasons[:2]),
-            symbol=symbol,
-            score=0,
-        )
-        BOARD.log(
-            "risk",
-            f"REJECTED: {', '.join(risk.reasons)}",
-            symbol=symbol,
-            level="warn",
-        )
-        return result.model_copy(
-            update={"status": "risk_rejected", "risk": risk, "opportunity": None}
-        )
-
-    if not publish:
-        BOARD.set_agent(
-            "risk",
-            status="done",
-            detail=f"PASS qty {risk.sized_qty} · ranking",
-            symbol=symbol,
-            score=100,
-        )
-        return result.model_copy(
-            update={
-                "status": "risk_passed",
-                "risk": risk,
-                "opportunity": None,
-                "trade_admission": admission,
-            }
-        )
-
-    return await publish_opportunity(
-        result,
-        risk,
-        settings=settings,
-        admission=admission,
-        quote=quote,
-        market_data=context.market_data,
-    )
+        async with open_scan_context(settings or get_settings()) as ctx:
+            return await evaluate_symbol(symbol, ctx, publish=publish)
+    return await evaluate_symbol(symbol, context, publish=publish)
 
 
 async def publish_opportunity(
@@ -630,7 +194,6 @@ async def publish_opportunity(
         )
 
     from core.enums import DataHealthStatus
-    from trading.trade_admission import evaluate_trade_admission
 
     adm = admission
     bundle = result.entry_decision

@@ -34,6 +34,8 @@ async def record_shadow_async(
     chase_reasons: list[str],
     reasons: list[str],
 ) -> ShadowPolicyRecord:
+    if candidate.target is None:
+        raise ValueError("LEGACY_TARGET_REQUIRED")
     rec = ShadowPolicyRecord(
         symbol=candidate.symbol.upper(),
         recorded_at=datetime.now(UTC),

@@ -8,7 +8,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from agents.scanner.agent import request_rescan, wake_scanner
+from agents.scanner.agent import wake_scanner
 from api.deps import build_execution_service
 from broker.factory import create_broker
 from core.audit import create_audit
@@ -279,69 +279,22 @@ async def post_kill_switch(body: KillSwitchBody) -> dict:
 
 @router.get("/entry-policy")
 async def get_entry_policy() -> dict:
-    from trading.entry_policy import policy_payload
-
-    return policy_payload()
+    return {"strategy": "orb@1.0.0", "retired": True}
 
 
 @router.put("/entry-policy")
 async def put_entry_policy(body: EntryPolicyBody) -> dict:
-    """Operator knob: how strict final BUY confirmation is.
-
-    Saves first, then aborts any in-flight cycle and starts a fresh one so the
-    pass always uses the level just chosen. Candidate/WAIT policy, risk,
-    liquidity, RTH, earnings and news gates are unchanged.
-    """
-    from trading.entry_policy import policy_payload, set_entry_aggressiveness
-
-    level = (
-        body.buy_confirmation_strictness
-        if body.buy_confirmation_strictness is not None
-        else body.aggressiveness
-    )
-    if level is None:
-        raise HTTPException(status_code=422, detail="buy_confirmation_strictness_required")
-    set_entry_aggressiveness(level, actor="user")
-    audit = create_audit()
-    await audit.append(
-        "EntryPolicyUpdated",
-        "user",
-        {
-            "aggressiveness": level,
-            "buy_confirmation_strictness": level,
-        },
-    )
-    rescan = request_rescan(reason="entry_policy")
-    DESK_BUS.bump_desk()
-    payload = policy_payload()
-    payload["rescan"] = rescan
-    return payload
+    raise HTTPException(status_code=410, detail="STRATEGY_RETIRED_ORB_FIXED_RULES")
 
 
 @router.get("/auto-trigger")
 async def get_auto_trigger() -> dict:
-    from trading.auto_trigger_policy import policy_payload
-
-    return policy_payload()
+    return {"enabled": False, "available": False, "note": "ORB_MANUAL_CONFIRMATION_REQUIRED"}
 
 
 @router.put("/auto-trigger")
 async def put_auto_trigger(body: AutoTriggerBody) -> dict:
-    from trading.auto_trigger_policy import policy_payload, set_auto_trigger_enabled
-
-    enabled = set_auto_trigger_enabled(body.enabled, actor="user")
-    audit = create_audit()
-    await audit.append(
-        "AutoTriggerUpdated",
-        "user",
-        {"enabled": body.enabled},
-    )
-    if enabled:
-        from trading.auto_trigger_policy import enqueue_auto_approve_open_buys
-
-        enqueue_auto_approve_open_buys(audit=audit)
-    DESK_BUS.bump_desk()
-    return policy_payload()
+    raise HTTPException(status_code=410, detail="ORB_MANUAL_CONFIRMATION_REQUIRED")
 
 
 def _broker_backend_status() -> dict:

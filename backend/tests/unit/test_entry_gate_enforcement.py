@@ -59,6 +59,7 @@ SATURDAY = datetime(2026, 3, 14, 11, 0, tzinfo=ET)
 
 
 class _Bars:
+    _feed = "sip"
     """MarketDataPort stand-in serving one fixed history, and a quote if asked."""
 
     def __init__(
@@ -88,6 +89,10 @@ class _Bars:
     async def get_bars(
         self, symbol: str, timeframe: Timeframe, start: datetime, end: datetime
     ) -> list[Bar]:
+        if timeframe is Timeframe.M5:
+            from tests.orb_support import opening_bar
+
+            return opening_bar(symbol)
         # Anchored to the requested window, as a real feed is. Returning a fixed
         # date regardless of `end` made every series permanently stale, which
         # only became visible once a freshness gate started reading it.
@@ -186,7 +191,7 @@ async def test_an_entry_during_the_regular_session_proceeds() -> None:
     assert broker.orders
 
 
-async def test_the_rth_gate_can_be_disabled_for_environments_that_trade_extended() -> None:
+async def test_orb_session_cannot_be_disabled_by_extended_hours_setting() -> None:
     """Explicit configuration, not an accident of which module imported which."""
     broker, store, opp = await _setup()
     service = ExecutionService(
@@ -200,14 +205,14 @@ async def test_the_rth_gate_can_be_disabled_for_environments_that_trade_extended
         clock=lambda: SATURDAY,
     )
 
-    assert (
+    with pytest.raises(RuntimeError, match="ORB_ENTRY_EXPIRED"):
         await service.decide(
             opp.id,
             UserDecision.APPROVE,
             request_id=uuid4(),
             expected_decision_version=opp.decision_version,
         )
-    ).status is (OpportunityStatus.EXECUTED)
+    assert not broker.orders
 
 
 # ── Liquidity ────────────────────────────────────────────────────────────────

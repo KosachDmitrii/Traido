@@ -66,7 +66,11 @@ async def observation_execution_reasons(
         return ["OBSERVATION_CONFIRMATION_DATA_MISSING"]
     reasons: list[str] = []
     if "DESK_RR_CONFIRMATION" in requirements:
-        rr = planned_long_rr(candidate.entry, candidate.stop, candidate.target)
+        rr = (
+            planned_long_rr(candidate.entry, candidate.stop, candidate.target)
+            if candidate.target is not None
+            else None
+        )
         if rr is None or rr + 1e-6 < MIN_RR:
             reasons.append("DESK_RR_CONFIRMATION")
     if "DESK_STRUCTURE_CONFIRMATION" not in requirements:

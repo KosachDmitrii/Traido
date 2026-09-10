@@ -157,6 +157,8 @@ class ScriptedMarketData:
     and for a reason unrelated to what the test is asserting.
     """
 
+    _feed = "sip"
+
     def __init__(self) -> None:
         self.price = 100.0
         self.volume = 5_000_000.0
@@ -205,6 +207,10 @@ class ScriptedMarketData:
             raise RuntimeError("scripted market-data outage")
         if not self.bars_available:
             return []
+        if timeframe is Timeframe.M5:
+            from tests.orb_support import opening_bar
+
+            return opening_bar(symbol)
         now = self._now()
         # D1 series can be aged for liquidity-gate tests. Exec timeframes (H1…)
         # must end at "now" so final admission is not confounded with ADV age.
@@ -353,7 +359,7 @@ class Desk:
         risk snapshot on it is a genuine verdict against the fake broker's
         actual portfolio.
         """
-        from tests.support import ensure_admission_ready
+        from tests.orb_support import orb_ready_candidate as ensure_admission_ready
         from trading.opportunities import OPPORTUNITIES
 
         candidate = ensure_admission_ready(

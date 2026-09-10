@@ -86,7 +86,11 @@ def format_opportunity(opp: TradeOpportunity) -> str:
     lines = [
         f"<b>{html.escape(c.symbol)}</b> — BUY proposal",
         f"Entry <code>{c.entry}</code>  Stop <code>{c.stop}</code>  Target <code>{c.target}</code>",
-        f"R:R <b>{c.risk_reward:.2f}</b>  ·  risk/share <code>{risk_per_share}</code>",
+        (
+            f"Exit by <b>{c.exit_at}</b> · risk/share <code>{risk_per_share}</code>"
+            if c.exit_policy == "session_close"
+            else f"R:R <b>{c.risk_reward}</b> · risk/share <code>{risk_per_share}</code>"
+        ),
     ]
     if qty is not None:
         lines.append(

@@ -151,7 +151,7 @@ async def test_observation_only_candidate_cannot_create_order():
         intents=intents,
         market_data=liquid_market_data(price=100),
     )
-    with pytest.raises(RuntimeError, match="OBSERVATION_NOT_CONFIRMED"):
+    with pytest.raises(RuntimeError, match="STRATEGY_RETIRED:ORB_REQUIRED"):
         await svc.decide(
             opp.id,
             UserDecision.APPROVE,

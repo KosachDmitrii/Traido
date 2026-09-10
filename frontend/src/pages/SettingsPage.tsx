@@ -1,4 +1,4 @@
-import { runScanner, invalidateDeskEtag, setAutoTrigger, setBrokerBackend, setEntryPolicy, setKillSwitch, fetchAutoTrigger, fetchBrokerBackend, fetchEntryPolicy } from "@/lib/api";
+import { runScanner, invalidateDeskEtag, setBrokerBackend, setKillSwitch, fetchBrokerBackend } from "@/lib/api";
 import { executionBrokerLabelKey } from "@/lib/brokerLabel";
 import { PaperRiskPeriod } from "@/components/desk/PaperRiskPeriod";
 import { useDesk } from "@/context/DeskContext";
@@ -7,42 +7,15 @@ import type { Locale, MessageKey } from "@/i18n";
 import type { Vars } from "@/i18n/store";
 import { Button, Input, SegmentedControl, SwitchControl } from "@/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Gauge, KeyRound, Languages, ScanSearch, ShieldAlert, Building2, Zap } from "lucide-react";
+import { KeyRound, Languages, ScanSearch, ShieldAlert, Building2 } from "lucide-react";
 
-/** Five production desk steps — Сильно → Слабо. Values match backend ENTRY_LEVELS. */
-const ENTRY_STEPS = [
-  { value: 0, key: "settings.entry.strong" as const },
-  { value: 25, key: "settings.entry.firmer" as const },
-  { value: 50, key: "settings.entry.medium" as const },
-  { value: 75, key: "settings.entry.softer" as const },
-  { value: 100, key: "settings.entry.weak" as const },
-] as const;
+type Translate = (key: MessageKey, vars?: Vars) => string;
 
 const BROKER_STEPS = [
   { value: "alpaca", key: "settings.broker.alpaca" as const },
   { value: "ibkr", key: "settings.broker.ibkr" as const },
 ] as const;
 
-function snapEntryStep(n: number): number {
-  let best: number = ENTRY_STEPS[0].value;
-  for (const step of ENTRY_STEPS) {
-    if (Math.abs(step.value - n) < Math.abs(best - n)) best = step.value;
-  }
-  return best;
-}
-
-function entryLabelKey(aggressiveness: number): MessageKey {
-  const step = ENTRY_STEPS.find((s) => s.value === snapEntryStep(aggressiveness));
-  return step?.key ?? "settings.entry.strong";
-}
-
-function entryStepDetailKey(aggressiveness: number): MessageKey {
-  const step = snapEntryStep(aggressiveness);
-  return (`settings.entry.step.${step}` as MessageKey);
-}
-
-
-type Translate = (key: MessageKey, vars?: Vars) => string;
 
 function brokerConnectionStateLabel(t: Translate, state: string | undefined): string {
   const raw = (state ?? "").trim().toUpperCase();
@@ -79,33 +52,17 @@ export function SettingsPage() {
   );
   const [busy, setBusy] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
-  const [aggressiveness, setAggressiveness] = useState<number | null>(null);
   const [brokerBackend, setBrokerBackendState] = useState<"alpaca" | "ibkr" | null>(null);
-  const [autoTrigger, setAutoTriggerState] = useState<boolean | null>(null);
-  const [autoTriggerAvailable, setAutoTriggerAvailable] = useState(true);
-  const [autoTriggerNote, setAutoTriggerNote] = useState<string | null>(null);
-  const entrySaveGen = useRef(0);
   const brokerSaveGen = useRef(0);
-  const triggerSaveGen = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [entry, trigger, broker] = await Promise.all([
-          fetchEntryPolicy(),
-          fetchAutoTrigger(),
+        const [broker] = await Promise.all([
           fetchBrokerBackend(),
         ]);
         if (cancelled) return;
-        if (entrySaveGen.current === 0) {
-          setAggressiveness(snapEntryStep(entry.aggressiveness));
-        }
-        if (triggerSaveGen.current === 0) {
-          setAutoTriggerState(trigger.enabled);
-          setAutoTriggerAvailable(trigger.available !== false);
-          setAutoTriggerNote(trigger.note ?? null);
-        }
         if (brokerSaveGen.current === 0) {
           setBrokerBackendState(broker.backend === "ibkr" ? "ibkr" : "alpaca");
         }
@@ -120,25 +77,10 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    const n = desk?.entry_policy?.aggressiveness;
-    // Do not let a stale desk poll overwrite a save still in flight.
-    if (entrySaveGen.current !== 0) return;
-    if (typeof n === "number") setAggressiveness(snapEntryStep(n));
-  }, [desk?.entry_policy?.aggressiveness]);
-
-  useEffect(() => {
     const b = desk?.broker_backend?.backend;
     if (brokerSaveGen.current !== 0) return;
     if (b === "alpaca" || b === "ibkr") setBrokerBackendState(b);
   }, [desk?.broker_backend?.backend]);
-
-  useEffect(() => {
-    const trigger = desk?.auto_trigger;
-    if (triggerSaveGen.current !== 0) return;
-    if (typeof trigger?.enabled === "boolean") setAutoTriggerState(trigger.enabled);
-    if (trigger?.available !== undefined) setAutoTriggerAvailable(trigger.available !== false);
-    if (trigger?.note) setAutoTriggerNote(trigger.note);
-  }, [desk?.auto_trigger]);
 
   const saveKey = useCallback(() => {
     if (apiKey.trim()) {
@@ -191,36 +133,6 @@ export function SettingsPage() {
     }
   }, [kill, showFlash, refreshKillSwitch, t]);
 
-  const commitEntryPolicy = useCallback(
-    async (value: number) => {
-      const stepped = snapEntryStep(value);
-      const gen = ++entrySaveGen.current;
-      try {
-        const next = await setEntryPolicy(stepped);
-        setAggressiveness(snapEntryStep(next.aggressiveness));
-        invalidateDeskEtag();
-        const aborted = Boolean(next.rescan?.aborted);
-        showFlash({
-          kind: "ok",
-          title: t("settings.entry.flash.title"),
-          detail: aborted
-            ? t("settings.entry.flash.detailAbort", { n: t(entryLabelKey(next.aggressiveness)) })
-            : t("settings.entry.flash.detail", { n: t(entryLabelKey(next.aggressiveness)) }),
-        });
-        await refreshAll();
-      } catch (err) {
-        showFlash({
-          kind: "error",
-          title: t("settings.entry.flash.failed"),
-          detail: err instanceof Error ? err.message : String(err),
-        });
-      } finally {
-        if (entrySaveGen.current === gen) entrySaveGen.current = 0;
-      }
-    },
-    [refreshAll, showFlash, t],
-  );
-
   const commitBrokerBackend = useCallback(
     async (value: string) => {
       const backend = value === "ibkr" ? "ibkr" : "alpaca";
@@ -249,49 +161,6 @@ export function SettingsPage() {
     },
     [desk?.broker_backend?.backend, refreshAll, showFlash, t],
   );
-
-  const toggleAutoTrigger = useCallback(async () => {
-    if (autoTrigger === null || !autoTriggerAvailable) return;
-    const next = !autoTrigger;
-    setAutoTriggerState(next);
-    const gen = ++triggerSaveGen.current;
-    setBusy(true);
-    try {
-      const result = await setAutoTrigger(next);
-      setAutoTriggerState(result.enabled);
-      setAutoTriggerAvailable(result.available !== false);
-      setAutoTriggerNote(result.note ?? null);
-      invalidateDeskEtag();
-      if (next && !result.enabled) {
-        showFlash({
-          kind: "error",
-          title: t("settings.trigger.flash.failed"),
-          detail: result.note ?? t("settings.trigger.flash.rejected.detail"),
-        });
-      } else {
-        showFlash({
-          kind: result.enabled ? "info" : "ok",
-          title: result.enabled
-            ? t("settings.trigger.flash.on.title")
-            : t("settings.trigger.flash.off.title"),
-          detail: result.enabled
-            ? t("settings.trigger.flash.on.detail")
-            : t("settings.trigger.flash.off.detail"),
-        });
-      }
-      await refreshAll();
-    } catch (err) {
-      setAutoTriggerState(!next);
-      showFlash({
-        kind: "error",
-        title: t("settings.trigger.flash.failed"),
-        detail: err instanceof Error ? err.message : String(err),
-      });
-    } finally {
-      if (triggerSaveGen.current === gen) triggerSaveGen.current = 0;
-      setBusy(false);
-    }
-  }, [autoTrigger, autoTriggerAvailable, refreshAll, showFlash, t]);
 
   const scanNow = useCallback(async () => {
     setBusy(true);
@@ -365,96 +234,11 @@ export function SettingsPage() {
         </div>
       </article>
 
-      <article className="settings-card">
-        <div className="settings-card__icon" aria-hidden>
-          <Zap size={20} strokeWidth={1.5} absoluteStrokeWidth />
-        </div>
-        <div className="settings-card__body">
-          <div className="settings-card__head">
-            <h3>{t("settings.trigger.title")}</h3>
-            <span className={`settings-badge${autoTrigger ? " settings-badge--on" : ""}`}>
-              {!settingsReady || autoTrigger === null
-                ? "…"
-                : autoTrigger
-                  ? t("settings.trigger.badge.on")
-                  : t("settings.trigger.badge.off")}
-            </span>
-          </div>
-          <p className="settings-card__lead">{t("settings.trigger.lead")}</p>
-          <ul className="settings-points">
-            <li>{t("settings.trigger.what")}</li>
-            <li>{t("settings.trigger.keeps")}</li>
-            <li>{t("settings.trigger.when")}</li>
-          </ul>
-          {!autoTriggerAvailable && autoTriggerNote ? (
-            <p className="settings-card__lead">{autoTriggerNote}</p>
-          ) : null}
-          <div className="settings-kill-control">
-            <div className="settings-kill-control__copy">
-              <strong>
-                {autoTrigger ? t("settings.trigger.disable") : t("settings.trigger.enable")}
-              </strong>
-              <span>{t("settings.trigger.lead")}</span>
-            </div>
-            <SwitchControl
-              checked={autoTrigger ?? false}
-              onCheckedChange={() => void toggleAutoTrigger()}
-              disabled={controlsDisabled || !autoTriggerAvailable}
-              aria-label={
-                autoTrigger ? t("settings.trigger.disable") : t("settings.trigger.enable")
-              }
-            />
-          </div>
-        </div>
-      </article>
-
-      <article className="settings-card">
-        <div className="settings-card__icon" aria-hidden>
-          <Gauge size={20} strokeWidth={1.5} absoluteStrokeWidth />
-        </div>
-        <div className="settings-card__body">
-          <div className="settings-card__head">
-            <h3>{t("settings.entry.title")}</h3>
-            <span className="settings-badge">
-              {settingsReady && aggressiveness !== null
-                ? t(entryLabelKey(aggressiveness))
-                : "…"}
-            </span>
-          </div>
-          <p className="settings-card__lead">{t("settings.entry.lead")}</p>
-          <ul className="settings-points">
-            <li>{t("settings.entry.what")}</li>
-            <li>{t("settings.entry.keeps")}</li>
-            <li>{t("settings.entry.hint")}</li>
-          </ul>
-          <div className="settings-entry-steps">
-            <div className="settings-entry-steps__ends" aria-hidden>
-              <span>{t("settings.entry.strongHint")}</span>
-              <span>{t("settings.entry.weakHint")}</span>
-            </div>
-            <SegmentedControl
-              wide
-              ariaLabel={t("settings.entry.title")}
-              value={String(aggressiveness ?? 0)}
-              onChange={(v) => {
-                if (controlsDisabled) return;
-                const n = snapEntryStep(Number(v));
-                setAggressiveness(n);
-                void commitEntryPolicy(n);
-              }}
-              options={ENTRY_STEPS.map((step) => ({
-                value: String(step.value),
-                label: t(step.key),
-              }))}
-            />
-            <p className="settings-entry-steps__detail">
-              {settingsReady && aggressiveness !== null
-                ? t(entryStepDetailKey(aggressiveness))
-                : ""}
-            </p>
-          </div>
-        </div>
-      </article>
+      <article className="settings-card"><div className="settings-card__body">
+        <h3>Opening Range Breakout · Paper</h3>
+        <p>Диапазон 09:30–09:35 ET, отбор по относительному объёму. Геометрия фиксируется на сессию. Вход подтверждается вручную, выход — стоп или конец сессии.</p>
+        <p>Котировки и объёмы: Alpaca SIP. Позиции и исполнение: выбранный брокер. Ограничения риска счёта проверяются перед каждым ордером.</p>
+      </div></article>
 
       <article className="settings-card">
         <div className="settings-card__icon" aria-hidden>

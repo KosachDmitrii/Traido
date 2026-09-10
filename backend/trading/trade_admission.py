@@ -146,6 +146,16 @@ def evaluate_from_admission_input(
     tape_last: float | None = None,
 ) -> TradeAdmissionResult:
     """Evaluate admission from an immutable AdmissionInput — preferred capital path."""
+    if admission_input.strategy_version == "orb@1.0.0":
+        from strategy.orb.admission import evaluate_sealed
+
+        return evaluate_sealed(admission_input)
+    if admission_input.bundle is None or admission_input.target_plan is None:
+        return TradeAdmissionResult(
+            decision=AdmissionDecision.DATA_BLOCKED,
+            admitted=False,
+            reason_codes=["ADMISSION_INPUT_INCOMPLETE"],
+        )
     return evaluate_trade_admission(
         bundle=admission_input.bundle,
         candidate=candidate,
@@ -218,6 +228,7 @@ def evaluate_trade_admission(
         stp = candidate.stop
     else:
         stp = None
+    tgt: Decimal | float | None
     if target is not None:
         tgt = target
     elif bundle.target is not None:

@@ -55,6 +55,8 @@ class LiquidMarketData:
     for a reason that has nothing to do with what the test is asserting.
     """
 
+    _feed = "sip"  # explicit synthetic consolidated-data fixture
+
     def __init__(self, *, price: float = 100.0, volume: float = 5_000_000.0) -> None:
         self.price = price
         self.volume = volume
@@ -78,6 +80,10 @@ class LiquidMarketData:
     async def get_bars(
         self, symbol: str, timeframe: Timeframe, start: datetime, end: datetime
     ) -> list[Bar]:
+        if timeframe is Timeframe.M5:
+            from tests.orb_support import opening_bar
+
+            return opening_bar(symbol)
         # Honour the caller's end so sector/admission freshness checks agree with
         # the evaluation clock (wall-clock _utcnow can race a few ms ahead).
         now = end

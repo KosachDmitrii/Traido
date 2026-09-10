@@ -51,17 +51,17 @@ def test_desk_and_admission_share_same_gate_at_weak_level() -> None:
     now = RTH_INSTANT.astimezone(UTC)
     th = get_entry_thresholds()
     gate = evaluate_entry_spread(q, now=now, tape_last=100.0, thresholds=th, feed="iex")
-    # Candidate policy is Medium (35 SIP → 58.3 IEX); the slider does not widen it.
-    assert gate.max_bps == pytest.approx(58.3)
+    # SIP is the configured source; a caller cannot widen its spread cap by labelling a quote IEX.
+    assert gate.max_bps == pytest.approx(35)
     assert gate.acceptable is True
 
 
-def test_paper_defaults_to_iex_live_defaults_to_sip(monkeypatch) -> None:
+def test_paper_and_live_default_to_sip(monkeypatch) -> None:
     from core.config import Settings
 
     paper = Settings(TRAIDO_BROKER_ENV="paper", ALPACA_DATA_FEED=None)
     live = Settings(TRAIDO_BROKER_ENV="live", ALPACA_DATA_FEED=None)
-    assert resolve_alpaca_data_feed(paper) == "iex"
+    assert resolve_alpaca_data_feed(paper) == "sip"
     assert resolve_alpaca_data_feed(live) == "sip"
 
 

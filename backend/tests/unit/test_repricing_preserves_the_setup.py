@@ -125,7 +125,7 @@ async def test_an_entry_that_no_longer_pays_for_its_risk_is_refused() -> None:
     intents_before = len(INTENTS.list_by_key_prefix("entry:"))
     # The current approval path checks the executable entry zone before the
     # target/slippage guards. This quote fails that earlier, mandatory gate.
-    with pytest.raises(RuntimeError, match="^LIQUIDITY_GATE_REJECTED:ENTRY_OUTSIDE_ALLOWED_ZONE$"):
+    with pytest.raises(RuntimeError, match="^LIQUIDITY_GATE_REJECTED:ORB_ENTRY_MISSED$"):
         await _approve(broker, ask=101.30)
 
     assert broker.orders == []
@@ -165,7 +165,7 @@ async def test_the_live_oxy_entry_would_now_be_refused() -> None:
     intents_before = len(INTENTS.list_by_key_prefix("entry:"))
     # The current approval path checks the executable entry zone before the
     # target/slippage guards. This quote fails that earlier, mandatory gate.
-    with pytest.raises(RuntimeError, match="^LIQUIDITY_GATE_REJECTED:ENTRY_OUTSIDE_ALLOWED_ZONE$"):
+    with pytest.raises(RuntimeError, match="^LIQUIDITY_GATE_REJECTED:ORB_ENTRY_MISSED$"):
         await service.decide(
             opp.id,
             UserDecision.APPROVE,
@@ -203,8 +203,9 @@ async def test_the_ledger_records_the_trade_that_happened() -> None:
     assert row is not None
     payload = row.payload or {}
 
-    fill = Decimal(str(row.avg_entry))
-    target = Decimal(str(row.target_price))
-    expected = round(float((target - fill) / (fill - CARD_STOP)), 2)
-    assert payload["risk_reward"] == expected
-    assert payload["card_risk_reward"] >= 2.0
+    assert Decimal(str(row.avg_entry)) > 0
+    assert row.target_price is None
+    assert payload["risk_reward"] is None
+    assert payload["card_risk_reward"] is None
+    assert payload["exit_policy"] == "session_close"
+    assert payload["exit_at"]

@@ -205,8 +205,11 @@ class TradeCandidate(StrictModel):
     confidence: float = Field(ge=0.0, le=1.0)
     entry: Decimal = Field(gt=0)
     stop: Decimal = Field(gt=0)
-    target: Decimal = Field(gt=0)
-    risk_reward: float = Field(gt=0)
+    target: Decimal | None = Field(default=None, gt=0)
+    risk_reward: float | None = Field(default=None, gt=0)
+    exit_policy: str = "price_target"
+    exit_at: datetime | None = None
+    orb_plan: dict[str, Any] = Field(default_factory=dict)
     reasons: list[str] = Field(min_length=1)
     strategy_version: str
     technical_score: int | None = Field(default=None, ge=0, le=100)
@@ -254,7 +257,19 @@ class TradeCandidate(StrictModel):
             raise ValueError(
                 "V1 TradeCandidate allows BUY only (long-only); use ExitProposal for exits"
             )
-        if not (self.stop < self.entry < self.target):
+        if self.exit_policy == "session_close":
+            if (
+                self.strategy_version != "orb@1.0.0"
+                or self.target is not None
+                or self.risk_reward is not None
+                or self.exit_at is None
+                or not self.orb_plan
+            ):
+                raise ValueError("ORB requires timestamp exit, evidence, and no price target")
+            if self.stop >= self.entry:
+                raise ValueError("ORB stop must be below entry")
+            return self
+        if self.target is None or not (self.stop < self.entry < self.target):
             raise ValueError("BUY requires stop < entry < target")
         return self
 
@@ -830,13 +845,14 @@ class AdmissionInput(StrictModel):
 
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, frozen=True)
 
-    bundle: EntryDecisionBundle
+    bundle: EntryDecisionBundle | None = None
+    orb_plan: dict[str, Any] = Field(default_factory=dict)
     setup_type: SetupType
     setup_quality: int = Field(ge=0, le=100)
     entry_zone_low: Decimal | None = None
     entry_zone_high: Decimal | None = None
     stop_plan: StopPlan | None = None
-    target_plan: TargetPlan
+    target_plan: TargetPlan | None = None
     quote: Quote
     bars_count: int = Field(ge=0)
     bar_timeframe: str
@@ -947,7 +963,7 @@ class GeometryEvidence(StrictModel):
 
     entry: Decimal
     stop: Decimal
-    target: Decimal
+    target: Decimal | None
     sized_qty: Decimal
     stop_provenance: str
     target_provenance: str

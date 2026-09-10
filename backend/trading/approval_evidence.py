@@ -123,8 +123,8 @@ def build_nested_evidence(
         symbol=quote.symbol,
         thesis=str(
             sealed.bundle.thesis.value
-            if hasattr(sealed.bundle.thesis, "value")
-            else sealed.bundle.thesis
+            if sealed.bundle is not None and hasattr(sealed.bundle.thesis, "value")
+            else "opening_range_breakout"
         ),
         setup_type=str(
             sealed.setup_type.value if hasattr(sealed.setup_type, "value") else sealed.setup_type
@@ -143,7 +143,7 @@ def build_nested_evidence(
     geometry_ev = GeometryEvidence(
         entry=inp.limit_price,
         stop=inp.stop_price,
-        target=target_plan.price if target_plan else Decimal(0),
+        target=target_plan.price if target_plan else None,
         sized_qty=inp.sized_qty,
         stop_provenance=inp.stop_provenance or (stop_plan.model if stop_plan else "structure"),
         target_provenance=inp.target_provenance,

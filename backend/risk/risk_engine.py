@@ -155,7 +155,9 @@ class RiskEngine:
         if candidate.action != TradeAction.BUY:
             return self._reject(["V1_LONG_ONLY"], portfolio, candidate_id, ctx.earnings)
 
-        if candidate.stop >= candidate.entry or candidate.target <= candidate.entry:
+        if candidate.stop >= candidate.entry or (
+            candidate.target is not None and candidate.target <= candidate.entry
+        ):
             return self._reject(["INVALID_GEOMETRY"], portfolio, candidate_id, ctx.earnings)
 
         equity = portfolio.equity

@@ -403,8 +403,15 @@ def admission_metadata_on_store_create(monkeypatch: pytest.MonkeyPatch) -> Itera
         orig = cls.create
 
         def create(self, candidate, risk, mode, *args, **kwargs):
-            from tests.support import ensure_admission_ready as _ready
+            from core.enums import TargetReachabilityClass
+            from tests.orb_support import orb_ready_candidate as _ready
 
+            if (
+                candidate.target_reachability is TargetReachabilityClass.UNREALISTIC
+                or candidate.observation_requirements
+                or candidate.strategy_version == "legacy@0"
+            ):
+                return orig(self, candidate, risk, mode, *args, **kwargs)
             return orig(self, _ready(candidate), risk, mode, *args, **kwargs)
 
         monkeypatch.setattr(cls, "create", create)

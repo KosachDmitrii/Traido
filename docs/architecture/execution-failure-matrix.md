@@ -420,3 +420,17 @@ side. Previously selecting the highest three first could erase valid nearby
 levels in downstream entry geometry. Empty sides remain empty; no synthetic
 stop or target is introduced. Regression fixtures cover truncation order,
 strict side boundaries, and invalid reference prices.
+
+## ORB strategy replacement
+
+| Condition | Response | Recovery |
+| --- | --- | --- |
+| SIP unavailable or configured IEX | DATA_BLOCKED; no invented opening volume | Restore authorized SIP access, retry observation |
+| Missing/conflicting opening history | No plan for that symbol; visible data reason | A complete, consistent session dataset |
+| Quote outside cap, stale or below breakout | No new entry intent or broker submission | Fresh check within the same fixed plan and deadline |
+| Quote ages after approval, before initial submission | Mark the provably unsent intent rejected; no broker call | New explicit review through the established admission path |
+| Publication transaction fails | Opportunity, admission and consumed-plan link roll back together | Retry transaction; session row serializes ownership |
+| Old unclaimed strategy proposal | Withdraw proposal; never reinterpret its prices as ORB | New ORB selection |
+| Old UNKNOWN/in-flight entry | Keep durable recovery owner | Reconcile the original broker ID/client ID; never blind resubmit |
+| ORB fill without price target | Journal nullable target and original session exit timestamp | Protection and recovery retain the same geometry |
+| Session exit due, broker unavailable | Keep stop protection, record failure, retry due exit | Shared durable exit path reconciles existing intent before another order |

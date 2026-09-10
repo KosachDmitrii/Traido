@@ -270,8 +270,7 @@ class AlpacaMarketData:
     ) -> tuple[str, httpx.Response]:
         """Use configured feed; on 403 (e.g. SIP without subscription) fall back to IEX."""
         feeds = [self._feed]
-        if self._feed != "iex":
-            feeds.append("iex")
+        # Never substitute a different exchange population for an explicit feed.
         for feed in feeds:
             req = {**params, "feed": feed}
             try:
@@ -308,8 +307,8 @@ class AlpacaMarketData:
 
         params: dict[str, str | int] = {
             "timeframe": alpaca_tf,
-            "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "start": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "adjustment": "raw",
             "limit": 10000,
         }
@@ -408,10 +407,16 @@ class AlpacaMarketData:
         return out
 
     async def get_daily_bars_batch(
+        self, symbols: Sequence[str], start: datetime, end: datetime
+    ) -> dict[str, list[Bar]]:
+        return await self.get_bars_batch(symbols, start, end, Timeframe.D1)
+
+    async def get_bars_batch(
         self,
         symbols: Sequence[str],
         start: datetime,
         end: datetime,
+        timeframe: Timeframe = Timeframe.D1,
     ) -> dict[str, list[Bar]]:
         """Daily history for many symbols at once, for ADV and quant features.
 
@@ -430,9 +435,9 @@ class AlpacaMarketData:
             for chunk in _chunks(wanted, BARS_BATCH):
                 params: dict[str, str | int] = {
                     "symbols": ",".join(chunk),
-                    "timeframe": "1Day",
-                    "start": start.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    "end": end.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "timeframe": ALPACA_TIMEFRAME[timeframe],
+                    "start": start.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "end": end.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
                     "adjustment": "raw",
                     "limit": 10000,
                 }
@@ -455,7 +460,7 @@ class AlpacaMarketData:
                     for symbol, rows in (payload.get("bars") or {}).items():
                         bucket = out.setdefault(str(symbol).upper(), [])
                         for row in rows or []:
-                            bar = _bar_from_alpaca(str(symbol), Timeframe.D1, row)
+                            bar = _bar_from_alpaca(str(symbol), timeframe, row)
                             if bar is not None:
                                 bucket.append(bar)
                     token = payload.get("next_page_token")
@@ -469,7 +474,7 @@ class AlpacaMarketData:
         return out
 
     async def _get_json(self, url: str, *, params: dict[str, str] | None = None) -> dict[str, Any]:
-        """Fetch JSON, falling back to IEX when a premium feed returns 403."""
+        """Fetch JSON using the configured feed; subscription errors remain visible."""
         async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
             _, resp = await self._resolve_feed(client, url, params=params or {})
             return cast(dict[str, Any], resp.json())

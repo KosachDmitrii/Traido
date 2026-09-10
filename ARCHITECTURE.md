@@ -484,3 +484,12 @@ US market data → scanner → quant/technical → strategy → risk
 
 News, fundamentals, macro and additional strategies come after that cycle is
 clean.
+
+## 17. ORB supersedes the active desk strategy (2026-09-10)
+
+The active entry strategy is now `orb@1.0.0`; the earlier pullback/quality-score
+entry and price-target exit descriptions above are historical. See
+[ORB replacement decision](docs/architecture/orb-replacement.md) for the exact
+parameters, their research source, application adaptations, lifecycle and
+validation contract. Risk authority, Paper-only broker execution, durable
+intents and protective reconciliation remain shared capital infrastructure.

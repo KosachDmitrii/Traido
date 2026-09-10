@@ -108,12 +108,17 @@ async def recover_entry_positions(
         geometry = compute_geometry_hash(
             entry=str(c.entry),
             stop=str(c.stop),
-            target=str(c.target),
+            target=str(c.target) if c.target is not None else None,
             exec_timeframe=c.exec_timeframe.value,
             strategy_version=c.strategy_version,
         )
+        if c.exit_policy == "session_close":
+            from trading.geometry_hash import geometry_hash_from_candidate
+
+            geometry = geometry_hash_from_candidate(c)
         if geometry != intent.geometry_hash or not (
-            Decimal(0) < c.stop < order.filled_avg_price < c.target
+            Decimal(0) < c.stop < order.filled_avg_price
+            and (c.target is None or order.filled_avg_price < c.target)
         ):
             report.unresolved.append(prefix + "geometry_mismatch")
             continue

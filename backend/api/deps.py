@@ -61,10 +61,9 @@ def build_exit_assessment() -> Coroutine[Any, Any, Any]:
     pass: the loop stays out of the vendor-construction business, and the
     background pass and any route-driven one share identical wiring.
     """
-    from trading.exits import refresh_exit_proposals
+    from strategy.orb.loop import exit_due_positions
 
-    settings = get_settings()
-    return refresh_exit_proposals(create_broker(settings), create_market_data_port(settings))
+    return exit_due_positions()
 
 
 def build_reconcile_pass() -> Coroutine[Any, Any, Any]:

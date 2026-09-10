@@ -387,6 +387,9 @@ class ExecutionService:
         if decision != UserDecision.APPROVE:
             raise ValueError("unsupported_decision")
 
+        if opp.candidate.strategy_version != "orb@1.0.0":
+            raise RuntimeError("STRATEGY_RETIRED:ORB_REQUIRED")
+
         if is_kill_switch_on():
             raise RuntimeError("KILL_SWITCH")
 
@@ -684,6 +687,28 @@ class ExecutionService:
                 help_text="APPROVE blocked before Final Admission: broker env",
             )
             raise DataBlockedError(str(exc)) from exc
+
+        if priced.strategy_version == "orb@1.0.0":
+            from strategy.orb import OrbPlan, evaluate_trigger
+
+            quote, spread, tape_last = await self._top_of_book(priced.symbol)
+            evaluated_at = self._clock()
+            decision_now = evaluate_trigger(
+                OrbPlan.model_validate(priced.orb_plan),
+                quote,
+                now=evaluated_at,
+                limit_price=limit_px,
+            )
+            liquidity_now = self._liquidity_gate(opp, bars, qty=qty, price=limit_px, spread=spread)
+            if quote is None or decision_now.state != "BUY_ALLOWED" or liquidity_now is not None:
+                raise DataBlockedError(
+                    ",".join(
+                        [*decision_now.reasons, *(liquidity_now.reasons if liquidity_now else ())]
+                    )
+                )
+            admission_input = admission_input.model_copy(
+                update={"quote": quote, "evaluated_at": evaluated_at}
+            )
 
         cmd = ApprovalCommand(
             request_id=request_id,
@@ -1039,7 +1064,7 @@ class ExecutionService:
                 "fill_price": str(entry_px),
                 "planned_entry": str(opp.candidate.entry),
                 "stop": str(opp.candidate.stop),
-                "target": str(opp.candidate.target),
+                "target": str(opp.candidate.target) if opp.candidate.target is not None else None,
                 "stop_order_id": stop_order_id,
             },
             pipeline_run_id=opp.candidate.pipeline_run_id,
@@ -1150,6 +1175,38 @@ class ExecutionService:
         Geometry is owned by `assess_buy_viability` so the desk preview and the
         click cannot disagree about whether the card still describes a trade.
         """
+        if candidate.strategy_version == "orb@1.0.0":
+            from strategy.orb import OrbPlan, evaluate_trigger
+
+            if quote is None or not spread.is_live:
+                return None, GateResult(
+                    gate="liquidity",
+                    passed=False,
+                    reasons=("QUOTE_STALE" if quote is not None else "LIVE_QUOTE_REQUIRED",),
+                )
+            if spread.bps is not None and spread.bps > self.liquidity_policy.max_spread_bps:
+                return None, GateResult(
+                    gate="liquidity", passed=False, reasons=("SPREAD_TOO_WIDE",)
+                )
+            plan = OrbPlan.model_validate(candidate.orb_plan)
+            decision = evaluate_trigger(plan, quote, now=self._clock())
+            if decision.state != "BUY_ALLOWED" or quote is None:
+                return None, GateResult(
+                    gate="liquidity", passed=False, reasons=tuple(decision.reasons)
+                )
+            # Size against the disclosed worst permitted fill, not a stale offer.
+            limit = plan.max_entry
+            checked = evaluate_trigger(plan, quote, now=self._clock(), limit_price=limit)
+            if checked.state != "BUY_ALLOWED":
+                return None, GateResult(
+                    gate="liquidity", passed=False, reasons=tuple(checked.reasons)
+                )
+            return candidate.model_copy(update={"entry": limit}), GateResult(
+                gate="liquidity",
+                passed=True,
+                reasons=(),
+                measured={"limit_price": str(limit), "risk_per_share": str(limit - plan.stop)},
+            )
         viability = assess_buy_viability(
             candidate,
             quote,
@@ -1483,6 +1540,39 @@ class ExecutionService:
             entity_type="order_intent",
             entity_id=str(intent.id),
         )
+
+        if opp.candidate.strategy_version == "orb@1.0.0":
+            from strategy.orb import OrbPlan, evaluate_trigger
+            from trading.admission_records import ADMISSION_RECORDS
+
+            sealed = (
+                ADMISSION_RECORDS.get(intent.approval_admission_record_id)
+                if intent.approval_admission_record_id
+                else None
+            )
+            raw = (
+                (sealed.context.get("admission_input") or sealed.admission_input)
+                if sealed
+                else None
+            )
+            try:
+                from core.schemas import AdmissionInput
+
+                if not raw:
+                    raise ValueError("ORB_EVIDENCE_REQUIRED")
+                inp = AdmissionInput.model_validate(raw)
+                check = evaluate_trigger(
+                    OrbPlan.model_validate(inp.orb_plan),
+                    inp.quote,
+                    now=self._clock(),
+                    limit_price=intent.limit_price,
+                )
+                if check.state != "BUY_ALLOWED":
+                    raise ValueError(",".join(check.reasons))
+            except ValueError as exc:
+                # The broker was never contacted; this is a known rejection, not UNKNOWN.
+                self.intents.transition(intent.id, IntentStatus.REJECTED, last_error=str(exc))
+                raise RuntimeError(f"ORB_SUBMISSION_BLOCKED:{exc}") from exc
 
         try:
             record = await self.broker.place_order(request)
@@ -2699,7 +2789,9 @@ class ExecutionService:
 
         return await self._settle_exit(intent, submitted, claimed, ledger_row=ledger_row)
 
-    async def close_position(self, symbol: str) -> ExitOpportunity:
+    async def close_position(
+        self, symbol: str, *, reason: str = OPERATOR_CLOSE_REASON
+    ) -> ExitOpportunity:
         """Sell a position because the operator said so, not because a rule did.
 
         Every other way out of a position needs an agent to have raised a card
@@ -2742,7 +2834,7 @@ class ExecutionService:
                 entry=pos.avg_entry,
                 current=current,
                 pnl_pct=pnl_pct,
-                reasons=[OPERATOR_CLOSE_REASON],
+                reasons=[reason],
                 recommendation=UserDecision.SELL,
                 confidence=1.0,
             )

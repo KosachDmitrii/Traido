@@ -135,6 +135,42 @@ def assess_buy_viability(
             as_of=as_of,
         )
 
+    if candidate.strategy_version == "orb@1.0.0":
+        from strategy.orb import OrbPlan, evaluate_trigger
+
+        try:
+            decision = evaluate_trigger(
+                OrbPlan.model_validate(candidate.orb_plan), quote, now=as_of
+            )
+        except ValueError:
+            return BuyViability(
+                state=UNVERIFIED,
+                buyable=False,
+                reasons=("ORB_EVIDENCE_INVALID",),
+                measured=measured,
+                as_of=as_of,
+            )
+        return BuyViability(
+            state=LIVE if decision.state == "BUY_ALLOWED" else UNVERIFIED,
+            buyable=decision.state == "BUY_ALLOWED",
+            reasons=tuple(decision.reasons),
+            measured={
+                **measured,
+                "ask": str(quote.ask),
+                "bid": str(quote.bid),
+                "limit_price": str(quote.ask),
+            },
+            as_of=as_of,
+        )
+    if candidate.target is None:
+        return BuyViability(
+            state=UNVERIFIED,
+            buyable=False,
+            reasons=("STRATEGY_RETIRED",),
+            measured=measured,
+            as_of=as_of,
+        )
+
     limit = marketable_buy_limit(quote.ask, buffer_bps=entry_buffer_bps)
     measured["ask"] = str(quote.ask)
     measured["limit_price"] = str(limit)

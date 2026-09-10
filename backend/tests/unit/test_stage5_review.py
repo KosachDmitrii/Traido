@@ -76,7 +76,8 @@ async def test_approve_opens_ledger_and_exit_journals(tmp_path) -> None:
         assert result.status == OpportunityStatus.EXECUTED
         open_rows = ledger.get_open("AAPL")
         assert len(open_rows) == 1
-        assert Decimal(str(open_rows[0].target_price)) >= Decimal(110)
+        assert open_rows[0].target_price is None
+        assert open_rows[0].payload["exit_policy"] == "session_close"
 
         proposal = ExitProposal(
             position_id=open_rows[0].id,

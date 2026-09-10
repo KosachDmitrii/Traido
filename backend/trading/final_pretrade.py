@@ -92,7 +92,7 @@ def _require_target_plan(candidate: TradeCandidate) -> TargetPlan:
     """Propagate original reachability — never force REALISTIC."""
     reachability = candidate.target_reachability
     model = candidate.target_model
-    if reachability is None or model is None:
+    if reachability is None or model is None or candidate.target is None:
         raise PretradeRejection(
             "BUY_REJECTED_ADMISSION",
             "TARGET_PLAN_REQUIRED",
@@ -297,7 +297,7 @@ def final_pretrade_validation(
         signal_price=float(candidate.signal_price or candidate.entry),
         planned_entry=float(candidate.entry),
         planned_stop=float(candidate.stop),
-        planned_target=float(candidate.target),
+        planned_target=float(target_plan.price),
     )
     facts = facts.model_copy(update={"current_price": mid})
 

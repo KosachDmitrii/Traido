@@ -157,43 +157,6 @@ def test_eligible_cap_is_a_terminal_bucket() -> None:
     assert funnel.as_dict()["eligible_capped"] == 70
 
 
-def test_wait_outcome_is_not_also_deep_passed() -> None:
-    from decimal import Decimal
-    from uuid import uuid4
-
-    from agents.scanner.cycle import _record_deep_outcome
-    from core.enums import TradeAction
-    from core.schemas import PipelineResult, TradeCandidate
-
-    funnel = ScanFunnel()
-    funnel.universe_total = 1
-    cand = TradeCandidate(
-        symbol="WAIT",
-        action=TradeAction.BUY,
-        confidence=0.5,
-        entry=Decimal(10),
-        stop=Decimal(9),
-        target=Decimal(12),
-        risk_reward=2.0,
-        reasons=["x"],
-        strategy_version="t@1",
-    )
-    _record_deep_outcome(
-        PipelineResult(
-            pipeline_run_id=uuid4(),
-            symbol="WAIT",
-            status="wait_for_entry",
-            candidate=cand,
-        ),
-        funnel,
-        [],
-    )
-    assert funnel.deep_analysis_passed == 0
-    assert funnel.wait_for_entry == 1
-    assert funnel.deep_analysis_no_candidate == 0
-    assert funnel.reconciles()
-
-
 def test_the_dict_carries_the_verdict_not_just_the_counters() -> None:
     data = _balanced_funnel().as_dict()
 

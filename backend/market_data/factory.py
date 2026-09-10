@@ -7,14 +7,8 @@ from core.ports import MarketDataPort
 
 
 def resolve_alpaca_data_feed(settings: Settings) -> str:
-    """Resolve market-data feed: explicit env, else paper→IEX, live→SIP."""
-    if settings.alpaca_data_feed:
-        return settings.alpaca_data_feed.strip().lower()
-    from core.enums import BrokerEnvironment
-
-    if settings.broker_env is BrokerEnvironment.LIVE:
-        return "sip"
-    return "iex"
+    """ORB needs consolidated opening volume; never silently substitute IEX."""
+    return (settings.alpaca_data_feed or "sip").strip().lower()
 
 
 def create_market_data_port(settings: Settings) -> MarketDataPort:

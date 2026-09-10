@@ -12,14 +12,14 @@ def compute_geometry_hash(
     *,
     entry: float | str,
     stop: float | str,
-    target: float | str,
+    target: float | str | None,
     exec_timeframe: str = "H1",
     strategy_version: str = "",
 ) -> str:
     payload = {
         "entry": round(float(entry), 4),
         "stop": round(float(stop), 4),
-        "target": round(float(target), 4),
+        "target": round(float(target), 4) if target is not None else None,
         "exec_timeframe": exec_timeframe.upper(),
         "strategy_version": strategy_version,
     }
@@ -39,10 +39,22 @@ def geometry_hash_from_watch(watch: EntryWatch) -> str:
 
 
 def geometry_hash_from_candidate(candidate: TradeCandidate, *, exec_timeframe: str = "H1") -> str:
+    if candidate.exit_policy == "session_close":
+        payload = {
+            "entry": str(candidate.entry),
+            "stop": str(candidate.stop),
+            "exit_at": candidate.exit_at.isoformat() if candidate.exit_at else None,
+            "exit_policy": candidate.exit_policy,
+            "version": candidate.strategy_version,
+            "plan": candidate.orb_plan,
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()[:16]
     return compute_geometry_hash(
         entry=float(candidate.entry),
         stop=float(candidate.stop),
-        target=float(candidate.target),
+        target=float(candidate.target) if candidate.target is not None else None,
         exec_timeframe=exec_timeframe,
         strategy_version=candidate.strategy_version or "",
     )

@@ -151,10 +151,14 @@ export type BuyOpportunity = {
     /** Full company name from Finnhub profile2, when available. */
     name?: string | null;
     confidence: number;
+    strategy_version?: string;
     entry: string;
     stop: string;
-    target: string;
-    risk_reward: number;
+    target: string | null;
+    exit_at?: string | null;
+    exit_policy?: string;
+    orb_plan?: OrbPlan;
+    risk_reward: number | null;
     reasons?: string[];
     thesis?: string | null;
     entry_decision?: string | null;
@@ -262,6 +266,7 @@ export type SellOpportunity = {
     pnl_pct: number;
     reasons: string[];
     confidence: number;
+    strategy_version?: string;
   };
 };
 
@@ -275,6 +280,8 @@ export type DeskPosition = {
   stop?: string | null;
   target?: string | null;
   strategy_version?: string | null;
+  exit_at?: string | null;
+  exit_policy?: string | null;
   /** The broker's own mark. Null when it did not report one — not zero. */
   mark?: string | null;
   pnl?: string | null;
@@ -449,6 +456,7 @@ export type BrokerSnapshot = {
 
 /** Merged view for existing desk components. */
 export type DeskResponse = DeskLight & {
+  orb?: OrbSession;
   open_orders?: DeskOpenOrder[];
   open_orders_verified?: boolean;
   portfolio?: BrokerSnapshot["portfolio"];
@@ -911,3 +919,15 @@ export const approveStrategy = (id: string) => strategyAction(id, "approve");
 export const promoteStrategy = (id: string) => strategyAction(id, "promote");
 export const rejectStrategy = (id: string, reason: string) =>
   strategyAction(id, "reject", { actor: "operator", reason });
+
+
+export type OrbPlan = {
+  symbol: string; session: string; trigger: string; stop: string; max_entry: string;
+  range_high: string; range_low: string; relative_volume: string; daily_atr: string;
+  range_end: string; entry_deadline: string; exit_at: string;
+};
+export type OrbState = { state: string; reasons: string[]; bid?: string | null; ask?: string | null;
+  opportunity_id?: string; observed_at?: string; quote_at?: string };
+export type OrbSession = { status: string; reason?: string | null; session?: string;
+  plans?: Record<string, OrbPlan>; states?: Record<string, OrbState>;
+  counts?: Record<string, number>; rejection_counts?: Record<string, number> };

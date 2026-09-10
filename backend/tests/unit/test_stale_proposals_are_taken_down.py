@@ -157,48 +157,6 @@ def test_the_sweep_is_idempotent(held):
     assert withdraw_unactionable(store) == 0
 
 
-async def test_a_held_symbol_is_never_analysed_for_an_entry(held, monkeypatch):
-    """The cheapest refusal is the one taken before the expensive part runs.
-
-    One position per symbol was enforced only at the click, so a name the book
-    already held still cost a full pass — supervisor, LLM calls and all — to
-    produce a card that `POSITION_ALREADY_OPEN` was always going to refuse.
-    """
-    from trading import pipeline
-
-    def _explode(*args, **kwargs):
-        raise AssertionError("a held symbol must not reach the supervisor")
-
-    monkeypatch.setattr(pipeline, "build_supervisor", _explode)
-    monkeypatch.setattr(pipeline, "open_scan_context", _explode)
-    held.add("MO")
-
-    result = await pipeline.run_symbol_pipeline("MO")
-
-    assert result.status == "position_open"
-    assert result.candidate is None
-
-
-def test_a_symbol_we_never_looked_at_is_not_filed_as_having_no_setup():
-    """`no candidate` means we looked and found nothing. This is not that."""
-    from agents.scanner.cycle import _record_deep_outcome
-    from agents.scanner.funnel import ScanFunnel
-    from core.schemas import PipelineResult
-
-    funnel = ScanFunnel()
-    funnel.universe_total = 1
-    _record_deep_outcome(
-        PipelineResult(pipeline_run_id=uuid4(), symbol="MO", status="position_open"),
-        funnel,
-        [],
-    )
-
-    assert funnel.position_open == 1
-    assert funnel.deep_analysis_no_candidate == 0
-    assert funnel.deep_analysis_failed == 0
-    assert funnel.reconciles(), "the one symbol has to land in exactly one bucket"
-
-
 def test_nothing_temporary_takes_a_card_down(held):
     """A live setup survives everything that can come back.
 

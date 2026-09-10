@@ -68,10 +68,10 @@ class ExitApplication:
     found: bool = True
 
 
-def _realised_risk_reward(*, entry: Decimal, stop: Decimal, target: Decimal) -> float | None:
+def _realised_risk_reward(*, entry: Decimal, stop: Decimal, target: Decimal | None) -> float | None:
     """Reward over risk at the price actually paid. `None` if there is no risk."""
     risk = Decimal(str(entry)) - Decimal(str(stop))
-    if risk <= 0:
+    if risk <= 0 or target is None:
         return None
     return round(float((Decimal(str(target)) - Decimal(str(entry))) / risk), 2)
 
@@ -118,6 +118,9 @@ class PositionLedger:
                     entry=entry, stop=opp.candidate.stop, target=opp.candidate.target
                 ),
                 "card_risk_reward": opp.candidate.risk_reward,
+                "exit_policy": opp.candidate.exit_policy,
+                "exit_at": opp.candidate.exit_at.isoformat() if opp.candidate.exit_at else None,
+                "orb_plan": opp.candidate.orb_plan,
                 "pipeline_run_id": str(opp.candidate.pipeline_run_id)
                 if opp.candidate.pipeline_run_id
                 else None,

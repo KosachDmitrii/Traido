@@ -7,7 +7,7 @@ import hashlib
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -35,7 +35,6 @@ from market_data.providers.company_name import attach_company_names
 from trading.decision_outcome import DECISION_OUTCOMES, DecisionOutcomeRecord
 from trading.desk_positions import protective_stop_for_display
 from trading.desk_viability import attach_buy_viability
-from trading.entry_watches import ENTRY_WATCHES
 from trading.exits import EXITS, ExitOpportunity
 from trading.ledger import LEDGER
 from trading.opportunities import OPPORTUNITIES
@@ -43,7 +42,6 @@ from trading.pricing import round_equity_price
 from trading.reconcile import reconcile_positions
 from trading.reconcile_supervisor import RECONCILE
 from trading.session_hours import ET, SessionPhase, session_close, session_phase
-from trading.watch_enrichment import desk_payload
 
 logger = logging.getLogger(__name__)
 
@@ -81,21 +79,11 @@ def _market_data_quota_payload() -> dict:
 
 
 def _auto_trigger_payload() -> dict:
-    try:
-        from trading.auto_trigger_policy import policy_payload
-
-        return policy_payload()
-    except Exception:  # noqa: BLE001
-        return {"enabled": False}
+    return {"enabled": False, "available": False, "note": "ORB_MANUAL_CONFIRMATION_REQUIRED"}
 
 
 def _entry_policy_payload() -> dict:
-    try:
-        from trading.entry_policy import policy_payload
-
-        return policy_payload()
-    except Exception:  # noqa: BLE001
-        return {"aggressiveness": 0, "buy_confirmation_strictness": 0, "label": "strict"}
+    return {"strategy": "orb@1.0.0", "retired": True}
 
 
 def _broker_backend_desk_payload() -> dict:
@@ -199,13 +187,29 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
             "avg_entry": str(r.avg_entry),
             "stop": _tick(r.stop_price),
             "target": _tick(r.target_price),
+            "exit_policy": (r.payload or {}).get("exit_policy"),
+            "exit_at": (r.payload or {}).get("exit_at"),
             "strategy_version": r.strategy_version,
         }
         for r in ledger
     ]
-    entry_watches = [desk_payload(w) for w in ENTRY_WATCHES.list_for_desk()]
+    entry_watches = []
+    from core.clock import ET
+    from strategy.orb.runtime import STATUS as orb_status
+    from strategy.orb.store import read_session
+
+    orb = read_session(str(datetime.now(UTC).astimezone(ET).date())) or dict(orb_status)
+    orb = {
+        **orb,
+        "plans": {
+            s: {k: v for k, v in p.items() if k != "evidence"}
+            for s, p in orb.get("plans", {}).items()
+        },
+        "rejections": {},
+    }
     return {
         "mode": settings.trading_mode.value,
+        "orb": orb,
         "entry_policy": _entry_policy_payload(),
         "auto_trigger": _auto_trigger_payload(),
         "broker_backend": _broker_backend_desk_payload(),
@@ -348,6 +352,7 @@ def _etag_for(payload: dict) -> str:
             for s in payload.get("sell_opportunities") or []
         ],
         "pos": [(p.get("symbol"), p.get("qty")) for p in payload.get("positions") or []],
+        "orb": payload.get("orb"),
         "watches": [
             (
                 w.get("id"),
@@ -547,6 +552,8 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
                     "avg_entry": str(p.avg_entry),
                     "stop": _tick(stop_px),
                     "target": _tick(meta.target_price) if meta else None,
+                    "exit_policy": (meta.payload or {}).get("exit_policy") if meta else None,
+                    "exit_at": (meta.payload or {}).get("exit_at") if meta else None,
                     "strategy_version": meta.strategy_version if meta else None,
                     "ledger_linked": meta is not None,
                     **_mark_to_market(p),
@@ -560,6 +567,8 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
                 "avg_entry": str(r.avg_entry),
                 "stop": _tick(r.stop_price),
                 "target": _tick(r.target_price),
+                "exit_policy": (r.payload or {}).get("exit_policy"),
+                "exit_at": (r.payload or {}).get("exit_at"),
                 "strategy_version": r.strategy_version,
             }
             for r in ledger

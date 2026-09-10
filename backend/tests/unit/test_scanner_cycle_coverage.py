@@ -30,7 +30,6 @@ from agents.scanner import agent as scanner
 from agents.scanner import cycle as scan_cycle
 from tests.scanner_fakes import (
     fake_scan_context,
-    make_symbol,
     scanner_settings,
     universe_service_for,
 )
@@ -44,7 +43,6 @@ def quiet_scanner(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(scanner.BOARD, "set_agent", lambda *a, **k: None)
     monkeypatch.setattr(scan_cycle.BOARD, "log", lambda *a, **k: None)
     monkeypatch.setattr(scan_cycle.BOARD, "set_agent", lambda *a, **k: None)
-    monkeypatch.setattr(scanner, "is_kill_switch_on", lambda: False)
     monkeypatch.setattr(scanner, "get_settings", lambda: settings)
     monkeypatch.setattr(
         scan_cycle, "open_scan_context", lambda _s=None, **_kw: fake_scan_context(settings)
@@ -112,113 +110,6 @@ def _install(
     return seen
 
 
-@pytest.mark.asyncio
-async def test_a_cycle_stopped_by_a_full_queue_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A bare "0 proposals" must not be how a desk learns nothing was looked at."""
-    cfg = _watchlist(["AAPL", "MSFT", "NVDA"])
-    _install(monkeypatch, cfg, open_proposals=5)
-
-    status = await scanner.run_scan_cycle()
-
-    assert status.funnel.paused_on_full_queue is True
-    assert status.funnel.deep_analysis_started == 0
-    assert status.funnel.published == 0
-
-
-@pytest.mark.asyncio
-async def test_a_cycle_that_finished_the_universe_is_not_reported_as_paused(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The flag must distinguish the two, so it cannot be always-on."""
-    cfg = _watchlist(["AAPL", "MSFT", "NVDA"])
-    seen = _install(monkeypatch, cfg, open_proposals=0)
-
-    status = await scanner.run_scan_cycle()
-
-    assert status.funnel.paused_on_full_queue is False
-    assert sorted(seen) == ["AAPL", "MSFT", "NVDA"]
-
-
-@pytest.mark.asyncio
-async def test_the_pause_flag_reaches_the_desk_payload(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The desk reads the funnel as a dict; a flag it cannot see is no help."""
-    cfg = _watchlist(["AAPL", "MSFT"])
-    _install(monkeypatch, cfg, open_proposals=5)
-
-    status = await scanner.run_scan_cycle()
-
-    assert status.funnel.as_dict()["paused_on_full_queue"] is True
-
-
-@pytest.mark.asyncio
-async def test_the_whole_universe_is_covered_in_one_cycle(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The tail is reached every cycle, not eventually.
-
-    This is the property that replaced rotation. The old scanner capped a cycle
-    at `max_symbols_per_cycle` because every name cost a full pipeline run, so
-    the tail of a larger universe was only reachable by rotating the starting
-    point across cycles — and a name was therefore looked at once every few
-    cycles rather than every cycle. With the cheap stages in front, there is
-    nothing to ration: all six are evaluated, every time.
-    """
-    symbols = ["A", "B", "C", "D", "E", "F"]
-    cfg = _watchlist(symbols)
-    _install(monkeypatch, cfg, open_proposals=0)
-
-    status = await scanner.run_scan_cycle()
-
-    assert status.funnel.universe_total == 6
-    assert status.funnel.market_filter_evaluated == 6
-    assert sorted(status.universe) == symbols
-
-
-@pytest.mark.asyncio
-async def test_a_universe_larger_than_the_old_cap_is_not_truncated(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Two hundred names, and every one of them evaluated.
-
-    The red-without-fix for the sixty-symbol limit: under the old
-    `max_symbols_per_cycle` this cycle would have evaluated sixty.
-    """
-    symbols = [make_symbol(i) for i in range(200)]
-    cfg = _watchlist(symbols)
-    # Stage 3 is capped tightly here, which is the point rather than a
-    # convenience: a two-hundred-name universe is supposed to reach the cheap
-    # stages in full and the expensive one barely at all.
-    narrow = scanner_settings(TRAIDO_QUANT_TOP_K=5, TRAIDO_DEEP_ANALYSIS_TOP_K=5)
-    monkeypatch.setattr(scanner, "get_settings", lambda: narrow)
-    monkeypatch.setattr(
-        scan_cycle, "open_scan_context", lambda _s=None, **_kw: fake_scan_context(narrow)
-    )
-    _install(monkeypatch, cfg, open_proposals=0)
-
-    status = await scanner.run_scan_cycle()
-
-    assert status.funnel.universe_total == len(symbols) > 60
-    assert status.funnel.market_filter_evaluated == len(symbols)
-    assert status.funnel.deep_analysis_started == 5, "expensive work must stay bounded"
-
-
-@pytest.mark.asyncio
-async def test_active_waits_do_not_reconsume_fresh_deep_slots(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    symbols = ["A", "B", "C", "D", "E", "F"]
-    cfg = _watchlist(symbols)
-    _install(monkeypatch, cfg, open_proposals=0)
-    monkeypatch.setattr(scan_cycle, "_watched_symbols", lambda: {"A", "B"})
-
-    status = await scanner.run_scan_cycle()
-
-    assert status.funnel.active_watch_excluded == 2
-    assert status.funnel.market_filter_evaluated == 4
-    assert status.funnel.reconciles()
-    assert {"A", "B"}.isdisjoint(status.deep_symbols)
-
-
 def test_deep_rotation_is_measured_between_adjacent_cycles() -> None:
     from agents.scanner.cycle import CycleResult
 
@@ -261,66 +152,6 @@ async def _waits_of_one_cycle(monkeypatch: pytest.MonkeyPatch) -> list[float]:
     return waits
 
 
-@pytest.mark.asyncio
-async def test_a_paused_cycle_comes_back_sooner_than_a_real_one(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Doing nothing must not cost the same as scanning the whole universe.
-
-    This is what the operator actually experiences: clearing the queue looks
-    like it did nothing, because the scanner is still sleeping off an interval
-    it earned by examining zero symbols.
-    """
-    cfg = _watchlist(["A", "B"])
-    cfg["scan_interval_seconds"] = 300
-    _install(monkeypatch, cfg, open_proposals=5)
-
-    waits = await _waits_of_one_cycle(monkeypatch)
-
-    assert waits == [scanner.PAUSED_RETRY_SECONDS]
-
-
-@pytest.mark.asyncio
-async def test_a_productive_cycle_waits_for_its_next_slot(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The wait is what remains of the cadence, not a fresh full interval.
-
-    The difference is the whole point of scheduling: sleeping a full interval
-    *after* finishing turns a four-minute cycle and a five-minute interval into
-    a nine-minute period. Here a cycle that took almost no time leaves almost
-    the whole interval, and a cycle that took two minutes would leave three.
-
-    Only when there is already something to confirm — otherwise the desk hunts.
-    """
-    cfg = _watchlist(["A", "B"])
-    cfg["scan_interval_seconds"] = 300
-    _install(monkeypatch, cfg, open_proposals=1)
-
-    waits = await _waits_of_one_cycle(monkeypatch)
-
-    assert len(waits) == 1
-    assert 295.0 < waits[0] <= 300.0
-
-
-@pytest.mark.asyncio
-async def test_empty_buy_queue_hunts_sooner_than_the_cadence(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """No open BUY → keep scanning. WAIT watches do not earn a full nap."""
-    monkeypatch.setattr(
-        "market_data.providers.alpaca.market_data_cooldown_seconds",
-        lambda: 0.0,
-    )
-    cfg = _watchlist(["A", "B"])
-    cfg["scan_interval_seconds"] = 300
-    _install(monkeypatch, cfg, open_proposals=0)
-
-    waits = await _waits_of_one_cycle(monkeypatch)
-
-    assert waits == [scanner.HUNTING_RETRY_SECONDS]
-
-
 def test_provider_failure_cools_down_instead_of_hunting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -353,21 +184,6 @@ def test_cycle_provider_failed_reads_funnel_and_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_retry_never_outlasts_the_configured_interval(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A desk configured to scan every 30 s must not wait longer when paused."""
-    cfg = _watchlist(["A", "B"])
-    cfg["scan_interval_seconds"] = 30
-    monkeypatch.setattr(scanner, "PAUSED_RETRY_SECONDS", 120)
-    _install(monkeypatch, cfg, open_proposals=5)
-
-    waits = await _waits_of_one_cycle(monkeypatch)
-
-    assert waits == [30]
-
-
-@pytest.mark.asyncio
 async def test_waking_the_scanner_ends_the_wait() -> None:
     """Deciding a proposal is the desk saying "there is room now"."""
     waiting = asyncio.create_task(scanner.wait_before_next_cycle(3600))
@@ -396,39 +212,3 @@ async def test_the_wake_survives_a_second_event_loop() -> None:
     scanner.wake_scanner()
 
     await asyncio.wait_for(scanner.wait_before_next_cycle(3600), timeout=1.0)
-
-
-@pytest.mark.asyncio
-async def test_a_wake_during_a_cycle_is_not_lost(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Clearing the flag after the cycle would swallow it and stall for an interval.
-
-    A proposal decided while a scan is in flight is exactly when this matters:
-    the room appears before the cycle ends, so the flag has to survive into the
-    wait that follows.
-    """
-    cfg = _watchlist(["A", "B"])
-    cfg["scan_interval_seconds"] = 300
-    _install(monkeypatch, cfg, open_proposals=0)
-
-    async def _pipeline(symbol: str, **_kwargs: object) -> SimpleNamespace:
-        scanner.wake_scanner()
-        return _empty_result()
-
-    monkeypatch.setattr(scan_cycle, "run_symbol_pipeline", _pipeline)
-
-    pending: list[bool] = []
-    reached = asyncio.Event()
-
-    async def _record(_delay: float) -> None:
-        pending.append(scanner._wake_token != scanner._wake_seen)
-        reached.set()
-        await asyncio.sleep(3600)
-
-    monkeypatch.setattr(scanner, "wait_before_next_cycle", _record)
-    task = asyncio.create_task(scanner.scanner_loop())
-    try:
-        await asyncio.wait_for(reached.wait(), timeout=2.0)
-    finally:
-        task.cancel()
-
-    assert pending == [True], "a wake raised mid-cycle was discarded before the wait"

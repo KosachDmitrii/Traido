@@ -33,7 +33,7 @@ from core.logging import configure_logging, get_logger
 from database.session import init_db
 from risk.kill_switch import get_kill_switch_state
 from risk.limits import default_risk_limits
-from trading.entry_watch_loop import start_entry_watch_loop, stop_entry_watch_loop
+from strategy.orb.loop import start_entry_watch_loop, stop_entry_watch_loop
 from trading.reconcile_supervisor import start_reconcile_loop, stop_reconcile_loop
 
 settings = get_settings()
@@ -117,7 +117,7 @@ async def lifespan(_app: FastAPI):
     # And whether an open position should still be held. Same reasoning: a
     # proposal nobody is there to raise, and a stale one nobody is there to
     # withdraw, are both control failures rather than rendering ones.
-    start_position_loop(build_exit_assessment)
+    start_position_loop(build_exit_assessment, interval_sec=5)
     # WAIT watches are the same class of control: a trigger nobody re-checks is
     # a missed entry; converting them must still go through Risk + desk publish,
     # never the broker.

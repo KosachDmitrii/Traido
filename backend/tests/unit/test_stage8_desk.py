@@ -102,7 +102,7 @@ def test_engine_exposes_pa_flags() -> None:
 
 def test_desk_strategy_version_matches_registry() -> None:
     assert DeskConfluenceStrategy.version == LIVE_STRATEGY_KEY
-    assert LIVE_STRATEGY_KEY.startswith("trader_desk@")
+    assert LIVE_STRATEGY_KEY.startswith("orb@")
 
 
 def test_resolve_strategy_kind_defaults_to_desk() -> None:

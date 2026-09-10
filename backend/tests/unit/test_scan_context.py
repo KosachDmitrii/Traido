@@ -156,54 +156,33 @@ async def test_an_adapter_without_a_close_method_is_fine(
         await cycle.portfolio()
 
 
-def test_the_scanner_opens_exactly_one_context_per_cycle(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The fix is only worth anything if the scanner actually uses it."""
-    from agents.scanner import agent as scanner
+def test_the_scanner_opens_exactly_one_context_per_cycle(monkeypatch):
     from agents.scanner import cycle as scan_cycle
-    from tests.scanner_fakes import (
-        fake_scan_context,
-        scanner_settings,
-        universe_service_for,
-    )
+    from agents.scanner.cycle import run_cycle
+    from strategy.orb import runtime
+    from tests.scanner_fakes import fake_scan_context, scanner_settings, universe_service_for
 
-    opened = 0
-    contexts: list[object] = []
+    contexts = []
+    seen = []
 
-    def _open(_settings=None, **_kwargs):
-        nonlocal opened
-        opened += 1
-        made = fake_scan_context(_settings)
-        contexts.append(made)
-        return made
+    def opened(settings=None, **kwargs):
+        ctx = fake_scan_context(settings)
+        contexts.append(ctx)
+        return ctx
 
-    seen: list[object] = []
+    async def discover(ctx, universe):
+        seen.append(ctx)
+        return {"status": "ready", "plans": {}, "counts": {}}
 
-    async def _pipeline(symbol, *, timeframes, settings, publish, context):
+    async def observe(context=None):
         seen.append(context)
-        return SimpleNamespace(status="no_candidate", candidate=None, risk=None)
+        return {}
 
-    monkeypatch.setattr(scanner.BOARD, "log", lambda *a, **k: None)
-    monkeypatch.setattr(scanner.BOARD, "set_agent", lambda *a, **k: None)
-    monkeypatch.setattr(scanner, "is_kill_switch_on", lambda: False)
-    monkeypatch.setattr(scanner, "get_settings", lambda: scanner_settings())
-    monkeypatch.setattr(scan_cycle, "open_scan_context", _open)
-    monkeypatch.setattr(scan_cycle, "run_symbol_pipeline", _pipeline)
-    monkeypatch.setattr(scan_cycle, "withdraw_unactionable", lambda *a, **k: 0)
-    monkeypatch.setattr(
-        scanner,
-        "universe_service",
-        lambda _s=None: universe_service_for(["AAPL", "MSFT", "NVDA", "AMD"]),
+    monkeypatch.setattr(scan_cycle, "open_scan_context", opened)
+    monkeypatch.setattr(runtime, "discover", discover)
+    monkeypatch.setattr(runtime, "observe", observe)
+    asyncio.run(
+        run_cycle(settings=scanner_settings(), universe_service=universe_service_for(["AAA"]))
     )
-    monkeypatch.setattr(
-        scanner,
-        "load_watchlist",
-        lambda: {"enabled": True, "timeframes": ["1d"], "max_open_buy_opportunities": 5},
-    )
-    monkeypatch.setattr(scan_cycle.OPPORTUNITIES, "list_open", list)
-    monkeypatch.setattr(scanner.STATUS, "enabled", True)
-
-    asyncio.run(scanner.run_scan_cycle())
-
-    assert opened == 1, f"one context per cycle, opened {opened}"
-    assert seen and all(c is contexts[0] for c in seen), "every symbol shares the cycle's context"
-    assert len(seen) == 4, "every eligible symbol reached the pipeline through that one context"
+    assert len(contexts) == 1
+    assert seen == [contexts[0], contexts[0]]
