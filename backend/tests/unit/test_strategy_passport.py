@@ -1,4 +1,5 @@
 """The passport reflects runtime parameters without registry promotion writes."""
+
 from api.routes.strategies import active_strategy
 from strategy.orb import PARAMETERS, VERSION
 
