@@ -122,7 +122,7 @@ async def run_cycle(
             - f.risk_rejected
             - f.position_open
         )
-    else:
+    elif data.get("status") == "data_blocked":
         result.error = data.get("reason")
     result.timings.total = time.monotonic() - started
     return result
