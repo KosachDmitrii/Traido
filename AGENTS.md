@@ -1,6 +1,12 @@
 # Cursor / agent notes for this repo
 
 ## Capital safety
+- Owner decision 2026-09-11: `TRAIDO_PAPER_EXIT_POLICY=manual_target` overrides the
+  stop-installation, emergency-flatten and timed-exit requirements below in Paper.
+  Exit only on an explicit operator sell or the stored card target. Carry overnight.
+  Cancel and verify previously submitted Traido stops; preserve unresolved fills.
+  Entry evaluation still uses its reference stop; it is not a maximum-loss guarantee.
+  All other modes retain protection. Live remains prohibited.
 - Never implement live order placement in V1.
 - Never let LLM output call broker or SQL directly. LLMs cannot bypass the risk
   engine, the liquidity gate, the RTH gate, or the order state machine — every

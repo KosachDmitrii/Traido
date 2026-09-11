@@ -42,6 +42,7 @@ function pnlView(p: DeskPosition) {
 
 export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
   const t = useT();
+  const manualTarget = desk?.position_exit_policy === "manual_target";
   const { showFlash, refreshAll } = useDesk();
   // Two clicks to flatten. The button sits in a list that is otherwise entirely
   // read-only, so a single click here would be the only place on the desk where
@@ -107,6 +108,8 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
             positions.map((p) => {
               const pnl = pnlView(p);
               const isShort = Number(p.qty) < 0;
+              const hasBrokerStop = (desk?.open_orders ?? []).some(o => o.symbol === p.symbol && o.side.toLowerCase() === "sell" && ["stop", "stop_limit"].includes(o.order_type.toLowerCase()));
+              const stopStatus = hasBrokerStop ? "У брокера есть стоп" : desk?.open_orders_verified ? "Автостоп отключён" : "Проверяем отмену стопа";
               const armed = arming === p.symbol;
               const metrics: { key: string; label: string; value: string }[] = [
                 { key: "qty", label: t("desk.positions.stat.qty"), value: String(p.qty) },
@@ -114,8 +117,8 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
               ];
               metrics.push(
                 { key: "mark", label: t("desk.positions.stat.mark"), value: fmtPx(p.mark) },
-                { key: "stop", label: t("desk.positions.stat.stop"), value: isShort ? "—" : fmtPx(p.stop) },
-                { key: "tgt", label: t("desk.positions.stat.tgt"), value: isShort ? "—" : p.strategy_version === "orb@2.0.0" && p.target ? `${fmtPx(p.target)} · стоп / время` : p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
+                { key: "stop", label: t("desk.positions.stat.stop"), value: isShort ? "—" : manualTarget ? stopStatus : fmtPx(p.stop) },
+                { key: "tgt", label: t("desk.positions.stat.tgt"), value: isShort ? "—" : manualTarget ? `${fmtPx(p.target)} · или вручную, без срока` : p.strategy_version === "orb@2.0.0" && p.target ? `${fmtPx(p.target)} · стоп / время` : p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
               );
               return (
                 <div className="pos-row" key={p.symbol}>

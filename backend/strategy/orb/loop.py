@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from strategy.orb.runtime import observe
+from trading.exit_policy import manual_target_exits
 
 logger = logging.getLogger(__name__)
 _task: asyncio.Task[None] | None = None
@@ -34,7 +35,8 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                 if deadline.tzinfo is None:
                     continue
                 execution = None
-                reason = "ORB_SESSION_END" if now >= deadline else None
+                manual_target = manual_target_exits()
+                reason = "ORB_SESSION_END" if not manual_target and now >= deadline else None
                 raw_plan = payload.get("orb_plan") or {}
                 if reason is None and raw_plan.get("version") == "orb@2.0.0" and row.qty > 0:
                     from strategy.orb import PARAMETERS, OrbPlan
@@ -64,7 +66,8 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                     if quote.bid >= target:
                         reason = "ORB_TARGET_REACHED"
                     elif (
-                        row.opened_at.tzinfo is not None
+                        not manual_target
+                        and row.opened_at.tzinfo is not None
                         and now
                         >= row.opened_at + timedelta(minutes=PARAMETERS["time_exit_minutes"])
                         and quote.bid <= Decimal(str(row.avg_entry))

@@ -109,6 +109,7 @@ async def lifespan(_app: FastAPI):
             "environment": settings.environment,
             "broker_env": settings.broker_env.value,
             "trading_mode": settings.trading_mode.value,
+            "paper_exit_policy": settings.paper_exit_policy,
             "auth_mode": auth_mode(),
         },
     )

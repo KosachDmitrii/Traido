@@ -371,6 +371,7 @@ export type AutoTrigger = {
 
 export type DeskLight = {
   mode: string;
+  position_exit_policy?: "protected" | "manual_target";
   session?: SessionState;
   entry_policy?: EntryPolicy;
   auto_trigger?: AutoTrigger;

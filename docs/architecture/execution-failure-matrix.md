@@ -618,3 +618,22 @@ Trade frequency is not increased by recycling the old purchase signal. All
 portfolio and execution gates still apply to the new proposal. Reentry policy
 identity and prior position/entry IDs are stored in immutable plan evidence;
 existing strategy parameters and historical trade records are not rewritten.
+# Owner-selected Paper exits (2026-09-11)
+
+With `TRAIDO_PAPER_EXIT_POLICY=manual_target`, existing and future Paper positions
+are held until an operator sells or the stored ORB target is observed on a fresh bid.
+The target stays the original trade target across sessions. No session-end,
+30-minute, stop-loss or missing-protection flatten is submitted in this mode.
+Entry reference-stop calculations remain unchanged; losses are not bounded by them.
+
+| Condition | Behavior in manual_target |
+| --- | --- |
+| New fill / partial exit | Record holdings; do not create a protective stop |
+| Existing Traido stop | Cancel through execution and verify terminal state |
+| Cancellation unknown or raced a fill | Keep reconciliation unresolved; absorb broker fills on the usual path |
+| Missing stop | Intentional; do not recreate or flatten |
+| Target missing / quote stale | Hold, no invented target |
+| Target reached on a later day | Use original target and existing durable exit path |
+| User sells | Existing manual exit remains available |
+
+Default `protected` behavior below is unchanged. Enable only in Paper after deployment.

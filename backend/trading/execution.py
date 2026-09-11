@@ -52,6 +52,7 @@ from risk.kill_switch import is_kill_switch_on
 from risk.risk_engine import RiskContext, RiskEngine
 from trading.decision_pipeline import NEW_EXPOSURE_GATE_ORDER
 from trading.entry_activity import track_entry
+from trading.exit_policy import manual_target_exits
 from trading.exits import (
     EXIT_APPROVING,
     EXIT_AWAITING,
@@ -1027,7 +1028,7 @@ class ExecutionService:
                 entity_type="order",
                 entity_id=stop_order_id,
             )
-        else:
+        elif not manual_target_exits():
             failure = stop_error or "protective stop not accepted"
             await self.audit.append(
                 "StopOrderFailed",
@@ -2004,6 +2005,8 @@ class ExecutionService:
         left resting above an account that no longer held the shares. One
         trigger away from a short, in a system that disables shorting.
         """
+        if manual_target_exits():
+            return None
         intent, resumed = await self._protection_intent(
             symbol=symbol, qty=qty, position_id=position_id, reason=reason
         )
@@ -2133,8 +2136,14 @@ class ExecutionService:
             entity_type="order",
             entity_id=broker_order_id,
         )
-        ok = await self._cancel_quietly(broker_order_id, note=reason)
-        self._retire_protective_intent(broker_order_id)
+        ok = await self._cancel_and_await_gone(broker_order_id, note=reason)
+        if ok:
+            final = await self.broker.get_order(broker_order_id)
+            if final.filled_qty is None or final.filled_qty > 0:
+                # Reconciliation must absorb a fill that raced cancellation.
+                return False
+        if ok:
+            self._retire_protective_intent(broker_order_id)
         return ok
 
     def _retire_protective_intent(self, broker_order_id: str) -> None:
@@ -2227,6 +2236,8 @@ class ExecutionService:
         broker. Returns the stop order id, or None if the position had to be
         emergency-closed instead.
         """
+        if manual_target_exits():
+            return None
         oid = await self._place_protective_stop(
             symbol=symbol,
             qty=qty,
@@ -2277,6 +2288,8 @@ class ExecutionService:
         remainder naked, so a failure to re-place it flattens the remainder
         rather than leaving it exposed.
         """
+        if manual_target_exits():
+            return None
         await self.audit.append(
             "ProtectionResizeRequested",
             "execution",
@@ -2482,6 +2495,11 @@ class ExecutionService:
         Returns True only when the exit is *confirmed* filled. An unconfirmed
         flatten is not safety — the caller must keep the state unresolved.
         """
+        if manual_target_exits():
+            await self.audit.append(
+                "AutomaticExitSuppressed", "execution", {"symbol": symbol, "reason": reason}
+            )
+            return False
         await self.audit.append(
             "EmergencyCloseTriggered",
             "execution",
@@ -2945,6 +2963,8 @@ class ExecutionService:
             raise RuntimeError("exit_store_not_configured")
 
         symbol = symbol.upper()
+        if manual_target_exits() and reason not in {OPERATOR_CLOSE_REASON, "ORB_TARGET_REACHED"}:
+            raise RuntimeError("AUTOMATIC_EXIT_DISABLED_BY_OWNER")
         positions = await self.broker.list_positions()
         pos = next((p for p in positions if p.symbol.upper() == symbol), None)
         if pos is None:

@@ -345,9 +345,17 @@ async def test_a_retry_after_a_lost_sell_reply_does_not_sell_twice(
     assert any(e["event_type"] == "DuplicateOrderPrevented" for e in audit.events)
 
 
+@pytest.mark.parametrize("manual_target", [False, True])
 async def test_pressing_sell_twice_produces_one_broker_order(
     ledger: PositionLedger,
+    monkeypatch,
+    manual_target,
 ) -> None:
+    from core.config import get_settings
+
+    monkeypatch.setattr(
+        get_settings(), "paper_exit_policy", "manual_target" if manual_target else "protected"
+    )
     position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
     broker = _ExitBroker()
     _initial_stop(broker)
@@ -366,8 +374,16 @@ async def test_pressing_sell_twice_produces_one_broker_order(
 # ── Partial exits and the ledger ─────────────────────────────────────────────
 
 
-async def test_a_partial_exit_leaves_the_remainder_open(ledger: PositionLedger) -> None:
+@pytest.mark.parametrize("manual_target", [False, True])
+async def test_a_partial_exit_leaves_the_remainder_open(
+    ledger: PositionLedger, monkeypatch, manual_target
+) -> None:
     """The old path closed the whole position on a 30-of-100 fill."""
+    from core.config import get_settings
+
+    monkeypatch.setattr(
+        get_settings(), "paper_exit_policy", "manual_target" if manual_target else "protected"
+    )
     position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id="stop-1")
     broker = _ExitBroker(fill_ratio=Decimal("0.3"))
     _initial_stop(broker)
@@ -384,6 +400,8 @@ async def test_a_partial_exit_leaves_the_remainder_open(ledger: PositionLedger) 
     assert row.status == "open", "70 shares are still ours"
     assert Decimal(str(row.qty)) == Decimal(30 * 0 + 70)
     assert result.status == EXIT_AWAITING, "the rest is still sellable"
+    if manual_target:
+        assert broker.stops == []
 
 
 async def test_a_partial_exit_resizes_protection_to_the_remainder(
