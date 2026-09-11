@@ -495,3 +495,12 @@ Same-feed relative volume replaces the SIP-only restriction; IEX selection uses
 observed dollar liquidity rather than a consolidated share-volume threshold.
 Plans and quote metadata must agree on feed. Capital/execution controls are unchanged.
 See `docs/architecture/orb-replacement.md` for parameters and limitations.
+
+### ORB entitled SIP production profile — 2026-09-11
+
+When the configured Alpaca credentials prove SIP entitlement, production may set
+`ALPACA_DATA_FEED=sip`. REST snapshots, REST bars, WebSocket minute bars and durable
+bar provenance must all remain `alpaca:sip`; an authorization failure is
+`DATA_BLOCKED` and must never trigger a silent IEX downgrade. This changes only the
+market-data source. Alpaca Paper remains the sole broker and live execution remains
+disabled.

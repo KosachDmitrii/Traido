@@ -645,12 +645,13 @@ Default `protected` behavior below is unchanged. Enable only in Paper after depl
 | REST group fails | Keep other groups; retry only failed symbols after backoff |
 | Restart | Load feed-separated source bars from SQL; fetch gaps and recent correction overlap |
 | History missing | DATA_BLOCKED; no synthetic candles, entry intent or broker submission |
-| IEX stream connected | Persist minute bars and corrections; aggregate only five complete source minutes |
+| Configured IEX or SIP stream connected | Persist minute bars and corrections under that exact feed; aggregate only five complete source minutes |
 | Stream disconnected or older than 90 seconds | Do not authorize from stream liveness; fresh REST read required |
-| Complete history and current IEX stream | Rebuild from durable source bars; final fresh quote and all admission gates still required |
+| Complete history and current same-feed stream | Rebuild from durable source bars; final fresh quote and all admission gates still required |
+| SIP configured without SIP entitlement | DATA_BLOCKED; never downgrade to IEX silently |
 | ORB observation remains blocked by the same data reason | Keep the card `DATA_BLOCKED`; write the domain reason to the operator activity feed only when the blocked state or reason changes |
 | Display snapshot fails | Clear displayed quote; preserve independent candle evaluation |
 
 History REST work is bounded to six groups/pass, five symbols/group, two concurrent
 requests, and 30-minute intervals. A failed group is retried as individual symbols.
-The IEX stream has no broker port and cannot submit orders. Feed never changes on failure.
+The market-data stream has no broker port and cannot submit orders. Feed never changes on failure.

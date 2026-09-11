@@ -3,7 +3,7 @@
 | Function | Provider |
 |---|---|
 | Execution, account, positions, fills | Alpaca Paper only |
-| OHLCV and quotes | Alpaca; IEX development feed |
+| OHLCV and quotes | Alpaca; IEX development feed, entitled SIP production feed |
 | News / earnings / sector | Finnhub |
 | Macro | FRED |
 | LLM | Anthropic Claude |
@@ -14,7 +14,8 @@ Live execution is disabled. No selectable execution backend or workstation
 session is required. Mock execution requires explicit local test configuration.
 
 Credentials: `ALPACA_API_KEY`, `ALPACA_API_SECRET`.
-Data URL: `https://data.alpaca.markets`; `ALPACA_DATA_FEED=iex`.
+Data URL: `https://data.alpaca.markets`; `ALPACA_DATA_FEED=iex` for development or
+`ALPACA_DATA_FEED=sip` only when the configured credentials prove SIP entitlement.
 Execution URL: `https://paper-api.alpaca.markets` (exact endpoint enforced).
 
 See [Alpaca-only decision and migration](alpaca-only.md).

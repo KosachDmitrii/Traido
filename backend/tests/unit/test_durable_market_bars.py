@@ -23,6 +23,7 @@ def isolated(monkeypatch):
     monkeypatch.setattr(iex_stream, "_latest", {})
     monkeypatch.setattr(iex_stream, "_completed", {})
     monkeypatch.setattr(iex_stream, "_connected_at", None)
+    monkeypatch.setattr(iex_stream, "_feed", "iex")
 
 
 def test_upserts_corrections_and_separates_feed():

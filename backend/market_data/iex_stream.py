@@ -1,4 +1,4 @@
-"""One IEX minute-bar stream; corrections upsert source bars, never place orders."""
+"""One selected Alpaca minute-bar stream; corrections never place orders."""
 
 import asyncio
 import json
@@ -20,6 +20,14 @@ _connected = False
 _connected_at: datetime | None = None
 _completed: dict[str, datetime] = {}
 _symbol_limit: int | None = None
+_feed = "iex"
+
+
+def _source(feed: str | None = None) -> str:
+    selected = (feed or _feed).strip().lower()
+    if selected not in {"iex", "sip"}:
+        raise ValueError("ALPACA_STREAM_FEED_INVALID")
+    return f"alpaca:{selected}"
 
 
 def current(symbol: str, source: str, now: datetime) -> bool:
@@ -27,14 +35,14 @@ def current(symbol: str, source: str, now: datetime) -> bool:
     end = now.replace(minute=now.minute - now.minute % 5, second=0, microsecond=0)
     return bool(
         _connected
-        and source == "alpaca:iex"
+        and source == _source()
         and ts
         and 0 <= (now - ts).total_seconds() <= 90
         and _completed.get(symbol) == end - timedelta(minutes=5)
     )
 
 
-def ingest(message: dict[str, Any], *, now: datetime) -> bool:
+def ingest(message: dict[str, Any], *, now: datetime, feed: str | None = None) -> bool:
     """Require every source minute. No zero-volume or carried-price fabrication."""
     symbol = message.get("S")
     if not isinstance(symbol, str) or message.get("T") not in {"b", "u"}:
@@ -56,11 +64,12 @@ def ingest(message: dict[str, Any], *, now: datetime) -> bool:
 
     if not _valid_bar(minute):
         return False
+    source = _source(feed)
     payload = minute.model_dump(mode="json")
-    save("alpaca:iex", symbol, "1Min", [(minute.ts, payload)])
+    save(source, symbol, "1Min", [(minute.ts, payload)])
     start = minute.ts.replace(minute=minute.ts.minute - minute.ts.minute % 5)
     end = start + timedelta(minutes=5)
-    rows = [Bar.model_validate(p) for p in load("alpaca:iex", symbol, "1Min", start, end)]
+    rows = [Bar.model_validate(p) for p in load(source, symbol, "1Min", start, end)]
     if end > now or [b.ts for b in rows] != [start + timedelta(minutes=i) for i in range(5)]:
         return True
     bar = Bar(
@@ -74,19 +83,28 @@ def ingest(message: dict[str, Any], *, now: datetime) -> bool:
         volume=sum((b.volume for b in rows), Decimal(0)),
         source="alpaca",
     )
-    save_bars("alpaca:iex", symbol, [bar])
-    logger.info("IEX completed bar stored: symbol=%s timestamp=%s", symbol, start.isoformat())
+    save_bars(source, symbol, [bar])
+    logger.info(
+        "Alpaca %s completed bar stored: symbol=%s timestamp=%s",
+        source.removeprefix("alpaca:"),
+        symbol,
+        start.isoformat(),
+    )
     if _connected_at is not None and start >= _connected_at:
         _completed[symbol] = max(start, _completed.get(symbol, start))
     return True
 
 
-async def _run(key: str, secret: str) -> None:
+async def _run(key: str, secret: str, feed: str = "iex") -> None:
     from websockets.asyncio.client import connect
 
     from strategy.orb.store import read_session
 
-    global _connected, _connected_at, _symbol_limit
+    global _connected, _connected_at, _feed, _symbol_limit
+    feed = feed.strip().lower()
+    _source(feed)  # Validate before constructing the vendor URL.
+    _feed = feed
+    _symbol_limit = None
     wire_logger = logging.getLogger("market_data.iex_wire")
     wire_logger.setLevel(logging.WARNING)
     while True:
@@ -98,7 +116,7 @@ async def _run(key: str, secret: str) -> None:
                 await asyncio.sleep(5)
                 continue
             async with connect(
-                "wss://stream.data.alpaca.markets/v2/iex",
+                f"wss://stream.data.alpaca.markets/v2/{feed}",
                 proxy=None,
                 open_timeout=10,
                 ping_interval=20,
@@ -128,7 +146,7 @@ async def _run(key: str, secret: str) -> None:
                     messages = json.loads(raw)
                     for message in messages:
                         if message.get("T") == "error":
-                            if message.get("code") == 405 and len(symbols) > 30:
+                            if feed == "iex" and message.get("code") == 405 and len(symbols) > 30:
                                 # Respect Basic entitlements; the remaining plans
                                 # continue independent REST recovery.
                                 _symbol_limit = 30
@@ -146,8 +164,10 @@ async def _run(key: str, secret: str) -> None:
                                     "IEX stream symbol limit: using 30; remaining plans use REST"
                                 )
                                 continue
-                            logger.warning("IEX stream rejected: code=%s", message.get("code"))
-                            raise RuntimeError("IEX_STREAM_REJECTED")
+                            logger.warning(
+                                "Alpaca %s stream rejected: code=%s", feed, message.get("code")
+                            )
+                            raise RuntimeError("ALPACA_STREAM_REJECTED")
                         if message.get("T") == "success" and message.get("msg") == "authenticated":
                             authenticated = True
                             await ws.send(
@@ -164,7 +184,8 @@ async def _run(key: str, secret: str) -> None:
                             _connected = subscribed
                             _connected_at = datetime.now(UTC) if subscribed else None
                             logger.info(
-                                "IEX stream subscribed: symbols=%s confirmed=%s",
+                                "Alpaca %s stream subscribed: symbols=%s confirmed=%s",
+                                feed,
                                 len(symbols),
                                 subscribed,
                             )
@@ -174,7 +195,7 @@ async def _run(key: str, secret: str) -> None:
                             and message.get("T") in {"b", "u"}
                         ):
                             now = datetime.now(UTC)
-                            if await asyncio.to_thread(ingest, message, now=now):
+                            if await asyncio.to_thread(ingest, message, now=now, feed=feed):
                                 ts = datetime.fromisoformat(message["t"])
                                 _latest[message["S"]] = max(
                                     ts + timedelta(minutes=1), _latest.get(message["S"], ts)
@@ -185,7 +206,11 @@ async def _run(key: str, secret: str) -> None:
             raise
         except Exception as exc:  # noqa: BLE001 — reconnect without leaking credentials
             # Exception bodies may contain handshake headers; log class only.
-            logger.warning("IEX stream disconnected: %s; reconnect in 30s", type(exc).__name__)
+            logger.warning(
+                "Alpaca %s stream disconnected: %s; reconnect in 30s",
+                feed,
+                type(exc).__name__,
+            )
         finally:
             _connected = False
             _connected_at = None
@@ -200,10 +225,11 @@ def start() -> None:
 
     global _task
     settings = get_settings()
-    if settings.environment == "test" or resolve_alpaca_data_feed(settings) != "iex":
+    feed = resolve_alpaca_data_feed(settings)
+    if settings.environment == "test" or feed not in {"iex", "sip"}:
         return
     if settings.alpaca_api_key and settings.alpaca_api_secret and (_task is None or _task.done()):
-        _task = asyncio.create_task(_run(settings.alpaca_api_key, settings.alpaca_api_secret))
+        _task = asyncio.create_task(_run(settings.alpaca_api_key, settings.alpaca_api_secret, feed))
 
 
 async def stop() -> None:
