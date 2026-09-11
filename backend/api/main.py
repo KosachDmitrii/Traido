@@ -104,7 +104,9 @@ async def lifespan(_app: FastAPI):
     retention_stop, retention_task = start_log_retention(audit)
     await asyncio.to_thread(prune_audit_events, audit)
     logger.info(
-        "Traido API starting",
+        "Traido API starting: broker=%s paper_exit_policy=%s",
+        settings.broker_env.value,
+        settings.paper_exit_policy,
         extra={
             "environment": settings.environment,
             "broker_env": settings.broker_env.value,

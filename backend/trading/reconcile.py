@@ -748,6 +748,15 @@ async def reconcile_protective_orders(
                     },
                 )
         # Absence of a stop is intentional; do not reinstall or flatten.
+        logger.info(
+            "Owner exit policy reconciliation: broker_stops=%s owned_stops=%s unconfirmed=%s",
+            sum(o.order_type in {OrderType.STOP, OrderType.STOP_LIMIT} for o in resting.values()),
+            sum(
+                oid in owned_ids and o.order_type in {OrderType.STOP, OrderType.STOP_LIMIT}
+                for oid, o in resting.items()
+            ),
+            sum(item.startswith("exit_policy:") for item in rep.unresolved),
+        )
         return 0
 
     held_at_broker = await _broker_quantities(broker)
