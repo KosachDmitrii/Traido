@@ -78,7 +78,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
         {(plan.name || opp?.candidate.name) && <p className={styles.companyName}>{plan.name || opp?.candidate.name}</p>}
         <dl className={styles.prices}>
           <div><dt>Цена сейчас · ask</dt><dd><CurrentPrice value={ask} /></dd></div>
-          <div><dt>{isRetest ? "Зона покупки" : plan.version === "orb@1.5.0" ? "Покупать не дороже" : "Цена входа"}</dt><dd>{!ready ? "Ждём сигнал" : isRetest ? `${px(plan.trigger)}–${px(plan.max_entry)}` : px(plan.trigger)}</dd></div>
+          <div><dt>{!ready ? "Этап формирования входа" : isRetest ? "Зона покупки" : plan.version === "orb@1.5.0" ? "Покупать не дороже" : "Цена входа"}</dt><dd className={!ready ? styles.signalPhase : undefined}>{!ready ? signalStatus : isRetest ? `${px(plan.trigger)}–${px(plan.max_entry)}` : px(plan.trigger)}</dd></div>
           <div><dt>Защитный стоп</dt><dd>{ready ? px(plan.stop) : "—"}</dd></div>
           {isRetest ? <div><dt>Цель выхода</dt><dd>{px(retest?.target)}</dd></div> : plan.version !== "orb@1.5.0" && <div><dt>Не покупать выше</dt><dd>{px(plan.max_entry)}</dd></div>}
         </dl>
@@ -86,7 +86,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
           <dl className={styles.signalLevel}>
             <div><dt>Максимум первых 5 минут</dt><dd>{px(plan.range_high)}</dd></div>
           </dl>
-          {!execution?.stage && <p className={styles.signalPhase}>{signalStatus}</p>}
+          {ready && !execution?.stage && <p className={styles.signalPhase}>{signalStatus}</p>}
           <p className={styles.brief}>Уровень 09:30–09:35 ET. Пробой подтверждается закрытием растущей пятиминутной свечи выше уровня + $0.01, а не текущей ценой ask.</p>
           {!ready && <p className={styles.brief}>Зона покупки, стоп и цель появятся после возврата и подтверждения.</p>}
           <small>{observedTime ? `Последняя проверка: ${observedTime} ET` : "Время последней проверки недоступно"}</small>
