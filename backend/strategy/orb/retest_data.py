@@ -116,8 +116,12 @@ async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -
                         for i in range(int((stop - start).total_seconds() / 300))
                     ]
                     if sorted(b.ts for b in rows) != expected:
+                        missing = next(
+                            (ts for ts in expected if ts not in {b.ts for b in rows}), start
+                        )
+                        retry_seconds = 300 if now - missing > timedelta(minutes=30) else 5
                         _failures[(plan.symbol, plan.session, plan.source)] = (
-                            now + timedelta(seconds=5),
+                            now + timedelta(seconds=retry_seconds),
                             ValueError("ORB_RETEST_HISTORY_GAP"),
                         )
                         _cache.pop((plan.symbol, plan.session, plan.source, end), None)

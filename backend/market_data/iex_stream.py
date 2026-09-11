@@ -75,6 +75,7 @@ def ingest(message: dict[str, Any], *, now: datetime) -> bool:
         source="alpaca",
     )
     save_bars("alpaca:iex", symbol, [bar])
+    logger.info("IEX completed bar stored: symbol=%s timestamp=%s", symbol, start.isoformat())
     if _connected_at is not None and start >= _connected_at:
         _completed[symbol] = max(start, _completed.get(symbol, start))
     return True

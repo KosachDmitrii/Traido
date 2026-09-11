@@ -109,6 +109,18 @@ def minute(i, start, close=101):
     }
 
 
+@pytest.mark.asyncio
+async def test_old_missing_candle_does_not_consume_every_recovery_pass():
+    p, _, now = scenario()
+    now += timedelta(hours=3)
+    feed = SimpleNamespace(get_bars_batch=AsyncMock(return_value={}))
+    await retest_data.prime_bars(feed, [p], now=now)
+    await retest_data.prime_bars(feed, [p], now=now + timedelta(seconds=31))
+    feed.get_bars_batch.assert_awaited_once()
+    with pytest.raises(ValueError, match="ORB_RETEST_HISTORY_GAP"):
+        await retest_data.read_bars(feed, p, now=now, cached=True)
+
+
 def test_stream_requires_all_minutes_and_applies_late_corrections():
     p, _, now = scenario()
     start = p.range_end
