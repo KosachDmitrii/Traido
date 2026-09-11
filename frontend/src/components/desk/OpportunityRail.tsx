@@ -9,6 +9,7 @@ import { Button, LoadingDots } from "@/ui";
 import { CurrentPrice } from "./CurrentPrice";
 import { autoBuyPresentation } from "./autoBuyPresentation";
 import { orbReason, orbState, px, etTime } from "./orbLabels";
+import { orbSignalStatus, observationTime } from "./orbSignalStatus";
 
 type Props = { desk: DeskResponse | null; onFlash: (message: FlashMessage, replacing?: FlashSlot) => FlashSlot;
   onRefresh: () => Promise<void>; layout?: "rail" | "page" };
@@ -70,15 +71,26 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
       const ask = opp?.viability?.measured?.ask ?? state?.ask;
       const execution = desk?.orb?.execution?.[plan.symbol];
       const auto = autoBuyPresentation(execution, state?.state, desk?.auto_trigger?.available !== false);
+      const signalStatus = orbSignalStatus(state?.state, reasons);
+      const observedTime = observationTime(state?.observed_at);
       return <article key={plan.symbol} className={`opp-card ${styles.card}`} data-buyable={automatic ? auto.tone === "active" : buyable}>
         <div className={styles.cardHead}><div className={styles.identity}><div><h3>{plan.symbol}</h3><span className={styles.strategy}>{isRetest ? "ORB · Возврат" : "ORB · Покупка"}</span></div></div><strong className={styles.status}>{automatic ? auto.title : buyable ? "Можно подтвердить" : orbState(state?.state)}</strong></div>
         {(plan.name || opp?.candidate.name) && <p className={styles.companyName}>{plan.name || opp?.candidate.name}</p>}
         <dl className={styles.prices}>
-          <div><dt>Цена сейчас</dt><dd><CurrentPrice value={ask} /></dd></div>
+          <div><dt>Цена сейчас · ask</dt><dd><CurrentPrice value={ask} /></dd></div>
           <div><dt>{isRetest ? "Зона покупки" : plan.version === "orb@1.5.0" ? "Покупать не дороже" : "Цена входа"}</dt><dd>{!ready ? "Ждём сигнал" : isRetest ? `${px(plan.trigger)}–${px(plan.max_entry)}` : px(plan.trigger)}</dd></div>
           <div><dt>Защитный стоп</dt><dd>{ready ? px(plan.stop) : "—"}</dd></div>
           {isRetest ? <div><dt>Цель выхода</dt><dd>{px(retest?.target)}</dd></div> : plan.version !== "orb@1.5.0" && <div><dt>Не покупать выше</dt><dd>{px(plan.max_entry)}</dd></div>}
         </dl>
+        {isRetest && <section className={styles.signalStatus} aria-label={`Сигнал ${plan.symbol}`}>
+          <dl className={styles.signalLevel}>
+            <div><dt>Максимум первых 5 минут</dt><dd>{px(plan.range_high)}</dd></div>
+          </dl>
+          {!execution?.stage && <p className={styles.signalPhase}>{signalStatus}</p>}
+          <p className={styles.brief}>Уровень 09:30–09:35 ET. Пробой подтверждается закрытием растущей пятиминутной свечи выше уровня + $0.01, а не текущей ценой ask.</p>
+          {!ready && <p className={styles.brief}>Зона покупки, стоп и цель появятся после возврата и подтверждения.</p>}
+          <small>{observedTime ? `Последняя проверка: ${observedTime} ET` : "Время последней проверки недоступно"}</small>
+        </section>}
         {(!automatic || !execution) && <p className={styles.brief}>{reasons.length === 1 && reasons[0] === "ORB_WAITING_BREAKOUT" ? "Ждём роста до цены входа." : reasons.map(orbReason).join(" · ")}</p>}
         <details className={styles.details}>
           <summary>Подробнее о плане</summary>
