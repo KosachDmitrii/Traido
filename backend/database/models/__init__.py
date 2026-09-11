@@ -12,6 +12,7 @@ from database.models.desk import (
     ShadowOutcomeRow,
 )
 from database.models.journal import BacktestRunRow, TradeJournalRow
+from database.models.market_bars import MarketBarRow
 from database.models.orb import OrbSessionRow
 from database.models.positions import OpenPositionRow
 from database.models.risk_period import RiskPeriodRow
@@ -27,6 +28,7 @@ __all__ = [
     "EntryWatchRow",
     "ExitOpportunityRow",
     "ExternalPositionIncidentRow",
+    "MarketBarRow",
     "OpenPositionRow",
     "OpportunityRow",
     "OrbSessionRow",

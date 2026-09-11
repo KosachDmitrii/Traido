@@ -637,3 +637,19 @@ Entry reference-stop calculations remain unchanged; losses are not bounded by th
 | User sells | Existing manual exit remains available |
 
 Default `protected` behavior below is unchanged. Enable only in Paper after deployment.
+
+## Market-data recovery (2026-09-11)
+
+| Condition | Behavior |
+| --- | --- |
+| REST group fails | Keep other groups; retry only failed symbols after backoff |
+| Restart | Load feed-separated source bars from SQL; fetch gaps and recent correction overlap |
+| History missing | DATA_BLOCKED; no synthetic candles, entry intent or broker submission |
+| IEX stream connected | Persist minute bars and corrections; aggregate only five complete source minutes |
+| Stream disconnected or older than 90 seconds | Do not authorize from stream liveness; fresh REST read required |
+| Complete history and current IEX stream | Rebuild from durable source bars; final fresh quote and all admission gates still required |
+| Display snapshot fails | Clear displayed quote; preserve independent candle evaluation |
+
+History REST work is bounded to six groups/pass, five symbols/group, two concurrent
+requests, and 30-minute intervals. A failed group is retried as individual symbols.
+The IEX stream has no broker port and cannot submit orders. Feed never changes on failure.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -142,6 +143,17 @@ async def _paced_get(
 
     async def _after(response: httpx.Response) -> None:
         quota.observe(response.headers, status_code=response.status_code)
+        if response.status_code >= 500:
+            request_id = response.headers.get("x-request-id", "")
+            safe_id = (
+                request_id if re.fullmatch(r"[a-fA-F0-9-]{8,64}", request_id) else "unavailable"
+            )
+            logging.getLogger(__name__).warning(
+                "Alpaca data failure: status=%s path=%s request_id=%s",
+                response.status_code,
+                httpx.URL(url).path,
+                safe_id,
+            )
         if response.status_code == 429:
             from core.metrics import METRICS
 

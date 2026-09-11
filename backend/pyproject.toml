@@ -17,6 +17,7 @@ dependencies = [
   "psycopg[binary]>=3.2.0",
   "redis>=5.2.0",
   "httpx>=0.28.0",
+  "websockets>=17,<18",
   "python-dotenv>=1.0.1",
 ]
 

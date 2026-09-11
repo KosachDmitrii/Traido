@@ -40,8 +40,6 @@ from universe.service import UniverseService
 
 _discovery_lock = asyncio.Lock()
 _observation_lock = asyncio.Lock()
-_observation_retry_at = datetime.min.replace(tzinfo=UTC)
-_observation_error: Exception | None = None
 STATUS: dict[str, Any] = {"status": "not_started", "version": VERSION, "parameters": PARAMETERS}
 
 
@@ -523,29 +521,15 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
             )
             from strategy.orb.retest_data import prime_bars
 
-            global _observation_retry_at, _observation_error
             try:
-                if _observation_error is not None and now < _observation_retry_at:
-                    raise _observation_error
                 await prime_bars(
                     ctx.market_data,
                     [OrbPlan.model_validate(p) for p in stored.get("plans", {}).values()],
                     now=now,
                 )
-                snapshots = getattr(ctx.market_data, "get_snapshots", None)
-                if callable(snapshots):
-                    ctx.observation_snapshots = await asyncio.wait_for(
-                        snapshots(list(stored.get("plans", {}))), timeout=10
-                    )
-                _observation_error = None
             except Exception as exc:  # noqa: BLE001 — a failed batch blocks observation
                 reason = data_error_reason(exc, feed=stored.get("feed", "iex"))
-                if now >= _observation_retry_at:
-                    _observation_retry_at = datetime.now(UTC) + timedelta(seconds=30)
-                    BOARD.log(
-                        "scanner", f"ORB batch unavailable: {reason}; retry in 30s", level="warn"
-                    )
-                _observation_error = exc
+                BOARD.log("scanner", f"ORB history unavailable: {reason}", level="warn")
                 for symbol in stored.get("plans", {}):
                     update_state(
                         stored["session"],
@@ -562,6 +546,16 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
                 STATUS.update(read_session(stored["session"]) or {})
                 DESK_BUS.bump_desk(kind="orb_observation")
                 return {"data_blocked": len(stored.get("plans", {}))}
+            snapshots = getattr(ctx.market_data, "get_snapshots", None)
+            if callable(snapshots):
+                try:
+                    ctx.observation_snapshots = await asyncio.wait_for(
+                        snapshots(list(stored.get("plans", {}))), timeout=10
+                    )
+                except Exception:  # noqa: BLE001 — display quotes do not authorize entries
+                    # Observation quotes are optional display data. Every actual
+                    # entry still requires its own fresh quote/admission.
+                    ctx.observation_snapshots = {}
             for symbol in stored.get("plans", {}):
                 try:
                     result = await evaluate_symbol(symbol, ctx)

@@ -10,6 +10,12 @@ DATA_ACCESS: dict[str, Any] = {"status": "unchecked"}
 
 
 def data_error_reason(exc: Exception, *, feed: str = "sip") -> str:
+    if isinstance(exc, ValueError) and str(exc) in {
+        "ORB_RETEST_HISTORY_GAP",
+        "ORB_RETEST_DATA_INVALID",
+        "ORB_DATA_FEED_MISMATCH",
+    }:
+        return str(exc)
     if isinstance(exc, httpx.HTTPStatusError):
         if exc.response.status_code == 403:
             if feed != "sip":

@@ -13,6 +13,7 @@ from tests.unit.test_orb_retest import scenario
 def clear_cache():
     retest_data._cache.clear()
     retest_data._failures.clear()
+    retest_data._cursor = 0
     yield
     retest_data._cache.clear()
     retest_data._failures.clear()
@@ -23,7 +24,9 @@ async def test_batch_reuses_completed_bars_but_approval_reads_fresh():
     plan, rows, now = scenario()
     feed = SimpleNamespace(
         get_bars_batch=AsyncMock(return_value={plan.symbol: rows}),
-        get_bars=AsyncMock(return_value=rows),
+        get_bars=AsyncMock(
+            side_effect=lambda s, t, start, end: [b for b in rows if start <= b.ts <= end]
+        ),
     )
     await retest_data.prime_bars(feed, [plan], now=now)
     assert (
@@ -44,7 +47,8 @@ async def test_missing_batch_member_is_not_fabricated_and_retried():
     plan, rows, now = scenario()
     feed = SimpleNamespace(get_bars_batch=AsyncMock(return_value={}), get_bars=AsyncMock())
     await retest_data.prime_bars(feed, [plan], now=now)
-    assert await retest_data.read_bars(feed, plan, now=now, cached=True) == []
+    with pytest.raises(ValueError, match="ORB_RETEST_HISTORY_GAP"):
+        await retest_data.read_bars(feed, plan, now=now, cached=True)
     feed.get_bars_batch.return_value = {plan.symbol: rows}
     await retest_data.prime_bars(feed, [plan], now=now + timedelta(seconds=6))
     assert feed.get_bars_batch.await_count == 2
@@ -60,8 +64,9 @@ async def test_provider_outage_does_not_fan_out_to_every_symbol():
     )
     feed = SimpleNamespace(get_bars_batch=AsyncMock(side_effect=error))
     for _ in range(3):
+        await retest_data.prime_bars(feed, [plan], now=now)
         with pytest.raises(httpx.HTTPStatusError):
-            await retest_data.prime_bars(feed, [plan], now=now)
+            await retest_data.read_bars(feed, plan, now=now, cached=True)
     feed.get_bars_batch.assert_awaited_once()
 
 
@@ -85,8 +90,6 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
 
     Clock.current = now
     monkeypatch.setattr(runtime, "datetime", Clock)
-    monkeypatch.setattr(runtime, "_observation_error", None)
-    monkeypatch.setattr(runtime, "_observation_retry_at", now - timedelta(seconds=1))
     feed = SimpleNamespace(get_bars_batch=AsyncMock(side_effect=RuntimeError("offline")))
     broker = SimpleNamespace(place_order=AsyncMock())
     ctx = SimpleNamespace(market_data=feed, broker=broker)
@@ -106,7 +109,12 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
             },
         },
     )
-    evaluate = AsyncMock(return_value=SimpleNamespace(status="wait_for_entry"))
+
+    async def evaluate_read(symbol, ctx):
+        await retest_data.read_bars(ctx.market_data, plan, now=Clock.current, cached=True)
+        return SimpleNamespace(status="wait_for_entry")
+
+    evaluate = AsyncMock(side_effect=evaluate_read)
     monkeypatch.setattr(runtime, "evaluate_symbol", evaluate)
     assert await runtime.observe(ctx) == {"data_blocked": 1}
     state = read_session(plan.session)["states"][plan.symbol]
@@ -115,7 +123,7 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
     Clock.current = now + timedelta(seconds=5)
     assert await runtime.observe(ctx) == {"data_blocked": 1}
     feed.get_bars_batch.assert_awaited_once()
-    evaluate.assert_not_awaited()
+    assert evaluate.await_count == 2
     broker.place_order.assert_not_awaited()
     with session_factory()() as db:
         assert db.query(OrderIntentRow).count() == 0
@@ -124,4 +132,4 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
     Clock.current = now + timedelta(seconds=31)
     monkeypatch.setattr(retest_data, "_failures", {})
     assert await runtime.observe(ctx) == {"wait_for_entry": 1}
-    evaluate.assert_awaited_once()
+    assert evaluate.await_count == 3

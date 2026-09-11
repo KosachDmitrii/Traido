@@ -130,7 +130,11 @@ async def lifespan(_app: FastAPI):
     # a missed entry; converting them must still go through Risk + desk publish,
     # never the broker.
     start_entry_watch_loop()
+    from market_data import iex_stream
+
+    iex_stream.start()
     yield
+    await iex_stream.stop()
     await stop_log_retention(retention_stop, retention_task)
     # Before the scanner, so open SSE streams stop waiting on a server that is
     # already on its way out.
