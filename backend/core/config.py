@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -30,6 +31,9 @@ class Settings(BaseSettings):
     )
     trading_mode: TradingMode = Field(default=TradingMode.CONFIRMATION, alias="TRAIDO_TRADING_MODE")
     allow_live_trading: bool = Field(default=False, alias="TRAIDO_ALLOW_LIVE_TRADING")
+    paper_exit_policy: Literal["protected", "manual_target"] = Field(
+        default="protected", alias="TRAIDO_PAPER_EXIT_POLICY"
+    )
 
     # Auth: if set, require X-API-Key on /api/*; if empty, local-only clients
     api_key: str | None = Field(default=None, alias="TRAIDO_API_KEY")

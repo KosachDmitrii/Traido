@@ -172,6 +172,8 @@ def _watch_funnel_payload(entry_watches: list[dict]) -> dict:
 
 def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     settings = get_settings()
+    from trading.exit_policy import manual_target_exits
+
     buys = (
         buy_opportunities
         if buy_opportunities is not None
@@ -224,6 +226,7 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
         orb.update(status="data_blocked", reason=DATA_ACCESS.get("reason"))
     return {
         "mode": settings.trading_mode.value,
+        "position_exit_policy": "manual_target" if manual_target_exits() else "protected",
         "orb": orb,
         "entry_policy": _entry_policy_payload(),
         "auto_trigger": _auto_trigger_payload(),
@@ -371,6 +374,7 @@ def _etag_for(payload: dict) -> str:
         "pos": [(p.get("symbol"), p.get("qty")) for p in payload.get("positions") or []],
         "orb": payload.get("orb"),
         "auto_trigger": payload.get("auto_trigger"),
+        "position_exit_policy": payload.get("position_exit_policy"),
         "watches": [
             (
                 w.get("id"),

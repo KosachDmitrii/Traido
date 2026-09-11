@@ -19,6 +19,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const buys = desk?.buy_opportunities ?? [];
   const automatic = desk?.auto_trigger?.enabled === true;
+  const manualTarget = desk?.position_exit_policy === "manual_target";
   const planPriority = (symbol: string) => {
     const opp = buys.find(o => o.candidate.symbol === symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", "orb@1.5.0", "orb@2.0.0"].includes(o.candidate.strategy_version ?? ""));
     if (!opp) return 2;
@@ -79,7 +80,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
         <dl className={styles.prices}>
           <div><dt>Цена сейчас · ask</dt><dd><CurrentPrice value={ask} /></dd></div>
           <div><dt>{!ready ? "Этап формирования входа" : isRetest ? "Зона покупки" : plan.version === "orb@1.5.0" ? "Покупать не дороже" : "Цена входа"}</dt><dd className={!ready ? styles.signalPhase : undefined}>{!ready ? signalStatus : isRetest ? `${px(plan.trigger)}–${px(plan.max_entry)}` : px(plan.trigger)}</dd></div>
-          <div><dt>Защитный стоп</dt><dd>{ready ? px(plan.stop) : "—"}</dd></div>
+          <div><dt>{manualTarget ? "Расчётный уровень риска" : "Защитный стоп"}</dt><dd>{ready ? px(plan.stop) : "—"}</dd></div>
           {isRetest ? <div><dt>Цель выхода</dt><dd>{px(retest?.target)}</dd></div> : plan.version !== "orb@1.5.0" && <div><dt>Не покупать выше</dt><dd>{px(plan.max_entry)}</dd></div>}
         </dl>
         {isRetest && <section className={styles.signalStatus} aria-label={`Сигнал ${plan.symbol}`}>
@@ -98,9 +99,9 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
             <div><dt>Цены первых 5 минут</dt><dd>{px(plan.range_low)}–{px(plan.range_high)}</dd></div>
             <div><dt>Объём к обычному за 5 минут</dt><dd>{Number(plan.relative_volume).toFixed(2)}×</dd></div>
             <div><dt>Покупка до</dt><dd>{etTime(retest?.valid_until ?? plan.entry_deadline)} ET</dd></div>
-            <div><dt>Закрытие позиции до</dt><dd>{etTime(plan.exit_at)} ET</dd></div>
+            <div><dt>Выход из позиции</dt><dd>{manualTarget ? "Вручную или по цели · перенос разрешён" : `${etTime(plan.exit_at)} ET`}</dd></div>
           </dl>
-          <p className={styles.brief}>{isRetest ? "Ждём выход выше уровня, возврат и подтверждение роста. Сигнал действует 10 минут. Выход: цель, стоп, через 30 минут при цене не выше входа или до конца сессии. Цель — уровень для отправки заявки на закрытие, не гарантия цены исполнения." : <>{plan.version === "orb@1.4.0" ? "Эксперимент Paper: ранний вход до максимума первых 5 минут. " : ""}Цены в плане установлены на день. Перед покупкой проверяем цену и риск ещё раз.</>}</p>
+          <p className={styles.brief}>{manualTarget ? "Выход вручную или автоматически по указанной цели. Автостоп и выход по времени отключены. Позиция может оставаться на следующие дни; цель сохраняется. Расчётный уровень риска не ограничивает убыток. Цель запускает заявку, но не гарантирует цену исполнения." : isRetest ? "Ждём выход выше уровня, возврат и подтверждение роста. Сигнал действует 10 минут. Выход: цель, стоп, через 30 минут при цене не выше входа или до конца сессии. Цель — уровень для отправки заявки на закрытие, не гарантия цены исполнения." : <>{plan.version === "orb@1.4.0" ? "Эксперимент Paper: ранний вход до максимума первых 5 минут. " : ""}Цены в плане установлены на день. Перед покупкой проверяем цену и риск ещё раз.</>}</p>
         </details>
         {automatic && <div className={styles.autoStatus} data-tone={auto.tone} role="status" aria-live="polite">
           <div className={styles.autoTitle}>{auto.loading && <LoadingDots ariaLabel="Обработка покупки" />}<strong>{auto.title}</strong></div>
@@ -112,7 +113,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
         {opp && (!automatic || !auto.terminal) && <>
           <label className={styles.quantity}>Количество акций <input aria-label={`Количество ${plan.symbol}`} type="number" min={1} max={maxQty} readOnly={automatic} value={automatic ? maxQty : qty}
             onChange={e=>setQuantities(q=>({...q,[plan.symbol]:Math.max(1,Math.min(maxQty,Math.floor(Number(e.target.value)||1)))}))} /></label>
-          <p className={styles.risk}>Риск при максимальной цене входа до стопа: ${((Number(plan.max_entry)-Number(plan.stop))*(automatic ? maxQty : qty)).toFixed(2)} плюс комиссии и проскальзывание. Стоп не гарантирует эту цену.</p>
+          <p className={styles.risk}>{manualTarget ? "Расчётное расстояние до уровня риска" : "Риск при максимальной цене входа до стопа"}: ${((Number(plan.max_entry)-Number(plan.stop))*(automatic ? maxQty : qty)).toFixed(2)} плюс комиссии и проскальзывание. {manualTarget ? "Автостоп отключён; фактический убыток может быть больше." : "Стоп не гарантирует эту цену."}</p>
           <div className={styles.actions} data-auto={automatic}>{!automatic && <Button loading={busy === `${opp.id}:approve`} disabled={!buyable || busy !== null || qty < 1} onClick={()=>void decide(opp,"approve",qty)}>{busy === `${opp.id}:approve` ? "Проверяем…" : "Купить"}</Button>}
           <Button variant="ghost" loading={busy === `${opp.id}:skip`} disabled={busy !== null || (automatic && auto.loading)} onClick={()=>void decide(opp,"skip",qty)}>Пропустить</Button></div>
         </>}

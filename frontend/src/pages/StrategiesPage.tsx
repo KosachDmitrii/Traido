@@ -5,9 +5,12 @@ import { fetchStrategyPassport, type StrategyPassport } from "@/lib/api";
 import { useI18n } from "@/i18n/I18nProvider";
 import { Button, LoadingDots } from "@/ui";
 import { px } from "@/components/desk/orbLabels";
+import { useDesk } from "@/context/DeskContext";
 import styles from "./StrategiesPage.module.css";
 
 export function StrategiesPage() {
+  const { desk } = useDesk();
+  const manualTarget = desk?.position_exit_policy === "manual_target";
   const { locale } = useI18n();
   const ru = locale === "ru";
   const [data, setData] = useState<StrategyPassport | null>(null);
@@ -56,9 +59,9 @@ export function StrategiesPage() {
         <section className={styles.card}><h2><Clock3 size={18} />{ru ? "Выход и время" : "Exit & timing"}</h2><ul>
           <li>{ru ? "Ожидание возврата и подтверждения — до" : "Setup timeout:"} {v("setup_timeout_minutes")} {ru ? "минут после выхода выше уровня." : "minutes after breakout."}</li>
           <li>{ru ? "Подтверждённый сигнал действует" : "Confirmed signal validity:"} {v("signal_ttl_minutes")} {ru ? "минут. После истечения или нарушения стопа нужен новый сигнал." : "minutes. Expiry or a stop breach requires a new signal."}</li>
-          <li>{ru ? "Плановый выход за" : "Scheduled exit"} {v("exit_buffer_seconds")} {ru ? "секунд до закрытия сессии." : "seconds before session close."}</li>
+          {!manualTarget && <li>{ru ? "Плановый выход за" : "Scheduled exit"} {v("exit_buffer_seconds")} {ru ? "секунд до закрытия сессии." : "seconds before session close."}</li>}
           <li>{ru ? "Новые входы прекращаются за" : "New entries end"} {v("entry_cutoff_minutes_before_exit")} {ru ? "минут до планового выхода." : "minutes before scheduled exit."}</li>
-          <li>{ru ? "Стоп размещается у брокера. При достижении цели система отправляет заявку на закрытие. Через" : "The stop resides at the broker. On reaching the target the system requests a close. After"} {v("time_exit_minutes")} {ru ? "минут — выход, если цена продажи не выше фактического входа. В любом случае — до конца сессии, включая сокращённую." : "minutes, exit if the bid is no higher than the actual entry. Otherwise exit by session end, including shortened sessions."}</li>
+          {manualTarget ? <li>{ru ? "Выход вручную или автоматически по «Цели выхода» из карточки. Автостоп и выход по времени отключены. Позиция и исходная цель сохраняются на следующие дни. Расчётный стоп используется для отбора и размера входа, но не ограничивает убыток." : "Exit manually or automatically at the card’s exit target. Automatic stops and timed exits are disabled. Positions and their original targets carry across days. The reference stop determines entry sizing and selection but does not limit losses."}</li> : <li>{ru ? "Стоп размещается у брокера. При достижении цели система отправляет заявку на закрытие. Через" : "The stop resides at the broker. On reaching the target the system requests a close. After"} {v("time_exit_minutes")} {ru ? "минут — выход, если цена продажи не выше фактического входа. В любом случае — до конца сессии, включая сокращённую." : "minutes, exit if the bid is no higher than the actual entry. Otherwise exit by session end, including shortened sessions."}</li>}
           <li>{ru ? "Цель и выход по времени требуют работающего сервиса и связи с брокером. Цена исполнения не гарантируется." : "Target and time exits require a running service and broker connection. Fill price is not guaranteed."}</li>
         </ul></section>
       </div>

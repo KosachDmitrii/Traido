@@ -78,7 +78,15 @@ class RetestMarket(LiquidMarketData):
 @pytest.mark.parametrize(
     "failure", [None, "expensive", "missing_bar", "changed_confirmation", "stale_quote"]
 )
-async def test_retest_passes_real_execution_or_has_no_broker_effect(failure):
+@pytest.mark.parametrize("manual_target", [False, True])
+async def test_retest_passes_real_execution_or_has_no_broker_effect(
+    failure, manual_target, monkeypatch
+):
+    from core.config import get_settings
+
+    monkeypatch.setattr(
+        get_settings(), "paper_exit_policy", "manual_target" if manual_target else "protected"
+    )
     plan, rows = current_plan()
     candidate = TradeCandidate(
         symbol=plan.symbol,
@@ -140,7 +148,9 @@ async def test_retest_passes_real_execution_or_has_no_broker_effect(failure):
         assert len(buys) == 1 and buys[0].limit_price <= plan.max_entry
         assert any(
             o.order_type.value == "stop" and o.stop_price == plan.stop for o in broker.orders
-        )
+        ) is (not manual_target)
+        if manual_target:
+            assert len(broker.orders) == 1
 
 
 @pytest.mark.asyncio

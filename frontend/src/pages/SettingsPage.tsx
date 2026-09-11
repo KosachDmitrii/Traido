@@ -196,7 +196,7 @@ export function SettingsPage() {
             <div><dt>{locale === "ru" ? "Диапазон открытия" : "Opening range"}</dt><dd>09:30–09:35 <small>ET</small></dd></div>
             <div><dt>{locale === "ru" ? "Отбор" : "Selection"}</dt><dd>{locale === "ru" ? "Относительный объём" : "Relative volume"}</dd></div>
             <div><dt>{locale === "ru" ? "Вход" : "Entry"}</dt><dd>{!trigger ? "—" : trigger.enabled ? (locale === "ru" ? "Автоматический" : "Automatic") : (locale === "ru" ? "С подтверждением" : "Confirmation")}</dd></div>
-            <div><dt>{locale === "ru" ? "Выход" : "Exit"}</dt><dd>{locale === "ru" ? "Цель / стоп / время" : "Target / stop / time"}</dd></div>
+            <div><dt>{locale === "ru" ? "Выход" : "Exit"}</dt><dd>{desk?.position_exit_policy === "manual_target" ? (locale === "ru" ? "Вручную / по цели. Без автостопа и срока." : "Manual / target. No auto stop or deadline.") : (locale === "ru" ? "Цель / стоп / время" : "Target / stop / time")}</dd></div>
           </dl>
           <p className={panels.note}>{locale === "ru" ? "Новый сигнал действует 10 минут. Цена и риск проверяются перед покупкой. Правила и параметры — в паспорте стратегии." : "A new signal lasts 10 minutes. Price and risk are checked before buying. See the strategy passport for rules and parameters."}</p>
         </div>
