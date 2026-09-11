@@ -74,6 +74,7 @@ async def test_provider_outage_does_not_fan_out_to_every_symbol():
 async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
     from datetime import UTC, datetime
 
+    from core.activity import BOARD
     from database.models.desk import OrderIntentRow
     from database.session import session_factory
     from strategy.orb import runtime
@@ -116,12 +117,26 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
 
     evaluate = AsyncMock(side_effect=evaluate_read)
     monkeypatch.setattr(runtime, "evaluate_symbol", evaluate)
+    before_events = len(BOARD.events)
     assert await runtime.observe(ctx) == {"data_blocked": 1}
+    blocked_events = [
+        event
+        for event in BOARD.events[before_events:]
+        if event.symbol == plan.symbol and event.message.startswith("ORB observation unavailable:")
+    ]
+    assert [event.message for event in blocked_events] == [
+        "ORB observation unavailable: ORB_SERVICE_UNAVAILABLE"
+    ]
     state = read_session(plan.session)["states"][plan.symbol]
     assert state["state"] == "DATA_BLOCKED"
     assert state["ask"] is None and state["bid"] is None and state["quote_at"] is None
     Clock.current = now + timedelta(seconds=5)
     assert await runtime.observe(ctx) == {"data_blocked": 1}
+    assert not [
+        event
+        for event in BOARD.events[before_events + len(blocked_events) :]
+        if event.symbol == plan.symbol and event.message.startswith("ORB observation unavailable:")
+    ]
     feed.get_bars_batch.assert_awaited_once()
     assert evaluate.await_count == 2
     broker.place_order.assert_not_awaited()

@@ -648,6 +648,7 @@ Default `protected` behavior below is unchanged. Enable only in Paper after depl
 | IEX stream connected | Persist minute bars and corrections; aggregate only five complete source minutes |
 | Stream disconnected or older than 90 seconds | Do not authorize from stream liveness; fresh REST read required |
 | Complete history and current IEX stream | Rebuild from durable source bars; final fresh quote and all admission gates still required |
+| ORB observation remains blocked by the same data reason | Keep the card `DATA_BLOCKED`; write the domain reason to the operator activity feed only when the blocked state or reason changes |
 | Display snapshot fails | Clear displayed quote; preserve independent candle evaluation |
 
 History REST work is bounded to six groups/pass, five symbols/group, two concurrent

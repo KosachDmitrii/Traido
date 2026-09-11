@@ -561,18 +561,27 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
                     result = await evaluate_symbol(symbol, ctx)
                     counts[result.status] += 1
                 except Exception as exc:  # noqa: BLE001 — a failed input blocks this symbol
-                    BOARD.log(
-                        "scanner",
-                        f"ORB observation unavailable: {type(exc).__name__}",
-                        symbol=symbol,
-                        level="warn",
-                    )
+                    reason = data_error_reason(exc, feed=stored.get("feed", "iex"))
+                    previous = stored.get("states", {}).get(symbol, {})
+                    # The activity feed is an operator journal, not a traceback.
+                    # Report the stable domain reason once when the blocked state
+                    # changes; the card continues to show the current reason on
+                    # every desk refresh.
+                    if previous.get("state") != "DATA_BLOCKED" or previous.get("reasons") != [
+                        reason
+                    ]:
+                        BOARD.log(
+                            "scanner",
+                            f"ORB observation unavailable: {reason}",
+                            symbol=symbol,
+                            level="warn",
+                        )
                     update_state(
                         stored["session"],
                         symbol,
                         {
                             "state": "DATA_BLOCKED",
-                            "reasons": [data_error_reason(exc, feed=stored.get("feed", "iex"))],
+                            "reasons": [reason],
                             "bid": None,
                             "ask": None,
                             "quote_at": None,
