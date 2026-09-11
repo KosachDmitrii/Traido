@@ -53,9 +53,10 @@ def _row_to_dict(row: TradeJournalRow) -> dict[str, Any]:
         "id": str(row.id),
         "symbol": row.symbol,
         "entry": str(row.entry),
-        "exit": str(row.exit),
+        "exit": str(row.exit) if row.exit is not None else None,
         "qty": str(row.qty),
-        "pnl": str(row.pnl),
+        "pnl": str(row.pnl) if row.pnl is not None else None,
+        "exit_price_status": "verified" if row.pnl is not None else "unverified",
         "pnl_pct": row.pnl_pct,
         "strategy_version": row.strategy_version,
         "entry_reasons": row.entry_reasons or [],
@@ -79,7 +80,7 @@ def _bucket_stats(rows: list[TradeJournalRow]) -> dict[str, Any]:
     wins = [r for r in rows if Decimal(str(r.pnl)) > 0]
     losses = [r for r in rows if Decimal(str(r.pnl)) <= 0]
     pnls = [float(Decimal(str(r.pnl))) for r in rows]
-    pcts = [float(r.pnl_pct) for r in rows]
+    pcts = [float(r.pnl_pct) for r in rows if r.pnl_pct is not None]
     return {
         "trade_count": len(rows),
         "win_count": len(wins),
@@ -112,6 +113,9 @@ def build_review(
             q = q.filter(TradeJournalRow.backtest_run_id.is_(None))
         rows = list(q.order_by(TradeJournalRow.closed_at.desc().nullslast()).limit(limit).all())
 
+    unverified = sum(row.pnl is None or row.pnl_pct is None for row in rows)
+    rows = [row for row in rows if row.pnl is not None and row.pnl_pct is not None]
+
     if not rows:
         report = ReviewReport(
             trade_count=0,
@@ -125,7 +129,11 @@ def build_review(
             by_strategy=[],
             by_symbol=[],
             recent=[],
-            notes=["No closed paper trades yet — approve and exit to build the journal."],
+            notes=[
+                f"{unverified} closed trades await verified exit prices; excluded from statistics."
+                if unverified
+                else "No closed paper trades yet — approve and exit to build the journal."
+            ],
         )
         BOARD.set_agent("review", status="idle", detail="No trades yet", score=0)
         return report
@@ -135,7 +143,7 @@ def build_review(
     gross_win = sum((Decimal(str(r.pnl)) for r in wins), Decimal(0))
     gross_loss = abs(sum((Decimal(str(r.pnl)) for r in losses), Decimal(0)))
     pnls = [float(Decimal(str(r.pnl))) for r in rows]
-    pcts = [float(r.pnl_pct) for r in rows]
+    pcts = [float(r.pnl_pct) for r in rows if r.pnl_pct is not None]
     expectancy = sum(pnls) / len(pnls)
     profit_factor = float(gross_win / gross_loss) if gross_loss > 0 else None
 
@@ -146,6 +154,10 @@ def build_review(
         by_sym[r.symbol].append(r)
 
     notes: list[str] = []
+    if unverified:
+        notes.append(
+            f"{unverified} closed trades await verified exit prices; excluded from statistics."
+        )
     stop_exits = sum(
         1 for r in rows if any("stop" in (x or "").lower() for x in (r.exit_reasons or []))
     )
@@ -212,6 +224,7 @@ def journal_page(*, page: int = 1, page_size: int = 10, engine=None) -> dict[str
         return {
             "items": [_row_to_dict(row) for row in rows],
             "total": total,
+            "unverified_count": query.filter(TradeJournalRow.pnl.is_(None)).count(),
             "page": page,
             "page_size": page_size,
             "page_count": page_count,

@@ -2,7 +2,8 @@ import type { OrbExecution } from "@/lib/api";
 import { orbReason } from "./orbLabels";
 
 export function autoBuyPresentation(execution?: OrbExecution, planState?: string, available = true) {
-  const stage = execution?.stage ?? (planState === "SKIPPED" ? "SKIPPED" : "OBSERVING");
+  const observing = !execution?.stage || ["OBSERVING", "WAITING", "WAIT"].includes(execution.stage);
+  const stage = observing && planState === "DATA_BLOCKED" ? "DATA_BLOCKED" : execution?.stage ?? (planState === "SKIPPED" ? "SKIPPED" : "OBSERVING");
   const states: Record<string, [string, string, string]> = {
     OBSERVING: ["Наблюдение", "Ждём условий для автоматической покупки.", "neutral"],
     WAITING: ["Ожидает проверки", "Предложение готово. Автопокупка ожидает обработки.", "neutral"],

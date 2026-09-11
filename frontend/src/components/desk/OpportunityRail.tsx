@@ -48,7 +48,8 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
       <header className={styles.heading}><div><span className={styles.eyebrow}>ORB · ALPACA PAPER</span><h1>Торговые возможности</h1><p>От наблюдения за ценой до покупки — каждый план перед глазами.</p></div><span className={styles.mode}><ShieldCheck size={15} />{automatic ? "Автопокупка" : "Ручное подтверждение"}</span></header>
       <div className={styles.summary}>
         <div><Layers size={18} /><span>Планы сессии</span><strong>{desk ? plans.length : "—"}</strong></div>
-        <div><Clock3 size={18} /><span>Ждут цены входа</span><strong>{desk?.orb ? Object.values(desk.orb.states ?? {}).filter(s => s.state === "WAIT").length : "—"}</strong></div>
+        <div><Clock3 size={18} /><span>Ожидают условий</span><strong>{desk?.orb ? Object.values(desk.orb.states ?? {}).filter(s => s.state === "WAIT").length : "—"}</strong></div>
+        <div><Clock3 size={18} /><span>Нет данных</span><strong>{desk?.orb ? Object.values(desk.orb.states ?? {}).filter(s => s.state === "DATA_BLOCKED").length : "—"}</strong></div>
         <div><ArrowUpRight size={18} /><span>Предложения покупки</span><strong>{desk ? buys.filter(o => ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", "orb@1.5.0", "orb@2.0.0"].includes(o.candidate.strategy_version ?? "")).length : "—"}</strong></div>
       </div>
       <div className={styles.sectionHead}><h2>Планы ORB</h2><span>Диапазон открытия · 09:30–09:35 ET</span></div>
@@ -67,9 +68,9 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
       const opp = buys.find(o => o.candidate.symbol === plan.symbol && ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", "orb@1.5.0", "orb@2.0.0"].includes(o.candidate.strategy_version ?? ""));
       const maxQty = Math.max(0, Math.floor(Number(opp?.proposed_qty ?? opp?.risk?.sized_qty ?? 0)));
       const qty = Math.min(maxQty, quantities[plan.symbol] ?? maxQty);
-      const buyable = !!opp && opp.viability?.buyable === true && desk?.session?.entries_allowed !== false && maxQty > 0;
+      const buyable = state?.state !== "DATA_BLOCKED" && !!opp && opp.viability?.buyable === true && desk?.session?.entries_allowed !== false && maxQty > 0;
       const reasons = opp && !opp.viability?.buyable ? opp.viability?.reasons ?? ["ORB_QUOTE_STALE"] : state?.reasons ?? [isRetest ? "ORB_RETEST_WAIT_BREAKOUT" : plan.version === "orb@1.5.0" ? "ORB_WAITING_PULLBACK" : "ORB_WAITING_BREAKOUT"];
-      const ask = opp?.viability?.measured?.ask ?? state?.ask;
+      const ask = state?.state === "DATA_BLOCKED" ? undefined : opp?.viability?.measured?.ask ?? state?.ask;
       const execution = desk?.orb?.execution?.[plan.symbol];
       const auto = autoBuyPresentation(execution, state?.state, desk?.auto_trigger?.available !== false);
       const signalStatus = orbSignalStatus(state?.state, reasons);
@@ -78,8 +79,8 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
         <div className={styles.cardHead}><div className={styles.identity}><div><h3>{plan.symbol}</h3><span className={styles.strategy}>{isRetest ? "ORB · Возврат" : "ORB · Покупка"}</span></div></div><strong className={styles.status}>{automatic ? auto.title : buyable ? "Можно подтвердить" : orbState(state?.state)}</strong></div>
         {(plan.name || opp?.candidate.name) && <p className={styles.companyName}>{plan.name || opp?.candidate.name}</p>}
         <dl className={styles.prices}>
-          <div><dt>Цена сейчас · ask</dt><dd><CurrentPrice value={ask} /></dd></div>
-          <div><dt>{!ready ? "Этап формирования входа" : isRetest ? "Зона покупки" : plan.version === "orb@1.5.0" ? "Покупать не дороже" : "Цена входа"}</dt><dd className={!ready ? styles.signalPhase : undefined}>{!ready ? signalStatus : isRetest ? `${px(plan.trigger)}–${px(plan.max_entry)}` : px(plan.trigger)}</dd></div>
+          <div><dt>Последняя котировка · ask</dt><dd><CurrentPrice value={ask} /></dd>{state?.quote_at && ask != null && <small>{observationTime(state.quote_at)} ET</small>}</div>
+          <div className={!ready ? styles.phaseCell : undefined}><dt>{!ready ? "Этап формирования входа" : isRetest ? "Зона покупки" : plan.version === "orb@1.5.0" ? "Покупать не дороже" : "Цена входа"}</dt><dd className={!ready ? styles.signalPhase : undefined}>{!ready ? signalStatus : isRetest ? `${px(plan.trigger)}–${px(plan.max_entry)}` : px(plan.trigger)}</dd></div>
           <div><dt>{manualTarget ? "Расчётный уровень риска" : "Защитный стоп"}</dt><dd>{ready ? px(plan.stop) : "—"}</dd></div>
           {isRetest ? <div><dt>Цель выхода</dt><dd>{px(retest?.target)}</dd></div> : plan.version !== "orb@1.5.0" && <div><dt>Не покупать выше</dt><dd>{px(plan.max_entry)}</dd></div>}
         </dl>

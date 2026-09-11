@@ -56,6 +56,7 @@ class ScanContext:
     concurrency: ConcurrencyManager = field(default_factory=ConcurrencyManager)
     ai_budget: AIBudget = field(default_factory=AIBudget)
     _portfolio: PortfolioSnapshot | None = None
+    observation_snapshots: dict[str, Snapshot] | None = None
     _portfolio_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     # ── Batched reads ───────────────────────────────────────────────────────

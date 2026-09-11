@@ -40,6 +40,8 @@ from universe.service import UniverseService
 
 _discovery_lock = asyncio.Lock()
 _observation_lock = asyncio.Lock()
+_observation_retry_at = datetime.min.replace(tzinfo=UTC)
+_observation_error: Exception | None = None
 STATUS: dict[str, Any] = {"status": "not_started", "version": VERSION, "parameters": PARAMETERS}
 
 
@@ -274,7 +276,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         rows = await read_bars(ctx.market_data, plan, now=now, cached=True)
         now = datetime.now(UTC)
         revised = rebuild(plan, rows, now=now, after=after)
-        revised_state = {
+        revised_state: dict[str, Any] = {
             "state": revised.state,
             "reasons": revised.reasons,
             "observed_at": now.isoformat(),
@@ -323,7 +325,15 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
                 )
         if revised.state == "DATA_BLOCKED" or not plan.evidence.get("retest"):
             quoter = getattr(ctx.market_data, "get_quote", None)
-            watched_quote = await quoter(symbol) if quoter else None
+            snapshots = getattr(ctx, "observation_snapshots", None)
+            watched_quote = await quoter(symbol) if quoter and snapshots is None else None
+            if snapshots is not None:
+                snap = snapshots.get(symbol)
+                revised_state.update(bid=None, ask=None, quote_at=None)
+                if snap and snap.bid is not None and snap.ask is not None and snap.quote_ts:
+                    revised_state.update(
+                        bid=str(snap.bid), ask=str(snap.ask), quote_at=snap.quote_ts.isoformat()
+                    )
             if watched_quote:
                 revised_state.update(
                     bid=str(watched_quote.bid),
@@ -511,6 +521,47 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
                 if context is not None
                 else await stack.enter_async_context(open_scan_context(get_settings()))
             )
+            from strategy.orb.retest_data import prime_bars
+
+            global _observation_retry_at, _observation_error
+            try:
+                if _observation_error is not None and now < _observation_retry_at:
+                    raise _observation_error
+                await prime_bars(
+                    ctx.market_data,
+                    [OrbPlan.model_validate(p) for p in stored.get("plans", {}).values()],
+                    now=now,
+                )
+                snapshots = getattr(ctx.market_data, "get_snapshots", None)
+                if callable(snapshots):
+                    ctx.observation_snapshots = await asyncio.wait_for(
+                        snapshots(list(stored.get("plans", {}))), timeout=10
+                    )
+                _observation_error = None
+            except Exception as exc:  # noqa: BLE001 — a failed batch blocks observation
+                reason = data_error_reason(exc, feed=stored.get("feed", "iex"))
+                if now >= _observation_retry_at:
+                    _observation_retry_at = datetime.now(UTC) + timedelta(seconds=30)
+                    BOARD.log(
+                        "scanner", f"ORB batch unavailable: {reason}; retry in 30s", level="warn"
+                    )
+                _observation_error = exc
+                for symbol in stored.get("plans", {}):
+                    update_state(
+                        stored["session"],
+                        symbol,
+                        {
+                            "state": "DATA_BLOCKED",
+                            "reasons": [reason],
+                            "observed_at": datetime.now(UTC).isoformat(),
+                            "bid": None,
+                            "ask": None,
+                            "quote_at": None,
+                        },
+                    )
+                STATUS.update(read_session(stored["session"]) or {})
+                DESK_BUS.bump_desk(kind="orb_observation")
+                return {"data_blocked": len(stored.get("plans", {}))}
             for symbol in stored.get("plans", {}):
                 try:
                     result = await evaluate_symbol(symbol, ctx)
@@ -527,7 +578,10 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
                         symbol,
                         {
                             "state": "DATA_BLOCKED",
-                            "reasons": ["ORB_SERVICE_UNAVAILABLE"],
+                            "reasons": [data_error_reason(exc, feed=stored.get("feed", "iex"))],
+                            "bid": None,
+                            "ask": None,
+                            "quote_at": None,
                             "observed_at": datetime.now(UTC).isoformat(),
                         },
                     )

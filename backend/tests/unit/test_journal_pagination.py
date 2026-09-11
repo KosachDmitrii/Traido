@@ -48,4 +48,5 @@ def test_empty_history(tmp_path):
         "page": 1,
         "page_size": 10,
         "page_count": 1,
+        "unverified_count": 0,
     }

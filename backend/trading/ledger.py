@@ -377,7 +377,7 @@ class PositionLedger:
         self,
         *,
         symbol: str,
-        exit_price: Decimal,
+        exit_price: Decimal | None,
         exit_reasons: list[str],
         qty: Decimal | None = None,
     ) -> TradeJournalRow | None:
@@ -413,14 +413,16 @@ class PositionLedger:
         session: Session,
         row: OpenPositionRow,
         *,
-        exit_price: Decimal,
+        exit_price: Decimal | None,
         close_qty: Decimal,
         exit_reasons: list[str],
         payload: dict[str, Any],
     ) -> TradeJournalRow:
         entry = Decimal(str(row.avg_entry))
-        pnl = (exit_price - entry) * close_qty
-        pnl_pct = float((exit_price - entry) / entry * 100) if entry else 0.0
+        pnl = (exit_price - entry) * close_qty if exit_price is not None else None
+        pnl_pct = (
+            float((exit_price - entry) / entry * 100) if exit_price is not None and entry else None
+        )
         now = datetime.now(UTC)
 
         journal = TradeJournalRow(

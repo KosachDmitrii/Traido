@@ -21,6 +21,8 @@ def data_error_reason(exc: Exception, *, feed: str = "sip") -> str:
             return "ORB_DATA_CREDENTIALS_REJECTED"
         if exc.response.status_code == 429:
             return "ORB_DATA_RATE_LIMITED"
+        if exc.response.status_code >= 500:
+            return "ORB_DATA_PROVIDER_UNAVAILABLE"
     return "ORB_SERVICE_UNAVAILABLE"
 
 

@@ -172,13 +172,11 @@ async def reconcile_positions(
         if sym in by_sym:
             continue
         report.changed.append(f"position:{sym}:closed_broker_flat")
-        # Position vanished at broker — close journal at last known entry (0 PnL) unless
-        # we have a better mark in payload; use entry as conservative unknown exit.
-        exit_px = Decimal(str(row.avg_entry))
+        # Flat proves quantity, not the exit price. Recovery verifies linked fills.
         journal = store.close_and_journal(
             symbol=sym,
-            exit_price=exit_px,
-            exit_reasons=["Reconcile: broker flat (stop or external close)"],
+            exit_price=None,
+            exit_reasons=["Broker flat; exit price unverified"],
             qty=Decimal(str(row.qty)),
         )
         closed += 1
@@ -197,11 +195,18 @@ async def reconcile_positions(
             await audit.append(
                 "TradeJournalFinalized",
                 "reconcile",
-                {"journal_id": str(journal.id), "pnl": str(journal.pnl), "source": "reconcile"},
+                {
+                    "journal_id": str(journal.id),
+                    "pnl": str(journal.pnl) if journal.pnl is not None else None,
+                    "source": "reconcile",
+                },
                 entity_type="journal",
                 entity_id=str(journal.id),
             )
 
+    from trading.journal_recovery import repair_unknown_exits
+
+    await repair_unknown_exits(broker, store)
     ledger_syms = {r.symbol.upper() for r in store.get_open()}
     for sym, pos in by_sym.items():
         if sym not in ledger_syms:

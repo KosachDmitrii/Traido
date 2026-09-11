@@ -116,5 +116,7 @@
 .signalLevel > div { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 12px; }
 .signalLevel dt { font-size: 12px; color: var(--td-text-muted); }
 .signalLevel dd { margin: 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.signalPhase { margin: 0 0 8px; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
+.signalPhase { margin: 0 0 8px; font-size: 13px; font-weight: 600; overflow-wrap: normal; }
+.phaseCell { grid-column: 1 / -1; }
+.prices .signalPhase { font-size: 14px; line-height: 1.5; }
 .signalStatus small { color: var(--td-text-muted); font-size: 11px; }

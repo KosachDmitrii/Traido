@@ -1,4 +1,5 @@
 const reasons: Record<string,string> = {
+  ORB_DATA_PROVIDER_UNAVAILABLE:"Alpaca временно не возвращает данные. Повторяем проверку; покупка недоступна.",
   ORB_CLOSED_WAITING_NEW_SIGNAL:"Предыдущая сделка закрыта. Ждём нового роста, возврата и подтверждения.",
   ORB_RETEST_WAIT_BREAKOUT:"Ждём закрытия растущей пятиминутной свечи выше максимума первых 5 минут + $0.01.",
   ORB_RETEST_WAIT_RETURN:"Рост состоялся. Ждём возврата к уровню, не догоняем цену.",

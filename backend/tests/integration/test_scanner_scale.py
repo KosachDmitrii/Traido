@@ -16,7 +16,7 @@ async def test_large_universe_is_not_truncated_before_volume_ranking(size):
     assert result["counts"]["eligible"] == size
     assert result["counts"]["qualified"] == size
     assert next(iter(result["plans"])) == symbols[-1]
-    assert set(result["plans"]) == set(symbols[-20:])
+    assert set(result["plans"]) == set(symbols)
     assert len(ctx.market_data.calls) == 15
     assert all(len(call[0]) == size for call in ctx.market_data.calls)
     assert len(result["outranked"]) + len(result["plans"]) == size

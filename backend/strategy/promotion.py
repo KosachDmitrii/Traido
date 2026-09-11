@@ -30,6 +30,7 @@ def _paper_stats(session: Session, key: str) -> dict[str, Any]:
         select(TradeJournalRow).where(
             TradeJournalRow.strategy_version == key,
             TradeJournalRow.backtest_run_id.is_(None),
+            TradeJournalRow.pnl.is_not(None),
         )
     ).all()
     if not rows:

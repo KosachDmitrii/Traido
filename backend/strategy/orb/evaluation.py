@@ -23,6 +23,7 @@ def paper_evaluation(*, engine=None) -> dict:
             .filter(
                 TradeJournalRow.strategy_version == VERSION,
                 TradeJournalRow.backtest_run_id.is_(None),
+                TradeJournalRow.pnl.is_not(None),
             )
             .one()
         )

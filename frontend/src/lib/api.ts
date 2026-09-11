@@ -313,9 +313,10 @@ export type ReviewPayload = {
     /** Full company name from Finnhub profile2, when available. */
     name?: string | null;
     entry?: string;
-    exit?: string;
-    pnl: string;
-    pnl_pct: number;
+    exit?: string | null;
+    pnl: string | null;
+    pnl_pct: number | null;
+    exit_price_status?: "verified" | "unverified";
     strategy_version?: string;
   }>;
 };
@@ -933,7 +934,7 @@ export type JournalTrade = NonNullable<ReviewPayload["recent"]>[number] & {
   closed_at?: string | null;
 };
 export type JournalPageResponse = {
-  items: JournalTrade[]; total: number; page: number; page_size: number; page_count: number;
+  items: JournalTrade[]; total: number; page: number; page_size: number; page_count: number; unverified_count?: number;
 };
 export async function fetchJournalPage(page: number, pageSize: number, signal?: AbortSignal): Promise<JournalPageResponse> {
   const res = await fetch(apiUrl(`/api/v1/review/trades?page=${page}&page_size=${pageSize}`), { headers: apiHeaders(), signal });
