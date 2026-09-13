@@ -6,7 +6,7 @@ from typing import Any
 
 def observed_target(payload: dict[str, Any]) -> Decimal | None:
     plan = payload.get("orb_plan") or {}
-    if plan.get("version") != "orb@2.0.0":
+    if plan.get("version") not in {"orb@2.0.0", "orb@2.1.0"}:
         return None
     retest = (plan.get("evidence") or {}).get("retest") or {}
     try:

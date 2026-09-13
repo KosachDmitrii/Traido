@@ -41,7 +41,11 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                 manual_target = manual_target_exits()
                 reason = "ORB_SESSION_END" if not manual_target and now >= deadline else None
                 raw_plan = payload.get("orb_plan") or {}
-                if reason is None and raw_plan.get("version") == "orb@2.0.0" and row.qty > 0:
+                if (
+                    reason is None
+                    and raw_plan.get("version") in {"orb@2.0.0", "orb@2.1.0"}
+                    and row.qty > 0
+                ):
                     from strategy.orb import PARAMETERS, OrbPlan
                     from strategy.orb.position_policy import observed_target
 

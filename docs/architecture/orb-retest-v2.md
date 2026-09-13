@@ -1,9 +1,10 @@
-# ORB 2.0 — Paper breakout / retest / confirmation
+# ORB 2.1 — Paper breakout / retest / confirmation
 
 Status: experimental Paper implementation, not statistically validated.
-Version: `orb@2.0.0`; previous version parameter hashes and execution evidence
+Version: `orb@2.1.0`; previous version parameter hashes and execution evidence
 remain unchanged. Authorized by the user's request to develop and implement.
-No external research or claimed backtest underlies these initial defaults.
+This remains the same ORB strategy, with a versioned context/measurement revision;
+it is not a second trading strategy.
 
 ## Entry evidence
 
@@ -27,6 +28,12 @@ At confirmation freeze:
   max($0.01, 0.02 daily ATR), rounded down.
 - Target: maximum observed after breakout and BEFORE the retest, rounded down.
   A confirmation that has already touched that target is not actionable.
+- Previous completed session high (PDH) is structural context. When it is above
+  the entry floor, below the observed impulse target, and the confirmation has
+  not closed above it, PDH caps the target. The normal geometry and effective-RR
+  gate then reject the setup if that reachable path is too small. A completed
+  confirmation close above PDH leaves the observed target intact. PDH at/below
+  entry is recorded but does not restrict the target.
 - Geometry must satisfy stop < floor <= ceiling < target.
 - Cost allowance C: max(current ask-bid, ceiling * 10 bps) at admission;
   bar-only observation uses the 10 bps model. This is a conservative modeling
@@ -45,8 +52,13 @@ are not reset. Repeated concurrent publication returns the same opportunity.
 
 ## Evidence and execution
 
-The source bars, confirmation/expiry times, target, retest minimum and algorithm
-parameters live in immutable `orb_plan.evidence.retest`. Canonical geometry
+The source bars, confirmation/expiry times, raw and PDH-adjusted target, retest
+minimum, PDH state and algorithm parameters live in immutable
+`orb_plan.evidence.retest`. The same record captures confirmation candle
+body/range, close location, upper-wick/range and volume relative to all earlier
+completed five-minute bars available in the replay. These measurements are
+explainability and later-ranking evidence, not newly invented entry thresholds.
+Canonical geometry
 hashing already includes the complete orb_plan. Approval fetches current bars
 without the observer cache and replays the pattern; changed evidence requires
 new admission. Observation may cache same-window bars for 30 seconds; missing
@@ -61,19 +73,19 @@ Filled portions retain the existing protection/reconciliation behavior.
 
 ## Exits
 
-Keep a broker-resident protective stop. For this version only:
-- Fresh bid at/above the frozen target triggers a close request.
-- At/after 30 minutes from recorded opening, bid <= actual average entry
-  triggers a close request (not an MFE-based trailing rule).
-- Session exit remains one minute before actual exchange close, including
-  shortened sessions. It does not require a valid price quote.
+The deployed Paper owner policy `TRAIDO_PAPER_EXIT_POLICY=manual_target`
+overrides automatic stop installation, no-progress and session exits. A Paper
+position exits only through an explicit operator sell or its immutable stored
+card target. Positions may carry overnight. Entry still stores the structural
+reference stop and risk sizing still uses entry-to-stop distance, but that stop
+is not a broker-resident maximum-loss guarantee under this owner policy.
 
-Target/time exits are server-monitored, require a working service and broker,
-and execute through the existing close owner. It cancels/verifies protection,
-checks signed broker holdings and uses durable intents. No second resting
-profit SELL competes with the protective stop. Market execution can differ
-from trigger price. Broker errors retry; UNKNOWN is never treated as canceled.
-No new target or stop is retroactively attached to older positions.
+Stored-target exits are server-monitored, require a working service and broker,
+and execute through the existing close owner. It cancels/verifies any legacy
+protection, checks signed broker holdings and uses durable intents. Market
+execution can differ from trigger price. Broker errors retry; UNKNOWN is never
+treated as canceled. No new target or stop is retroactively attached to older
+positions. Live remains prohibited.
 
 ## Review and validation
 
@@ -84,7 +96,8 @@ orb_plan; exit reasons distinguish target, no-progress and session exit.
 Current-version Paper results stay separate from legacy results.
 
 Regression scenarios cover distinct completed bars, boundaries, no lookahead,
-invalid/missing source history, inadequate reward, expiry, stop/target touch,
+PDH target capping/clearance, confirmation measurements, invalid/missing source
+history, inadequate reward, expiry, stop/target touch,
 replay after serialization, skip/replacement CAS, real admission/execution
 with a mock broker, monitored exits and legacy behavior. These demonstrate
 software behavior; they do not establish positive expectancy. Before further

@@ -40,7 +40,7 @@ def evaluate_sealed(inp: AdmissionInput) -> TradeAdmissionResult:
             "ORB_PRICE_WITHIN_LIMIT"
             if inp.strategy_version == "orb@1.5.0"
             else "ORB_RETEST_CONFIRMED"
-            if inp.strategy_version == "orb@2.0.0"
+            if inp.strategy_version in {"orb@2.0.0", "orb@2.1.0"}
             else "ORB_BREAKOUT_CONFIRMED"
         ],
         admission_version=inp.strategy_version,

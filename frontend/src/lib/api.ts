@@ -918,7 +918,17 @@ export type OrbPlan = {
   symbol: string; session: string; trigger: string; stop: string; max_entry: string;
   range_high: string; range_low: string; relative_volume: string; daily_atr: string;
   range_end: string; entry_deadline: string; exit_at: string;
-  evidence?: { retest?: { phase: string; target: string; confirmed_at: string; valid_until: string; time_exit_minutes: number } };
+  evidence?: { retest?: {
+    phase: string; target: string; raw_observed_target?: string; confirmed_at: string;
+    valid_until: string; time_exit_minutes: number; previous_day_high?: string;
+    previous_day_high_state?: string; previous_day_high_cleared?: boolean;
+    confirmation_quality?: {
+      body_to_range: string; close_location: string; upper_wick_to_range: string;
+      volume: string; prior_completed_bar_count: number;
+      prior_completed_mean_volume: string | null;
+      volume_to_prior_completed_mean: string | null;
+    };
+  } };
 };
 export type OrbState = { state: string; reasons: string[]; bid?: string | null; ask?: string | null;
   opportunity_id?: string; observed_at?: string; quote_at?: string };

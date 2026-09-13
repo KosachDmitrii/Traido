@@ -395,6 +395,7 @@ class ExecutionService:
             "orb@1.4.0",
             "orb@1.5.0",
             "orb@2.0.0",
+            "orb@2.1.0",
         }:
             raise RuntimeError("STRATEGY_RETIRED:ORB_REQUIRED")
 
@@ -703,6 +704,7 @@ class ExecutionService:
             "orb@1.4.0",
             "orb@1.5.0",
             "orb@2.0.0",
+            "orb@2.1.0",
         }:
             from strategy.orb import OrbPlan, evaluate_trigger
 
@@ -918,7 +920,7 @@ class ExecutionService:
             raise RuntimeError(f"ENTRY_STATE_UNKNOWN:{exc}") from exc
 
         entry_wait = self.fill_timeout
-        if opp.candidate.strategy_version == "orb@2.0.0":
+        if opp.candidate.strategy_version in {"orb@2.0.0", "orb@2.1.0"}:
             until = datetime.fromisoformat(
                 opp.candidate.orb_plan["evidence"]["retest"]["valid_until"]
             )
@@ -1203,6 +1205,7 @@ class ExecutionService:
             "orb@1.4.0",
             "orb@1.5.0",
             "orb@2.0.0",
+            "orb@2.1.0",
         }:
             from strategy.orb import OrbPlan, evaluate_trigger
 
@@ -1576,6 +1579,7 @@ class ExecutionService:
             "orb@1.4.0",
             "orb@1.5.0",
             "orb@2.0.0",
+            "orb@2.1.0",
         }:
             from strategy.orb import OrbPlan, evaluate_trigger
             from trading.admission_records import ADMISSION_RECORDS

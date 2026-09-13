@@ -579,7 +579,7 @@ A capped limit constrains execution price, not future market value. This guard d
 
 Regression: AXP screenshot 318.55/320.98 measures 75.99 bps regardless of last print, exceeding the default 30 bps execution cap. This later quote is not evidence of the historical submission quote.
 
-## ORB 2.0 Paper retest experiment
+## ORB 2.0/2.1 Paper retest experiment
 
 | Situation | Behaviour |
 |---|---|

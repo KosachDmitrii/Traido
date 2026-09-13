@@ -11,7 +11,7 @@ from typing import Literal
 
 from core.enums import Timeframe
 from core.schemas import Bar, Quote
-from strategy.orb import PARAMETERS, VERSION, OrbDecision, OrbPlan, _valid_bar
+from strategy.orb import PARAMETERS, RETEST_VERSIONS, VERSION, OrbDecision, OrbPlan, _valid_bar
 
 CENT = Decimal("0.01")
 
@@ -20,7 +20,7 @@ def rebuild(
     base: OrbPlan, bars: list[Bar], *, now: datetime, after: datetime | None = None
 ) -> OrbDecision:
     if (
-        base.version != VERSION
+        base.version not in RETEST_VERSIONS
         or now.tzinfo is None
         or (after is not None and after.tzinfo is None)
     ):
@@ -35,7 +35,7 @@ def rebuild(
         [Bar.model_validate(b) for b in base.evidence["opening"]],
         now=now,
         feed=base.source.removeprefix("alpaca:"),
-        version=VERSION,
+        version=base.version,
     )
     if initial.plan is None:
         return OrbDecision(state="NO_TRADE", reasons=["ORB_RETEST_INVALIDATED"])
@@ -129,6 +129,22 @@ def rebuild(
         ceiling = min(b.close, level + band).quantize(CENT, rounding=ROUND_FLOOR)
         floor = (level + CENT).quantize(CENT, rounding=ROUND_CEILING)
         target = peak.quantize(CENT, rounding=ROUND_FLOOR)
+        raw_target = target
+        previous_day_high: Decimal | None = None
+        previous_day_high_state: str | None = None
+        previous_day_high_cleared = False
+        if base.version == VERSION:
+            previous_day_high = Decimal(str(base.evidence["daily"][-1]["high"]))
+            previous_day_high_cleared = b.close > previous_day_high
+            if previous_day_high <= floor:
+                previous_day_high_state = "below_entry"
+            elif previous_day_high_cleared:
+                previous_day_high_state = "cleared_at_confirmation"
+            elif previous_day_high < target:
+                target = previous_day_high.quantize(CENT, rounding=ROUND_FLOOR)
+                previous_day_high_state = "caps_target"
+            else:
+                previous_day_high_state = "above_observed_target"
         cost = ceiling * Decimal(PARAMETERS["cost_allowance_bps"]) / 10000
         risk = ceiling - stop
         reward = target - ceiling
@@ -158,6 +174,44 @@ def rebuild(
             "time_exit_minutes": PARAMETERS["time_exit_minutes"],
             "cost_allowance_bps": PARAMETERS["cost_allowance_bps"],
         }
+        if base.version == VERSION:
+            if previous_day_high is None or previous_day_high_state is None:
+                return result("DATA_BLOCKED", "ORB_RETEST_DATA_INVALID")
+            confirmation_range = b.high - b.low
+            confirmation_body = abs(b.close - b.open)
+            prior_rows = [x for x in rows if x.ts < b.ts]
+            prior_volume = (
+                sum((x.volume for x in prior_rows), Decimal(0)) / Decimal(len(prior_rows))
+                if prior_rows
+                else None
+            )
+            evidence["retest"].update(
+                {
+                    "raw_observed_target": str(raw_target),
+                    "previous_day_high": str(previous_day_high),
+                    "previous_day_high_state": previous_day_high_state,
+                    "previous_day_high_cleared": previous_day_high_cleared,
+                    "previous_day_high_distance_from_entry": str(previous_day_high - ceiling),
+                    "opening_high_to_previous_day_high": str(previous_day_high - level),
+                    "confirmation_quality": {
+                        "body_to_range": str(confirmation_body / confirmation_range),
+                        "close_location": str((b.close - b.low) / confirmation_range),
+                        "upper_wick_to_range": str(
+                            (b.high - max(b.open, b.close)) / confirmation_range
+                        ),
+                        "volume": str(b.volume),
+                        "prior_completed_bar_count": len(prior_rows),
+                        "prior_completed_mean_volume": (
+                            str(prior_volume) if prior_volume is not None else None
+                        ),
+                        "volume_to_prior_completed_mean": (
+                            str(b.volume / prior_volume)
+                            if prior_volume is not None and prior_volume > 0
+                            else None
+                        ),
+                    },
+                }
+            )
         raw = base.model_dump()
         raw.update(trigger=floor, max_entry=ceiling, stop=stop, evidence=evidence)
         ready = OrbPlan.model_validate(raw)

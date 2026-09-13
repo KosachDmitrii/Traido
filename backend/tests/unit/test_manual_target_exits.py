@@ -31,8 +31,8 @@ def owner_policy(monkeypatch):
     [
         (0, "100.00", False, False, 0),
         (1, "100.00", False, False, 0),
-        (3, "102.49", False, False, 0),
-        (3, "102.50", False, False, 1),
+        (3, "101.99", False, False, 0),
+        (3, "102.00", False, False, 1),
         (3, "102.60", True, False, 0),
         (3, "102.60", False, True, 0),
     ],

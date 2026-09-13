@@ -68,7 +68,19 @@ def test_requires_distinct_completed_breakout_retest_and_confirmation():
     p = result.plan
     assert p.trigger == D("101.01") and p.max_entry == D("101.12")
     assert p.stop == D("100.87")  # observed retest low 100.95 minus 0.02 * daily ATR 4
-    assert D(p.evidence["retest"]["target"]) == D("102.50")  # observed BEFORE retest
+    retest = p.evidence["retest"]
+    assert D(retest["raw_observed_target"]) == D("102.50")  # observed BEFORE retest
+    assert D(retest["target"]) == D("102.00")  # uncleared previous-day high caps the path
+    assert retest["previous_day_high_state"] == "caps_target"
+    assert retest["confirmation_quality"] == {
+        "body_to_range": "0.5",
+        "close_location": "0.7",
+        "upper_wick_to_range": "0.3",
+        "volume": "100000",
+        "prior_completed_bar_count": 2,
+        "prior_completed_mean_volume": "100000",
+        "volume_to_prior_completed_mean": "1",
+    }
     assert evaluate_trigger(p, quote("101.10", "101.12", now), now=now).state == "BUY_ALLOWED"
     restored = OrbPlan.model_validate(p.model_dump(mode="json"))
     assert rebuild(restored, rows, now=now).plan == p
@@ -144,6 +156,40 @@ def test_stop_or_target_touched_after_confirmation_invalidates_old_signal(low, h
 def test_no_manufactured_target_to_rescue_poor_reward():
     base, rows, now = scenario()
     rows[0] = rows[0].model_copy(update={"high": D("101.6")})
+    result = rebuild(base, rows, now=now)
+    assert result.reasons == ["ORB_RETEST_REWARD_INSUFFICIENT"]
+    assert "retest" not in result.plan.evidence
+
+
+def test_completed_confirmation_above_previous_day_high_does_not_cap_target():
+    base, rows, now = scenario()
+    rows[2] = rows[2].model_copy(
+        update={"open": D("101.8"), "low": D("101.7"), "high": D("102.2"), "close": D("102.1")}
+    )
+    result = rebuild(base, rows, now=now)
+    assert result.reasons == ["ORB_RETEST_CONFIRMED"]
+    retest = result.plan.evidence["retest"]
+    assert retest["previous_day_high_cleared"] is True
+    assert retest["previous_day_high_state"] == "cleared_at_confirmation"
+    assert D(retest["target"]) == D("102.50")
+
+
+def test_previous_retest_version_keeps_its_original_geometry_and_evidence():
+    daily, opening = evidence(NOW)
+    base = form_plan("AAPL", daily, opening, now=NOW, feed="sip", version="orb@2.0.0").plan
+    assert base is not None
+    _, rows, now = scenario()
+    result = rebuild(base, rows, now=now)
+    assert D(result.plan.evidence["retest"]["target"]) == D("102.50")
+    assert "previous_day_high" not in result.plan.evidence["retest"]
+    assert "confirmation_quality" not in result.plan.evidence["retest"]
+
+
+def test_uncleared_previous_day_high_cannot_rescue_insufficient_reward():
+    base, rows, now = scenario()
+    daily = deepcopy(base.evidence["daily"])
+    daily[-1]["high"] = "101.40"
+    base = base.model_copy(update={"evidence": {**base.evidence, "daily": daily}})
     result = rebuild(base, rows, now=now)
     assert result.reasons == ["ORB_RETEST_REWARD_INSUFFICIENT"]
     assert "retest" not in result.plan.evidence

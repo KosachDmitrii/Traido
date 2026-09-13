@@ -91,7 +91,9 @@ async def test_closed_trade_rearms_new_plan_once_without_rewriting_old_execution
     assert "opportunity_id" not in state
     assert state["closed_opportunity_ids"] == [str(opp.id)]
     assert datetime.fromisoformat(state["retest_after"]) == RTH_INSTANT
-    assert saved["plans"][opp.candidate.symbol]["version"] == "orb@2.0.0"
+    from strategy.orb import VERSION
+
+    assert saved["plans"][opp.candidate.symbol]["version"] == VERSION
     assert not saved["plans"][opp.candidate.symbol]["evidence"].get("retest")
     assert not await rearm_closed_trade(day, opp.candidate.symbol, FlatBroker(), now=now)
     assert OpportunityStore().get(opp.id).model_dump() == before

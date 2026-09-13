@@ -35,7 +35,7 @@ def publish_orb(
     plan = OrbPlan.model_validate(candidate.orb_plan)
     now = now or datetime.now(UTC)
     deadline = plan.entry_deadline
-    if plan.version == "orb@2.0.0":
+    if plan.version in {"orb@2.0.0", "orb@2.1.0"}:
         deadline = min(deadline, datetime.fromisoformat(plan.evidence["retest"]["valid_until"]))
     if now >= deadline:
         raise ValueError("ORB_ENTRY_EXPIRED")
@@ -107,7 +107,7 @@ def publish_orb(
                 "ORB_PRICE_WITHIN_LIMIT"
                 if plan.version == "orb@1.5.0"
                 else "ORB_RETEST_CONFIRMED"
-                if plan.version == "orb@2.0.0"
+                if plan.version in {"orb@2.0.0", "orb@2.1.0"}
                 else "ORB_BREAKOUT_CONFIRMED"
             ],
             "opportunity_id": str(opp.id),

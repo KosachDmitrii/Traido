@@ -36,7 +36,18 @@ export function OrbSymbolInspector() {
   };
   const plan = data?.plan;
   const retest = plan?.evidence?.retest;
-  const ready = plan?.version !== "orb@2.0.0" || !!retest;
+  const quality = retest?.confirmation_quality;
+  const percent = (value?: string | null) => value == null || !Number.isFinite(Number(value)) ? "—" : `${(Number(value) * 100).toFixed(0)}%`;
+  const pdhState = retest?.previous_day_high_state === "caps_target"
+    ? (ru ? "сопротивление · ограничивает цель" : "resistance · caps target")
+    : retest?.previous_day_high_state === "cleared_at_confirmation"
+      ? (ru ? "пробит подтверждением" : "cleared by confirmation")
+      : retest?.previous_day_high_state === "below_entry"
+        ? (ru ? "ниже входа" : "below entry")
+        : retest?.previous_day_high_state === "above_observed_target"
+          ? (ru ? "выше наблюдаемой цели" : "above observed target")
+          : "—";
+  const ready = !["orb@2.0.0", "orb@2.1.0"].includes(plan?.version ?? "") || !!retest;
   const metrics = [
     ["Bid · USD", px(data?.quote?.bid)], ["Ask · USD", px(data?.quote?.ask)],
     [ru ? "Диапазон открытия" : "Opening range", plan ? `${px(plan.range_low)}–${px(plan.range_high)}` : "—"],
@@ -44,7 +55,15 @@ export function OrbSymbolInspector() {
     [ru ? "Стоп" : "Stop", ready ? px(plan?.stop) : "—"], [ru ? "Максимальная цена входа" : "Maximum entry", ready ? px(plan?.max_entry) : "—"],
     [ru ? "Относительный объём" : "Relative volume", plan ? `${px(plan.relative_volume)}×` : "—"],
     ["ATR14", px(plan?.daily_atr)],
-    ...(plan?.version === "orb@2.0.0" ? [[ru ? "Цель выхода" : "Exit target", px(retest?.target)]] : []),
+    ...(["orb@2.0.0", "orb@2.1.0"].includes(plan?.version ?? "") ? [[ru ? "Цель выхода" : "Exit target", px(retest?.target)]] : []),
+    ...(plan?.version === "orb@2.1.0" ? [
+      ["PDH", px(retest?.previous_day_high)],
+      [ru ? "Роль PDH" : "PDH role", pdhState],
+      [ru ? "Тело свечи" : "Candle body", percent(quality?.body_to_range)],
+      [ru ? "Закрытие в диапазоне" : "Close location", percent(quality?.close_location)],
+      [ru ? "Верхняя тень" : "Upper wick", percent(quality?.upper_wick_to_range)],
+      [ru ? "Объём подтверждения" : "Confirmation volume", quality?.volume_to_prior_completed_mean ? `${Number(quality.volume_to_prior_completed_mean).toFixed(2)}×` : "—"],
+    ] : []),
   ];
   const reasons = data?.rejections.length ? data.rejections : data?.state?.reasons ?? [];
   return <section className={styles.card}>

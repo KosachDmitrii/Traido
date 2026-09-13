@@ -14,9 +14,18 @@ from core.schemas import Bar, Quote
 from trading.session_hours import is_market_holiday, session_close, us_equity_rth_open
 
 PULLBACK_VERSION = "orb@1.5.0"
-VERSION = "orb@2.0.0"
+RETEST_VERSION = "orb@2.0.0"
+VERSION = "orb@2.1.0"
+RETEST_VERSIONS = frozenset({RETEST_VERSION, VERSION})
 SUPPORTED_VERSIONS = frozenset(
-    {"orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", PULLBACK_VERSION, VERSION}
+    {
+        "orb@1.1.0",
+        "orb@1.2.0",
+        "orb@1.3.0",
+        "orb@1.4.0",
+        PULLBACK_VERSION,
+        *RETEST_VERSIONS,
+    }
 )
 # Paper implementation parameters; statistical profitability is not certified.
 PARAMETERS: dict[str, Any] = {
@@ -70,6 +79,13 @@ PARAMETERS = {
     "cost_allowance_bps": "10",
     "exit": "observed_target_or_stop_or_time_or_session",
     "validation": "experimental_paper_not_backtested",
+}
+
+RETEST_PARAMETERS = dict(PARAMETERS)
+PARAMETERS = {
+    **RETEST_PARAMETERS,
+    "context_revision": "pdh-confirmation-evidence-1",
+    "target_policy": "observed_peak_capped_by_uncleared_previous_day_high",
 }
 
 FLEX_PARAMETERS = {k: v for k, v in ALL_PARAMETERS.items() if k != "selection_scope"}
@@ -186,6 +202,7 @@ def form_plan(
         return blocked("ORB_INVALID_PROVENANCE")
     parameters = {
         VERSION: PARAMETERS,
+        RETEST_VERSION: RETEST_PARAMETERS,
         PULLBACK_VERSION: PULLBACK_PARAMETERS,
         "orb@1.4.0": EARLY_PARAMETERS,
         "orb@1.3.0": ALL_PARAMETERS,
@@ -285,7 +302,7 @@ def form_plan(
         trigger = (trigger - discount).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
         if trigger <= stop:
             return blocked("ORB_INVALID_STOP")
-    if version in {PULLBACK_VERSION, VERSION}:
+    if version == PULLBACK_VERSION or version in RETEST_VERSIONS:
         max_entry = trigger
     plan = OrbPlan(
         symbol=symbol.upper(),
@@ -320,7 +337,7 @@ def form_plan(
         state="WAIT",
         reasons=[
             "ORB_RETEST_WAIT_BREAKOUT"
-            if version == VERSION
+            if version in RETEST_VERSIONS
             else "ORB_WAITING_PULLBACK"
             if version == PULLBACK_VERSION
             else "ORB_WAITING_BREAKOUT"
@@ -366,7 +383,7 @@ def evaluate_trigger(
         or quote.ask < quote.bid
     ):
         return result("DATA_BLOCKED", "ORB_QUOTE_INVALID")
-    if plan.version == VERSION:
+    if plan.version in RETEST_VERSIONS:
         from strategy.orb.retest import check_entry
 
         return check_entry(plan, quote, now=now, limit_price=limit_price)
