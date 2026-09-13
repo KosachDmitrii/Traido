@@ -123,11 +123,12 @@ class ScanContext:
             out: dict[str, list[Bar]] = {}
             for offset in range(0, len(wanted), 100):
                 batch = wanted[offset : offset + 100]
+
+                async def load_batch(batch_symbols: list[str] = batch) -> dict[str, list[Bar]]:
+                    return await feed.get_daily_bars_batch(batch_symbols, start, end)
+
                 try:
-                    rows = await self.concurrency.run(
-                        "market_data",
-                        lambda batch=batch: feed.get_daily_bars_batch(batch, start, end),
-                    )
+                    rows = await self.concurrency.run("market_data", load_batch)
                 except TimeoutError as exc:
                     raise TimeoutError(
                         f"DAILY_HISTORY_TIMEOUT: batch {offset // 100 + 1}; "
@@ -140,13 +141,13 @@ class ScanContext:
             return symbol, await self.market_data.get_bars(symbol, Timeframe.D1, start, end)
 
         results = await self.concurrency.map("market_data", wanted, _one)
-        out: dict[str, list[Bar]] = {}
+        result_rows: dict[str, list[Bar]] = {}
         for result in results:
             if isinstance(result, BaseException):
                 continue
             symbol, bars = result
-            out[symbol] = bars
-        return out
+            result_rows[symbol] = bars
+        return result_rows
 
     # ── Broker state, read once ─────────────────────────────────────────────
 
