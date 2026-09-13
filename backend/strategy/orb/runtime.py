@@ -224,7 +224,12 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         from strategy.orb.reentry import rearm_closed_trade
 
         if await rearm_closed_trade(plan.session, symbol, ctx.broker, now=now):
-            stored = read_session(plan.session)
+            refreshed = read_session(plan.session)
+            if refreshed is None or symbol not in refreshed.get("plans", {}):
+                return result.model_copy(
+                    update={"status": "data_blocked", "errors": ["ORB_SESSION_UNRESOLVED"]}
+                )
+            stored = refreshed
             plan = OrbPlan.model_validate(stored["plans"][symbol])
             prior = stored["states"][symbol]
     if plan.version == VERSION:
@@ -264,7 +269,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             OpportunityStatus.DISCARDED,
             OpportunityStatus.EXPIRED,
         }
-        if reset and prior.get("retest_reset_id") != str(linked.id):
+        if linked is not None and reset and prior.get("retest_reset_id") != str(linked.id):
             after = now + timedelta(seconds=60)
             update_state(
                 plan.session,
@@ -301,9 +306,12 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             current = await quoter(symbol) if quoter else None
             checked_at = datetime.now(UTC)
             checked = evaluate_trigger(plan, current, now=checked_at)
-            valid_quote = current is not None and checked.state != "DATA_BLOCKED"
             target = Decimal(plan.evidence["retest"]["target"])
-            if valid_quote and (current.bid <= plan.stop or current.bid >= target):
+            if (
+                current is not None
+                and checked.state != "DATA_BLOCKED"
+                and (current.bid <= plan.stop or current.bid >= target)
+            ):
                 reset_plan = rebuild(plan, rows, now=checked_at, after=checked_at).plan
                 if reset_plan and replace_unclaimed_plan(
                     plan.session,

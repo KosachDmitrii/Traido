@@ -1,9 +1,10 @@
 """Read-only projection of immutable retest geometry; never invent a target."""
 
 from decimal import Decimal, InvalidOperation
+from typing import Any
 
 
-def observed_target(payload: dict) -> Decimal | None:
+def observed_target(payload: dict[str, Any]) -> Decimal | None:
     plan = payload.get("orb_plan") or {}
     if plan.get("version") != "orb@2.0.0":
         return None

@@ -7,6 +7,7 @@ at confirmation, with a short expiry. Existing source bars remain immutable.
 from copy import deepcopy
 from datetime import datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
+from typing import Literal
 
 from core.enums import Timeframe
 from core.schemas import Bar, Quote
@@ -43,7 +44,11 @@ def rebuild(
     if reentry:
         base = base.model_copy(update={"evidence": {**base.evidence, "reentry": deepcopy(reentry)}})
 
-    def result(state, reason, plan=None):
+    def result(
+        state: Literal["WAIT", "BUY_ALLOWED", "NO_TRADE", "DATA_BLOCKED"],
+        reason: str,
+        plan: OrbPlan | None = None,
+    ) -> OrbDecision:
         return OrbDecision(state=state, reasons=[reason], plan=plan or base)
 
     if any(
@@ -69,11 +74,11 @@ def rebuild(
     band = max(CENT, base.daily_atr * Decimal(PARAMETERS["retest_band_atr"]))
     buffer = max(CENT, base.daily_atr * Decimal(PARAMETERS["retest_stop_buffer_atr"]))
     level = base.range_high
-    breakout = None
-    retest = None
-    peak = None
-    low = None
-    ready = None
+    breakout: Bar | None = None
+    retest: Bar | None = None
+    peak: Decimal | None = None
+    low: Decimal | None = None
+    ready: OrbPlan | None = None
     wait_reason = "ORB_RETEST_WAIT_BREAKOUT"
     for b in rows:
         end = b.ts + timedelta(minutes=5)
@@ -111,8 +116,12 @@ def rebuild(
                 retest, low = b, b.low
                 wait_reason = "ORB_RETEST_WAIT_CONFIRMATION"
             else:
+                if peak is None:
+                    return result("DATA_BLOCKED", "ORB_RETEST_DATA_INVALID")
                 peak = max(peak, b.high)
             continue
+        if low is None or peak is None:
+            return result("DATA_BLOCKED", "ORB_RETEST_DATA_INVALID")
         low = min(low, b.low)
         if b.close <= level + CENT or b.close <= b.open or b.close <= retest.close:
             continue
@@ -160,7 +169,9 @@ def rebuild(
 def check_entry(
     plan: OrbPlan, quote: Quote, *, now: datetime, limit_price: Decimal | None
 ) -> OrbDecision:
-    def result(state, reason):
+    def result(
+        state: Literal["WAIT", "BUY_ALLOWED", "NO_TRADE", "DATA_BLOCKED"], reason: str
+    ) -> OrbDecision:
         return OrbDecision(state=state, reasons=[reason], plan=plan)
 
     evidence = plan.evidence.get("retest", {})

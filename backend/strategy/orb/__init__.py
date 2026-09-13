@@ -19,7 +19,7 @@ SUPPORTED_VERSIONS = frozenset(
     {"orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", PULLBACK_VERSION, VERSION}
 )
 # Paper implementation parameters; statistical profitability is not certified.
-PARAMETERS = {
+PARAMETERS: dict[str, Any] = {
     "opening_minutes": 5,
     "lookback_sessions": 14,
     "min_price": "5",

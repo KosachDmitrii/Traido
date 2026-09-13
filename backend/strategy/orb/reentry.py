@@ -5,8 +5,10 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from core.enums import BrokerEnvironment, OpportunityStatus
+from core.ports import BrokerPort
 from core.schemas import Bar
 from database.models.desk import OpportunityRow
 from database.models.journal import TradeJournalRow
@@ -18,7 +20,7 @@ from strategy.orb import OrbPlan, form_plan
 POLICY = "closed-position-reentry@1"
 
 
-def closed_position(db, opportunity_id):
+def closed_position(db: Session, opportunity_id: UUID) -> OpenPositionRow | None:
     """Exact entry linkage plus a completed journal row; absence is not a close."""
     rows = list(
         db.scalars(select(OpenPositionRow).where(OpenPositionRow.opportunity_id == opportunity_id))
@@ -38,7 +40,7 @@ def closed_position(db, opportunity_id):
     return pos if journal is not None else None
 
 
-async def rearm_closed_trade(day: str, symbol: str, broker, *, now: datetime) -> bool:
+async def rearm_closed_trade(day: str, symbol: str, broker: BrokerPort, *, now: datetime) -> bool:
     from core.config import get_settings
     from trading.intents import INTENTS
 
@@ -46,7 +48,9 @@ async def rearm_closed_trade(day: str, symbol: str, broker, *, now: datetime) ->
         return False
     with session_factory()() as db:
         row = db.get(OrbSessionRow, day)
-        state = row.payload.get("states", {}).get(symbol, {}) if row else {}
+        if row is None:
+            return False
+        state = row.payload.get("states", {}).get(symbol, {})
         oid = state.get("opportunity_id")
         if not oid:
             return False
@@ -58,12 +62,11 @@ async def rearm_closed_trade(day: str, symbol: str, broker, *, now: datetime) ->
         if closed is None:
             return False
         position_id = closed.id
+        closed_at = closed.closed_at
+        if closed_at is None:
+            return False
         # Database DateTime timestamps are UTC; SQLite strips tzinfo in tests.
-        after = (
-            closed.closed_at.replace(tzinfo=UTC)
-            if closed.closed_at.tzinfo is None
-            else closed.closed_at
-        )
+        after = closed_at.replace(tzinfo=UTC) if closed_at.tzinfo is None else closed_at
         expected = deepcopy(row.payload["plans"][symbol])
     plan = OrbPlan.model_validate(expected)
     if now >= plan.entry_deadline or after > now or symbol in INTENTS.unresolved_symbols():

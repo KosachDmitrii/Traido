@@ -8,6 +8,7 @@ import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from core.schemas import Quote
 from strategy.orb.runtime import observe
 from trading.exit_policy import manual_target_exits
 
@@ -35,6 +36,8 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                 if deadline.tzinfo is None:
                     continue
                 execution = None
+                quote: Quote | None = None
+                target: Decimal | None = None
                 manual_target = manual_target_exits()
                 reason = "ORB_SESSION_END" if not manual_target and now >= deadline else None
                 raw_plan = payload.get("orb_plan") or {}
@@ -75,7 +78,7 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                         reason = "ORB_TIME_NO_PROGRESS"
                 if reason is None:
                     continue
-                if execution is not None:
+                if execution is not None and quote is not None and target is not None:
                     await execution.audit.append(
                         "OrbExitTriggered",
                         "orb",

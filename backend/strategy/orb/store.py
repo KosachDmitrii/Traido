@@ -1,11 +1,13 @@
 """Frozen session selection with an audited, versioned entry-policy migration."""
 
 from copy import deepcopy
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from core.schemas import Quote
 from database.models.orb import OrbSessionRow
 from database.session import session_factory
 
@@ -60,7 +62,7 @@ def update_state(day: str, symbol: str, state: dict[str, Any]) -> None:
         db.commit()
 
 
-def upgrade_unpublished_entry_limits(day: str, *, now) -> dict[str, Any] | None:
+def upgrade_unpublished_entry_limits(day: str, *, now: datetime) -> dict[str, Any] | None:
     """Apply the user-authorized Paper rollout before approval is claimed.
 
     Publication takes the same row lock and compares the complete plan, so a
@@ -173,7 +175,14 @@ def upgrade_unpublished_entry_limits(day: str, *, now) -> dict[str, Any] | None:
         return payload
 
 
-def rearm_skipped_plan(day: str, symbol: str, opportunity_id: str, quote, *, now) -> bool:
+def rearm_skipped_plan(
+    day: str,
+    symbol: str,
+    opportunity_id: str,
+    quote: Quote | None,
+    *,
+    now: datetime,
+) -> bool:
     """Release only a durable SKIPPED claim after cooldown and a fresh price reset.
 
     A new proposal must pass the entire publication/admission path with a new ID.
@@ -255,7 +264,15 @@ def rearm_skipped_plan(day: str, symbol: str, opportunity_id: str, quote, *, now
         return True
 
 
-def replace_unclaimed_plan(day, symbol, expected, replacement, state, *, now) -> bool:
+def replace_unclaimed_plan(
+    day: str,
+    symbol: str,
+    expected: dict[str, Any],
+    replacement: dict[str, Any],
+    state: dict[str, Any],
+    *,
+    now: datetime,
+) -> bool:
     """CAS geometry and retire only unsubmitted awaiting/explicitly skipped claims."""
     from uuid import UUID
 
