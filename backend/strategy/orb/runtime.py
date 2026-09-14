@@ -10,6 +10,7 @@ from itertools import pairwise
 from typing import Any, cast
 from uuid import uuid4
 
+from core.activity import BOARD
 from core.clock import ET
 from core.config import get_settings
 from core.enums import (
@@ -39,8 +40,37 @@ from universe.models import UniverseTier
 from universe.service import UniverseService
 
 _discovery_lock = asyncio.Lock()
-_observation_lock = asyncio.Lock()
+_observation_task: asyncio.Task[dict[str, int]] | None = None
 STATUS: dict[str, Any] = {"status": "not_started", "version": VERSION, "parameters": PARAMETERS}
+
+
+def _restore_session_board(session: dict[str, Any]) -> None:
+    """Project a persisted ORB session onto the operator activity board."""
+    counts = session.get("counts") or {}
+    selected = len(session.get("plans") or {})
+    BOARD.set_agent(
+        "universe",
+        status="done",
+        detail=f"SIP universe · {counts.get('eligible', 0)} eligible",
+    )
+    BOARD.set_agent(
+        "structure",
+        status="done",
+        detail=f"Opening ranges ready · {selected} selected",
+    )
+    BOARD.set_agent(
+        "risk_plan",
+        status="done",
+        detail=f"ORB geometry stored · {selected} plans",
+    )
+    for agent_id, detail in (
+        ("context", "Waiting for a confirmed ORB entry"),
+        ("checklist", "Waiting for final admission"),
+        ("risk", "Waiting for final admission"),
+    ):
+        current = next(item for item in BOARD.snapshot()["agents"] if item["id"] == agent_id)
+        if current["updated_at"] is None:
+            BOARD.set_agent(agent_id, status="idle", detail=detail)
 
 
 async def discover(
@@ -70,6 +100,7 @@ async def discover(
                 ) or existing
                 STATUS.update(existing)
             if existing.get("selection_scope") == "all_qualified":
+                _restore_session_board(existing)
                 return existing
         STATUS.clear()
         STATUS.update(
@@ -95,8 +126,14 @@ async def discover(
             STATUS.update(status="data_blocked", reason="ORB_UNSUPPORTED_FEED")
             return dict(STATUS)
         STATUS.update(status="loading_history", reason=None)
+        BOARD.set_agent("universe", status="working", detail="Loading Alpaca SIP universe")
         snapshot = await universe.get_scan_universe(tier=UniverseTier.BROAD, max_size=0)
         symbols = snapshot.symbols
+        BOARD.set_agent(
+            "universe",
+            status="done",
+            detail=f"SIP universe · {len(symbols)} eligible",
+        )
         counts = {
             "universe": snapshot.total,
             "eligible": len(symbols),
@@ -145,6 +182,11 @@ async def discover(
         opening: dict[str, list[Bar]] = {s: [] for s in base}
         # Only 15 five-minute windows, not 45 days of intraday data for the universe.
         STATUS["status"] = "loading_opening_ranges"
+        BOARD.set_agent(
+            "structure",
+            status="working",
+            detail="Building 09:30–09:35 ET opening ranges",
+        )
         batch = cast(Any, feed).get_bars_batch
         for d in [*days[-14:], now.astimezone(ET).date()]:
             t = datetime.combine(d, time(9, 30), ET).astimezone(UTC)
@@ -157,6 +199,12 @@ async def discover(
                 raise
             for symbol in base:
                 opening[symbol].extend(rows.get(symbol, []))
+        BOARD.set_agent(
+            "structure",
+            status="done",
+            detail=f"Opening ranges loaded · {len(base)} instruments",
+        )
+        BOARD.set_agent("risk_plan", status="working", detail="Building ORB trade geometry")
         plans: list[OrbPlan] = []
         for symbol in base:
             decision = form_plan(
@@ -169,6 +217,11 @@ async def discover(
                 rejected[symbol] = decision.reasons
         plans.sort(key=lambda p: (-p.relative_volume, p.symbol))
         selected = plans
+        BOARD.set_agent(
+            "risk_plan",
+            status="done",
+            detail=f"ORB geometry stored · {len(selected)} plans",
+        )
         counts.update(qualified=len(plans), selected=len(selected))
         payload = {
             "version": VERSION,
@@ -193,6 +246,7 @@ async def discover(
         }
         payload = await asyncio.to_thread(create_session, day, payload, expand=existing is not None)
         STATUS.update(payload)
+        _restore_session_board(payload)
         return payload
 
 
@@ -314,20 +368,22 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
                 and (current.bid <= plan.stop or current.bid >= target)
             ):
                 reset_plan = rebuild(plan, rows, now=checked_at, after=checked_at).plan
-                if reset_plan and await asyncio.to_thread(
-                    replace_unclaimed_plan,
-                    plan.session,
-                    symbol,
-                    plan.model_dump(mode="json"),
-                    reset_plan.model_dump(mode="json"),
-                    {
-                        "state": "WAIT",
-                        "reasons": ["ORB_RETEST_INVALIDATED"],
-                        "retest_after": checked_at.isoformat(),
-                    },
-                    now=checked_at,
-                ):
-                    return result
+                if reset_plan is not None:
+                    replaced = await asyncio.to_thread(
+                        replace_unclaimed_plan,
+                        plan.session,
+                        symbol,
+                        plan.model_dump(mode="json"),
+                        reset_plan.model_dump(mode="json"),
+                        {
+                            "state": "WAIT",
+                            "reasons": ["ORB_RETEST_INVALIDATED"],
+                            "retest_after": checked_at.isoformat(),
+                        },
+                        now=checked_at,
+                    )
+                    if replaced:
+                        return result
                 return result.model_copy(
                     update={"status": "data_blocked", "errors": ["ORB_RETEST_INVALIDATED"]}
                 )
@@ -461,9 +517,18 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         policy_version=plan.version,
         pipeline_run_id=result.pipeline_run_id,
     )
+    BOARD.set_agent("context", status="working", detail="Checking market regime", symbol=symbol)
     market = await assess_market(ctx.settings.fred_api_key, now=now)
     gate = evaluate_market_gate(market, now=now, require_sector=False)
     sector = await get_sector_assessment_port().assess(symbol, market_data=ctx.market_data, now=now)
+    BOARD.set_agent(
+        "context",
+        status="done",
+        detail="Market context ready" if gate.tradable_long else "Market context blocked",
+        symbol=symbol,
+        score=market.score,
+    )
+    BOARD.set_agent("checklist", status="working", detail="Running final admission", symbol=symbol)
     try:
         final = await build_and_evaluate_final_admission(
             candidate,
@@ -478,6 +543,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             sector_source_ts=sector.benchmark_last_bar_ts,
         )
     except PretradeRejection as exc:
+        BOARD.set_agent("checklist", status="error", detail=str(exc), symbol=symbol)
         await asyncio.to_thread(
             update_state,
             plan.session,
@@ -487,6 +553,8 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         return result.model_copy(
             update={"candidate": candidate, "status": "data_blocked", "errors": [str(exc)]}
         )
+    BOARD.set_agent("checklist", status="done", detail="Final admission passed", symbol=symbol)
+    BOARD.set_agent("risk", status="working", detail="Evaluating portfolio risk", symbol=symbol)
     built = await build_risk_context(
         symbol,
         broker=ctx.broker,
@@ -507,6 +575,13 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         }
     )
     if risk.verdict != RiskVerdict.PASS:
+        BOARD.set_agent(
+            "risk",
+            status="done",
+            detail="Risk rejected · " + ", ".join(risk.reasons[:2]),
+            symbol=symbol,
+            score=0,
+        )
         await asyncio.to_thread(
             update_state,
             plan.session,
@@ -514,6 +589,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             {**state, "state": "BLOCKED", "reasons": risk.reasons},
         )
         return result.model_copy(update={"status": "risk_rejected", "errors": risk.reasons})
+    BOARD.set_agent("risk", status="done", detail="Risk passed", symbol=symbol, score=100)
     if not publish:
         return result.model_copy(update={"status": "risk_passed"})
     from strategy.orb.publication import publish_orb
@@ -527,101 +603,132 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
 
 
 async def observe(context: ScanContext | None = None) -> dict[str, int]:
-    """No direct order placement. Each observed trigger goes to manual confirmation."""
-    from core.activity import BOARD
+    """Join the one observation pass in flight instead of returning fake emptiness.
+
+    Both the scanner cadence and the five-second watch loop need the latest
+    result. Duplicate callers await one task and receive its real counts.
+    """
+    global _observation_task
+
+    task = _observation_task
+    if task is None or task.done():
+        task = asyncio.create_task(_observe_once(context), name="orb-observation")
+        _observation_task = task
+    try:
+        return await asyncio.shield(task)
+    finally:
+        if _observation_task is task and task.done():
+            _observation_task = None
+
+
+async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
+    """Perform one complete persisted ORB observation pass."""
+    from contextlib import AsyncExitStack
+
     from core.desk_bus import DESK_BUS
 
-    if _observation_lock.locked():
+    now = datetime.now(UTC)
+    stored = await asyncio.to_thread(read_session, str(now.astimezone(ET).date()))
+    if stored is None:
         return {}
-    async with _observation_lock:
-        now = datetime.now(UTC)
-        stored = await asyncio.to_thread(read_session, str(now.astimezone(ET).date()))
-        if stored is None:
-            return {}
-        counts: Counter[str] = Counter()
-        from contextlib import AsyncExitStack
+    plans = stored.get("plans") or {}
+    _restore_session_board(stored)
+    BOARD.set_agent("setup", status="working", detail=f"Monitoring {len(plans)} ORB setups")
+    BOARD.set_agent("entry", status="working", detail=f"Checking {len(plans)} entry triggers")
+    counts: Counter[str] = Counter()
 
-        async with AsyncExitStack() as stack:
-            ctx = (
-                context
-                if context is not None
-                else await stack.enter_async_context(open_scan_context(get_settings()))
+    async with AsyncExitStack() as stack:
+        ctx = (
+            context
+            if context is not None
+            else await stack.enter_async_context(open_scan_context(get_settings()))
+        )
+        from strategy.orb.retest_data import prime_bars
+
+        try:
+            await prime_bars(
+                ctx.market_data,
+                [OrbPlan.model_validate(p) for p in plans.values()],
+                now=now,
             )
-            from strategy.orb.retest_data import prime_bars
-
-            try:
-                await prime_bars(
-                    ctx.market_data,
-                    [OrbPlan.model_validate(p) for p in stored.get("plans", {}).values()],
-                    now=now,
+        except Exception as exc:  # noqa: BLE001 — a failed batch blocks observation
+            reason = data_error_reason(exc, feed=stored.get("feed", "sip"))
+            BOARD.set_agent("setup", status="error", detail=reason)
+            BOARD.set_agent("entry", status="error", detail=reason)
+            BOARD.log("scanner", f"ORB history unavailable: {reason}", level="warn")
+            for symbol in plans:
+                await asyncio.to_thread(
+                    update_state,
+                    stored["session"],
+                    symbol,
+                    {
+                        "state": "DATA_BLOCKED",
+                        "reasons": [reason],
+                        "observed_at": datetime.now(UTC).isoformat(),
+                        "bid": None,
+                        "ask": None,
+                        "quote_at": None,
+                    },
                 )
-            except Exception as exc:  # noqa: BLE001 — a failed batch blocks observation
+            refreshed = await asyncio.to_thread(read_session, stored["session"])
+            if refreshed is not None:
+                STATUS.update(refreshed)
+            DESK_BUS.bump_desk(kind="orb_observation")
+            return {"data_blocked": len(plans)}
+        snapshots = getattr(ctx.market_data, "get_snapshots", None)
+        if callable(snapshots):
+            try:
+                ctx.observation_snapshots = await asyncio.wait_for(
+                    snapshots(list(plans)), timeout=10
+                )
+            except Exception:  # noqa: BLE001 — display quotes do not authorize entries
+                # Observation quotes are optional display data. Every actual
+                # entry still requires its own fresh quote/admission.
+                ctx.observation_snapshots = {}
+        last_symbol: str | None = None
+        for symbol in plans:
+            last_symbol = symbol
+            try:
+                result = await evaluate_symbol(symbol, ctx)
+                counts[result.status] += 1
+            except Exception as exc:  # noqa: BLE001 — a failed input blocks this symbol
                 reason = data_error_reason(exc, feed=stored.get("feed", "sip"))
-                BOARD.log("scanner", f"ORB history unavailable: {reason}", level="warn")
-                for symbol in stored.get("plans", {}):
-                    await asyncio.to_thread(
-                        update_state,
-                        stored["session"],
-                        symbol,
-                        {
-                            "state": "DATA_BLOCKED",
-                            "reasons": [reason],
-                            "observed_at": datetime.now(UTC).isoformat(),
-                            "bid": None,
-                            "ask": None,
-                            "quote_at": None,
-                        },
+                previous = stored.get("states", {}).get(symbol, {})
+                if previous.get("state") != "DATA_BLOCKED" or previous.get("reasons") != [reason]:
+                    BOARD.log(
+                        "scanner",
+                        f"ORB observation unavailable: {reason}",
+                        symbol=symbol,
+                        level="warn",
                     )
-                STATUS.update((await asyncio.to_thread(read_session, stored["session"])) or {})
-                DESK_BUS.bump_desk(kind="orb_observation")
-                return {"data_blocked": len(stored.get("plans", {}))}
-            snapshots = getattr(ctx.market_data, "get_snapshots", None)
-            if callable(snapshots):
-                try:
-                    ctx.observation_snapshots = await asyncio.wait_for(
-                        snapshots(list(stored.get("plans", {}))), timeout=10
-                    )
-                except Exception:  # noqa: BLE001 — display quotes do not authorize entries
-                    # Observation quotes are optional display data. Every actual
-                    # entry still requires its own fresh quote/admission.
-                    ctx.observation_snapshots = {}
-            for symbol in stored.get("plans", {}):
-                try:
-                    result = await evaluate_symbol(symbol, ctx)
-                    counts[result.status] += 1
-                except Exception as exc:  # noqa: BLE001 — a failed input blocks this symbol
-                    reason = data_error_reason(exc, feed=stored.get("feed", "sip"))
-                    previous = stored.get("states", {}).get(symbol, {})
-                    # The activity feed is an operator journal, not a traceback.
-                    # Report the stable domain reason once when the blocked state
-                    # changes; the card continues to show the current reason on
-                    # every desk refresh.
-                    if previous.get("state") != "DATA_BLOCKED" or previous.get("reasons") != [
-                        reason
-                    ]:
-                        BOARD.log(
-                            "scanner",
-                            f"ORB observation unavailable: {reason}",
-                            symbol=symbol,
-                            level="warn",
-                        )
-                    await asyncio.to_thread(
-                        update_state,
-                        stored["session"],
-                        symbol,
-                        {
-                            "state": "DATA_BLOCKED",
-                            "reasons": [reason],
-                            "bid": None,
-                            "ask": None,
-                            "quote_at": None,
-                            "observed_at": datetime.now(UTC).isoformat(),
-                        },
-                    )
-                    counts["data_blocked"] += 1
-        STATUS.update((await asyncio.to_thread(read_session, stored["session"])) or {})
-        DESK_BUS.bump_desk(kind="orb_observation")
-        return dict(counts)
+                await asyncio.to_thread(
+                    update_state,
+                    stored["session"],
+                    symbol,
+                    {
+                        "state": "DATA_BLOCKED",
+                        "reasons": [reason],
+                        "bid": None,
+                        "ask": None,
+                        "quote_at": None,
+                        "observed_at": datetime.now(UTC).isoformat(),
+                    },
+                )
+                counts["data_blocked"] += 1
+
+    summary = " · ".join(f"{key} {value}" for key, value in sorted(counts.items())) or "no plans"
+    BOARD.set_agent("setup", status="done", detail=f"ORB setups checked · {summary}")
+    BOARD.set_agent(
+        "entry",
+        status="done",
+        detail=f"Entry triggers checked · {summary}",
+        symbol=last_symbol,
+    )
+    refreshed = await asyncio.to_thread(read_session, stored["session"])
+    if refreshed is not None:
+        STATUS.update(refreshed)
+    DESK_BUS.bump_desk(kind="orb_observation")
+    return dict(counts)
 
 
 def retire_pending_legacy() -> int:

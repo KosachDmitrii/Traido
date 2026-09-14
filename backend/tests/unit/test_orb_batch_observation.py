@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -17,6 +18,57 @@ def clear_cache():
     yield
     retest_data._cache.clear()
     retest_data._failures.clear()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_observers_join_the_same_pass(monkeypatch):
+    """The scanner must receive real counts while the watch loop is observing."""
+    from strategy.orb import runtime
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def one_pass(context=None):
+        nonlocal calls
+        calls += 1
+        started.set()
+        await release.wait()
+        return {"wait_for_entry": 7}
+
+    monkeypatch.setattr(runtime, "_observe_once", one_pass)
+    runtime._observation_task = None
+    first = asyncio.create_task(runtime.observe(SimpleNamespace(name="watch")))
+    await started.wait()
+    second = asyncio.create_task(runtime.observe(SimpleNamespace(name="scanner")))
+    await asyncio.sleep(0)
+    release.set()
+
+    assert await first == {"wait_for_entry": 7}
+    assert await second == {"wait_for_entry": 7}
+    assert calls == 1
+    assert runtime._observation_task is None
+
+
+def test_persisted_orb_session_restores_real_agent_statuses(monkeypatch):
+    from core.activity import AgentActivityBoard
+    from strategy.orb import runtime
+
+    board = AgentActivityBoard()
+    monkeypatch.setattr(runtime, "BOARD", board)
+    runtime._restore_session_board(
+        {
+            "counts": {"eligible": 123},
+            "plans": {"AAPL": {}, "MSFT": {}},
+        }
+    )
+
+    agents = {item["id"]: item for item in board.snapshot()["agents"]}
+    assert agents["universe"]["status"] == "done"
+    assert agents["universe"]["updated_at"] is not None
+    assert agents["structure"]["detail"] == "Opening ranges ready · 2 selected"
+    assert agents["risk_plan"]["detail"] == "ORB geometry stored · 2 plans"
+    assert agents["context"]["detail"] == "Waiting for a confirmed ORB entry"
 
 
 @pytest.mark.asyncio
