@@ -1,14 +1,14 @@
 """Frozen session selection with an audited, versioned entry-policy migration."""
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from core.schemas import Quote
-from database.models.orb import OrbSessionRow
+from database.models.orb import OrbDecisionEventRow, OrbSessionRow
 from database.session import session_factory
 
 
@@ -48,18 +48,114 @@ def create_session(day: str, payload: dict[str, Any], *, expand: bool = False) -
         return deepcopy(payload)
 
 
-def update_state(day: str, symbol: str, state: dict[str, Any]) -> None:
+def _timestamp(value: Any, *, fallback: datetime | None = None) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        except ValueError:
+            pass
+    return fallback
+
+
+def _append_decision(
+    db: Any,
+    day: str,
+    symbol: str,
+    current: dict[str, Any],
+    next_state: dict[str, Any],
+    plan: dict[str, Any],
+) -> None:
+    observed_at = _timestamp(next_state.get("observed_at"), fallback=datetime.now(UTC))
+    last_bar = next_state.get("last_bar") or {}
+    geometry = {
+        key: plan.get(key)
+        for key in (
+            "version",
+            "trigger",
+            "max_entry",
+            "stop",
+            "range_high",
+            "range_low",
+            "entry_deadline",
+        )
+        if plan.get(key) is not None
+    }
+    retest = (plan.get("evidence") or {}).get("retest")
+    if retest:
+        geometry["retest"] = deepcopy(retest)
+    db.add(
+        OrbDecisionEventRow(
+            session=day,
+            symbol=symbol,
+            from_state=current.get("state"),
+            to_state=str(next_state.get("state") or current.get("state") or "UNKNOWN"),
+            reason_codes=list(next_state.get("reasons") or []),
+            observed_at=observed_at,
+            source_bar_at=_timestamp(last_bar.get("ts")),
+            payload={
+                "state": deepcopy(next_state),
+                "quote": {
+                    "bid": next_state.get("bid"),
+                    "ask": next_state.get("ask"),
+                    "ts": next_state.get("quote_at"),
+                },
+                "last_bar": deepcopy(last_bar) if last_bar else None,
+                "geometry": geometry,
+            },
+        )
+    )
+
+
+def update_states(day: str, states: dict[str, dict[str, Any]]) -> None:
+    """Update the current projection once and append every observation atomically."""
     with session_factory()() as db:
         row = db.scalar(select(OrbSessionRow).where(OrbSessionRow.session == day).with_for_update())
-        if row is None or symbol not in row.payload.get("plans", {}):
+        if row is None or any(symbol not in row.payload.get("plans", {}) for symbol in states):
             raise ValueError("ORB_PLAN_NOT_FOUND")
         payload = deepcopy(row.payload)
-        current = payload.get("states", {}).get(symbol, {})
-        payload.setdefault("states", {})[symbol] = {**current, **state}
-        if current.get("opportunity_id"):
-            payload["states"][symbol]["opportunity_id"] = current["opportunity_id"]
+        for symbol, state in states.items():
+            current = payload.get("states", {}).get(symbol, {})
+            next_state = {**current, **state}
+            if current.get("opportunity_id"):
+                next_state["opportunity_id"] = current["opportunity_id"]
+            payload.setdefault("states", {})[symbol] = next_state
+            _append_decision(db, day, symbol, current, next_state, payload["plans"][symbol])
         row.payload = payload
         db.commit()
+
+
+def update_state(day: str, symbol: str, state: dict[str, Any]) -> None:
+    update_states(day, {symbol: state})
+
+
+def list_decisions(day: str, symbol: str, *, limit: int = 100) -> list[dict[str, Any]]:
+    with session_factory()() as db:
+        rows = db.scalars(
+            select(OrbDecisionEventRow)
+            .where(
+                OrbDecisionEventRow.session == day,
+                OrbDecisionEventRow.symbol == symbol.upper(),
+            )
+            .order_by(OrbDecisionEventRow.observed_at.desc(), OrbDecisionEventRow.created_at.desc())
+            .limit(limit)
+        ).all()
+        return [
+            {
+                "id": str(row.id),
+                "session": row.session,
+                "symbol": row.symbol,
+                "from_state": row.from_state,
+                "to_state": row.to_state,
+                "reason_codes": list(row.reason_codes),
+                "observed_at": row.observed_at.isoformat(),
+                "source_bar_at": row.source_bar_at.isoformat() if row.source_bar_at else None,
+                "payload": deepcopy(row.payload),
+            }
+            for row in rows
+        ]
 
 
 def upgrade_unpublished_entry_limits(day: str, *, now: datetime) -> dict[str, Any] | None:

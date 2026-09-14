@@ -64,6 +64,16 @@ def test_market_bar_migration_upgrade_and_downgrade():
         assert "market_bars" not in inspect(conn).get_table_names()
 
 
+def test_orb_decision_event_migration_upgrade_and_downgrade():
+    engine = create_engine("sqlite://")
+    migration = runpy.run_path("alembic/versions/0020_orb_decision_events.py")
+    with engine.begin() as conn, Operations.context(MigrationContext.configure(conn)):
+        migration["upgrade"]()
+        assert "orb_decision_events" in inspect(conn).get_table_names()
+        migration["downgrade"]()
+        assert "orb_decision_events" not in inspect(conn).get_table_names()
+
+
 @pytest.mark.asyncio
 async def test_stream_handshake_subscription_and_shutdown(monkeypatch):
     now = datetime.now(UTC)

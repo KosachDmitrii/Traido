@@ -209,7 +209,14 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
         **orb,
         "feed": resolve_alpaca_data_feed(settings),
         "plans": {
-            s: {k: v for k, v in p.items() if k != "evidence"}
+            s: {
+                **{k: v for k, v in p.items() if k != "evidence"},
+                **(
+                    {"evidence": {"retest": p["evidence"]["retest"]}}
+                    if (p.get("evidence") or {}).get("retest")
+                    else {}
+                ),
+            }
             for s, p in orb.get("plans", {}).items()
         },
         "rejections": {},

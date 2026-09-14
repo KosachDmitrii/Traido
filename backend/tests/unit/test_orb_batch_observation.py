@@ -12,12 +12,17 @@ from tests.unit.test_orb_retest import scenario
 
 @pytest.fixture(autouse=True)
 def clear_cache():
+    from strategy.orb import runtime
+
     retest_data._cache.clear()
     retest_data._failures.clear()
     retest_data._cursor = 0
+    runtime._pending_completed_bars.clear()
+    runtime._last_ready_check = 0
     yield
     retest_data._cache.clear()
     retest_data._failures.clear()
+    runtime._pending_completed_bars.clear()
 
 
 @pytest.mark.asyncio
@@ -48,6 +53,55 @@ async def test_concurrent_observers_join_the_same_pass(monkeypatch):
     assert await second == {"wait_for_entry": 7}
     assert calls == 1
     assert runtime._observation_task is None
+
+
+@pytest.mark.asyncio
+async def test_completed_non_breakout_bar_updates_phase_without_full_pass(monkeypatch):
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from core.enums import Timeframe
+    from core.schemas import Bar
+    from strategy.orb import runtime
+    from strategy.orb.store import create_session, list_decisions, read_session
+
+    plan, _, _ = scenario()
+    bar = Bar(
+        symbol=plan.symbol,
+        timeframe=Timeframe.M5,
+        ts=plan.range_end,
+        open=plan.range_high - Decimal("0.10"),
+        high=plan.range_high + Decimal("0.10"),
+        low=plan.range_high - Decimal("0.20"),
+        close=plan.range_high,
+        volume=Decimal(100000),
+        source="alpaca",
+    )
+    instant = bar.ts + timedelta(minutes=5, seconds=2)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz or UTC)
+
+    monkeypatch.setattr(runtime, "datetime", Clock)
+    create_session(
+        plan.session,
+        {
+            "session": plan.session,
+            "plans": {plan.symbol: plan.model_dump(mode="json")},
+            "states": {plan.symbol: {"state": "WAIT", "reasons": ["ORB_RETEST_WAIT_BREAKOUT"]}},
+        },
+    )
+    runtime.notify_completed_bar(bar)
+    assert await runtime.observe_priority(SimpleNamespace()) == {"wait_for_entry": 1}
+    state = read_session(plan.session)["states"][plan.symbol]
+    assert state["reasons"] == ["ORB_RETEST_WAIT_BREAKOUT"]
+    assert state["last_bar"]["close"] == str(plan.range_high)
+    assert state["processing_lag_seconds"] == 2
+    history = list_decisions(plan.session, plan.symbol)
+    assert len(history) == 1
+    assert history[0]["payload"]["last_bar"]["ts"] == bar.ts.isoformat()
 
 
 def test_persisted_orb_session_restores_real_agent_statuses(monkeypatch):

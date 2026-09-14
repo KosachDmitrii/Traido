@@ -84,6 +84,9 @@ def ingest(message: dict[str, Any], *, now: datetime, feed: str | None = None) -
         source="alpaca",
     )
     save_bars(source, symbol, [bar])
+    from strategy.orb.runtime import notify_completed_bar
+
+    notify_completed_bar(bar)
     logger.info(
         "Alpaca %s completed bar stored: symbol=%s timestamp=%s",
         source.removeprefix("alpaca:"),

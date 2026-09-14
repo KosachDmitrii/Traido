@@ -76,6 +76,9 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
       const auto = autoBuyPresentation(execution, state?.state, desk?.auto_trigger?.available !== false);
       const signalStatus = orbSignalStatus(state?.state, reasons);
       const observedTime = observationTime(state?.observed_at);
+      const bar = state?.last_bar;
+      const barCloseTime = observationTime(state?.last_bar_closes_at);
+      const lag = state?.processing_lag_seconds;
       return <article key={plan.symbol} className={`opp-card ${styles.card}`} data-buyable={automatic ? auto.tone === "active" : buyable}>
         <div className={styles.cardHead}><div className={styles.identity}><div><h3>{plan.symbol}</h3><span className={styles.strategy}>{isRetest ? "ORB · Возврат" : "ORB · Покупка"}</span></div></div><strong className={styles.status}>{automatic ? auto.title : buyable ? "Можно подтвердить" : orbState(state?.state)}</strong></div>
         {(plan.name || opp?.candidate.name) && <p className={styles.companyName}>{plan.name || opp?.candidate.name}</p>}
@@ -92,6 +95,11 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
           {ready && !execution?.stage && <p className={styles.signalPhase}>{signalStatus}</p>}
           <p className={styles.brief}>Уровень 09:30–09:35 ET. Пробой подтверждается закрытием растущей пятиминутной свечи выше уровня + $0.01, а не текущей ценой ask.</p>
           {!ready && <p className={styles.brief}>Зона покупки, стоп и цель появятся после возврата и подтверждения.</p>}
+          {bar && <div className={styles.lastBar}>
+            <strong>Закрытая свеча до {barCloseTime ?? "—"} ET</strong>
+            <span>O {px(bar.open)} · H {px(bar.high)} · L {px(bar.low)} · C {px(bar.close)}</span>
+            <small>{lag == null ? "Задержка обработки недоступна" : `Обработана через ${lag.toFixed(1)} с после закрытия`}</small>
+          </div>}
           <small>{observedTime ? `Последняя проверка: ${observedTime} ET` : "Время последней проверки недоступно"}</small>
         </section>}
         {(!automatic || !execution) && <p className={styles.brief}>{reasons.length === 1 && reasons[0] === "ORB_WAITING_BREAKOUT" ? "Ждём роста до цены входа." : reasons.map(orbReason).join(" · ")}</p>}

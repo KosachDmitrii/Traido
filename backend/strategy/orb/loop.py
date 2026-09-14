@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from core.schemas import Quote
-from strategy.orb.runtime import observe
+from strategy.orb.runtime import observe_priority as observe
 from trading.exit_policy import manual_target_exits
 
 logger = logging.getLogger(__name__)
@@ -127,7 +127,7 @@ async def _run() -> None:
             raise
         except Exception:
             logger.exception("ORB observation pass failed")
-        await asyncio.sleep(5)
+        await asyncio.sleep(1)
 
 
 def start_entry_watch_loop() -> None:

@@ -978,8 +978,10 @@ export type OrbPlan = {
     };
   } };
 };
+export type OrbBar = { ts: string; open: string; high: string; low: string; close: string; volume: string };
 export type OrbState = { state: string; reasons: string[]; bid?: string | null; ask?: string | null;
-  opportunity_id?: string; observed_at?: string; quote_at?: string };
+  opportunity_id?: string; observed_at?: string; quote_at?: string; last_bar?: OrbBar;
+  last_bar_closes_at?: string; next_bar_closes_at?: string; processing_lag_seconds?: number };
 export type OrbExecution = { stage: string; opportunity_id: string; last_outcome?: string | null;
   last_error?: string | null; retry_at?: string | null; attempts: number };
 export type OrbSession = { execution?: Record<string, OrbExecution>; status: string; feed?: string; reason?: string | null; session?: string;
@@ -1017,6 +1019,8 @@ export type OrbSymbolView = {
   symbol: string; session: string | null; plan: OrbPlan | null; state: OrbState | null;
   rejections: string[]; outranked: boolean; session_reason: string | null; quote_error: string | null;
   quote: { bid: string; ask: string; ts: string; feed: string | null; source: string } | null;
+  history: Array<{ id: string; from_state: string | null; to_state: string; reason_codes: string[];
+    observed_at: string; source_bar_at: string | null; payload: { state: OrbState } }>;
 };
 export async function fetchOrbSymbol(symbol: string, signal?: AbortSignal): Promise<OrbSymbolView> {
   const response = await fetch(apiUrl(`/api/v1/evaluation/orb-symbol/${encodeURIComponent(symbol)}`), { headers: apiHeaders(), signal });

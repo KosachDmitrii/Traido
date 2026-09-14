@@ -496,3 +496,20 @@ bar provenance must all remain `alpaca:sip`; an authorization failure is
 `DATA_BLOCKED` and must never trigger a feed downgrade. This changes only the
 market-data source. Alpaca Paper remains the sole broker and live execution remains
 disabled.
+
+### Completed-bar priority path and decision ledger — 2026-09-14
+
+The Alpaca SIP minute stream assembles and durably stores a five-minute bar
+before notifying ORB. The entry watch handles that completed bar independently
+of the slower full-universe reconciliation pass. Phase-1 bars that cannot cross
+the immutable opening-range threshold are projected in one locked session
+update; only symbols capable of advancing and already-confirmed setups enter
+the heavier per-symbol evaluation and admission path. Quotes never substitute
+for a completed bar.
+
+Every persisted observation appends an `orb_decision_events` row in the same
+database transaction as the mutable session projection. The event captures the
+previous and next state, reason codes, completed SIP OHLCV, quote snapshot,
+decision geometry, observation time and processing lag. The desk projection may
+be overwritten for fast reads; these event rows are never updated and remain
+the RCA history exposed by the symbol-inspection API.

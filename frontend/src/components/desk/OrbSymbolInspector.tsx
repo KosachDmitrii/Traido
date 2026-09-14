@@ -84,6 +84,12 @@ export function OrbSymbolInspector() {
       {!plan && !reasons.length && !data.outranked && <p className={styles.notice}>{data.session_reason ? orbReason(data.session_reason) : (ru ? "Сохранённого плана или причины исключения для этого тикера нет." : "No saved plan or exclusion reason for this symbol.")}</p>}
       {plan && <p className={styles.description}>{ru ? "Вход до" : "Entry deadline"} {time(retest?.valid_until ?? plan.entry_deadline)} · {ru ? "Выход до" : "Exit deadline"} {time(plan.exit_at)}</p>}
       <p className={styles.description}>{ru ? "Котировка — снимок на указанное время. Обновление цены не пересчитывает решение ORB. Состояние плана обновлено:" : "The quote is a snapshot at the displayed time. Refreshing it does not recalculate the ORB decision. Plan state observed:"} {time(data.state?.observed_at)}</p>
+      {!!data.history?.length && <details>
+        <summary>{ru ? `История решений (${data.history.length})` : `Decision history (${data.history.length})`}</summary>
+        <div className={styles.historyList}>{data.history.map(event => <p className={styles.description} key={event.id}>
+          {time(event.observed_at)} · {event.from_state ?? "—"} → {event.to_state} · {event.reason_codes.map(orbReason).join(" · ")}
+        </p>)}</div>
+      </details>}
     </> : <p className={styles.description}>{ru ? "Введите тикер для просмотра." : "Enter a symbol to inspect."}</p>}
   </section>;
 }

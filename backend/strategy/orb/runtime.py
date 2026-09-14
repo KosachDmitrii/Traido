@@ -7,6 +7,7 @@ from collections import Counter
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
 from itertools import pairwise
+from threading import Lock
 from typing import Any, cast
 from uuid import uuid4
 
@@ -33,7 +34,7 @@ from strategy.orb import (
     form_plan,
 )
 from strategy.orb.data_access import data_error_reason
-from strategy.orb.store import create_session, read_session, update_state
+from strategy.orb.store import create_session, read_session, update_state, update_states
 from trading.scan_context import ScanContext, open_scan_context
 from trading.session_hours import us_equity_rth_open
 from universe.models import UniverseTier
@@ -41,7 +42,35 @@ from universe.service import UniverseService
 
 _discovery_lock = asyncio.Lock()
 _observation_task: asyncio.Task[dict[str, int]] | None = None
+_priority_lock = asyncio.Lock()
+_pending_completed_bars: dict[tuple[str, datetime], Bar] = {}
+_pending_completed_bars_lock = Lock()
+_last_ready_check = 0.0
 STATUS: dict[str, Any] = {"status": "not_started", "version": VERSION, "parameters": PARAMETERS}
+
+
+def notify_completed_bar(bar: Bar) -> None:
+    """Queue a completed SIP bar for the lightweight observation path.
+
+    Stream ingestion runs in a worker thread, so this deliberately uses a tiny
+    locked process-local dictionary instead of asyncio primitives. Duplicate
+    vendor corrections collapse by key.
+    """
+    with _pending_completed_bars_lock:
+        _pending_completed_bars[(bar.symbol.upper(), bar.ts)] = bar
+
+
+def _bar_observation(bar: Bar, *, observed_at: datetime) -> dict[str, Any]:
+    closes_at = bar.ts + timedelta(minutes=5)
+    boundary = observed_at.replace(second=0, microsecond=0)
+    boundary = boundary.replace(minute=boundary.minute - boundary.minute % 5)
+    return {
+        "observed_at": observed_at.isoformat(),
+        "last_bar": bar.model_dump(mode="json"),
+        "last_bar_closes_at": closes_at.isoformat(),
+        "processing_lag_seconds": max(0, round((observed_at - closes_at).total_seconds(), 3)),
+        "next_bar_closes_at": (boundary + timedelta(minutes=5)).isoformat(),
+    }
 
 
 def _restore_session_board(session: dict[str, Any]) -> None:
@@ -334,6 +363,10 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             "reasons": revised.reasons,
             "observed_at": now.isoformat(),
         }
+        if rows:
+            revised_state.update(
+                _bar_observation(max(rows, key=lambda bar: bar.ts), observed_at=now)
+            )
         if revised.plan is None:
             await asyncio.to_thread(update_state, plan.session, symbol, revised_state)
             return result.model_copy(update={"status": "no_trade", "errors": revised.reasons})
@@ -619,6 +652,129 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
     finally:
         if _observation_task is task and task.done():
             _observation_task = None
+
+
+async def observe_priority(context: ScanContext | None = None) -> dict[str, int]:
+    """Evaluate completed bars without waiting for the full-universe reconciler.
+
+    Most symbols are still at phase 1. Their new bar can be rejected from the
+    immutable opening-range geometry in memory and persisted in one database
+    transaction. Only symbols that can advance (plus already-ready entries)
+    enter the heavier per-symbol admission path.
+    """
+    global _last_ready_check
+
+    if _priority_lock.locked():
+        return {}
+    async with _priority_lock:
+        with _pending_completed_bars_lock:
+            pending = dict(_pending_completed_bars)
+            _pending_completed_bars.clear()
+        now = datetime.now(UTC)
+        stored = await asyncio.to_thread(read_session, str(now.astimezone(ET).date()))
+        if stored is None:
+            return {}
+        plans = stored.get("plans") or {}
+        states = stored.get("states") or {}
+        by_symbol: dict[str, list[Bar]] = {}
+        for (symbol, _ts), bar in pending.items():
+            if symbol in plans:
+                by_symbol.setdefault(symbol, []).append(bar)
+
+        ready_due = asyncio.get_running_loop().time() - _last_ready_check >= 5
+        ready_symbols = {
+            symbol
+            for symbol, raw in plans.items()
+            if (raw.get("evidence") or {}).get("retest")
+            and not states.get(symbol, {}).get("opportunity_id")
+            and states.get(symbol, {}).get("state")
+            not in {"NO_TRADE", "EXECUTED", "APPROVED", "DISCARDED", "EXPIRED"}
+        }
+        if not by_symbol and not (ready_due and ready_symbols):
+            return {}
+        if ready_due:
+            _last_ready_check = asyncio.get_running_loop().time()
+
+        candidates = set(ready_symbols if ready_due else ())
+        passive: dict[str, dict[str, Any]] = {}
+        for symbol, bars in by_symbol.items():
+            plan = OrbPlan.model_validate(plans[symbol])
+            state = states.get(symbol, {})
+            latest = max(bars, key=lambda bar: bar.ts)
+            wait_breakout = state.get("reasons") == ["ORB_RETEST_WAIT_BREAKOUT"]
+            can_breakout = any(
+                bar.ts >= plan.range_end
+                and bar.close > plan.range_high + Decimal("0.01")
+                and bar.close > bar.open
+                for bar in bars
+            )
+            if (
+                wait_breakout
+                and not can_breakout
+                and now < plan.entry_deadline
+                and not state.get("opportunity_id")
+            ):
+                passive[symbol] = {
+                    "state": "WAIT",
+                    "reasons": ["ORB_RETEST_WAIT_BREAKOUT"],
+                    **_bar_observation(latest, observed_at=now),
+                }
+            else:
+                candidates.add(symbol)
+
+        if passive:
+            await asyncio.to_thread(update_states, stored["session"], passive)
+
+        counts: Counter[str] = Counter(wait_for_entry=len(passive))
+        if candidates:
+            from contextlib import AsyncExitStack
+
+            async with AsyncExitStack() as stack:
+                ctx = (
+                    context
+                    if context is not None
+                    else await stack.enter_async_context(open_scan_context(get_settings()))
+                )
+                from strategy.orb.retest_data import prime_bars
+
+                candidate_plans = [OrbPlan.model_validate(plans[s]) for s in sorted(candidates)]
+                await prime_bars(ctx.market_data, candidate_plans, now=now)
+                snapshots = getattr(ctx.market_data, "get_snapshots", None)
+                if callable(snapshots):
+                    try:
+                        ctx.observation_snapshots = await asyncio.wait_for(
+                            snapshots(sorted(candidates)), timeout=10
+                        )
+                    except Exception:  # noqa: BLE001 — quotes cannot authorize entries
+                        ctx.observation_snapshots = {}
+                for symbol in sorted(candidates):
+                    try:
+                        result = await evaluate_symbol(symbol, ctx)
+                        counts[result.status] += 1
+                    except Exception as exc:  # noqa: BLE001 — one symbol fails closed
+                        reason = data_error_reason(exc, feed=stored.get("feed", "sip"))
+                        await asyncio.to_thread(
+                            update_state,
+                            stored["session"],
+                            symbol,
+                            {
+                                "state": "DATA_BLOCKED",
+                                "reasons": [reason],
+                                "observed_at": datetime.now(UTC).isoformat(),
+                                "bid": None,
+                                "ask": None,
+                                "quote_at": None,
+                            },
+                        )
+                        counts["data_blocked"] += 1
+
+        from core.desk_bus import DESK_BUS
+
+        refreshed = await asyncio.to_thread(read_session, stored["session"])
+        if refreshed is not None:
+            STATUS.update(refreshed)
+        DESK_BUS.bump_desk(kind="orb_priority_observation")
+        return dict(counts)
 
 
 async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:

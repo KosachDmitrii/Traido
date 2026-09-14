@@ -123,7 +123,7 @@ async def orb_symbol(symbol: str = Path(pattern=r"^[A-Za-z][A-Za-z0-9.\-]{0,15}$
     """Inspect a saved ORB decision and quote without evaluating or publishing entries."""
     from core.clock import market_date
     from strategy.orb.runtime import STATUS
-    from strategy.orb.store import read_session
+    from strategy.orb.store import list_decisions, read_session
 
     symbol = symbol.upper()
     snapshot = read_session(str(market_date())) or dict(STATUS)
@@ -142,8 +142,20 @@ async def orb_symbol(symbol: str = Path(pattern=r"^[A-Za-z][A-Za-z0-9.\-]{0,15}$
     return {
         "symbol": symbol,
         "session": snapshot.get("session"),
-        "plan": {k: v for k, v in plan.items() if k != "evidence"} if plan else None,
+        "plan": (
+            {
+                **{k: v for k, v in plan.items() if k != "evidence"},
+                **(
+                    {"evidence": {"retest": plan["evidence"]["retest"]}}
+                    if (plan.get("evidence") or {}).get("retest")
+                    else {}
+                ),
+            }
+            if plan
+            else None
+        ),
         "state": state,
+        "history": list_decisions(str(market_date()), symbol, limit=100),
         "rejections": reasons,
         "outranked": outranked,
         "session_reason": snapshot.get("reason"),
