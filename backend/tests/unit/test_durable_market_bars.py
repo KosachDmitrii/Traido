@@ -19,6 +19,7 @@ def isolated(monkeypatch):
     monkeypatch.setattr(retest_data, "_cursor", 0)
     monkeypatch.setattr(retest_data, "_last_attempt", {})
     monkeypatch.setattr(retest_data, "_probe_after", {})
+    monkeypatch.setattr(retest_data, "_coverage", {})
     monkeypatch.setattr(alpaca_stream, "_connected", False)
     monkeypatch.setattr(alpaca_stream, "_latest", {})
     monkeypatch.setattr(alpaca_stream, "_completed", {})
@@ -115,15 +116,14 @@ def minute(i, start, close=101):
 
 
 @pytest.mark.asyncio
-async def test_old_missing_candle_does_not_consume_every_recovery_pass():
+async def test_successful_empty_response_proves_sparse_session_coverage():
     p, _, now = scenario()
     now += timedelta(hours=3)
     feed = SimpleNamespace(get_bars_batch=AsyncMock(return_value={}))
     await retest_data.prime_bars(feed, [p], now=now)
     await retest_data.prime_bars(feed, [p], now=now + timedelta(seconds=31))
     feed.get_bars_batch.assert_awaited_once()
-    with pytest.raises(ValueError, match="ORB_RETEST_HISTORY_GAP"):
-        await retest_data.read_bars(feed, p, now=now, cached=True)
+    assert await retest_data.read_bars(feed, p, now=now, cached=True) == []
 
 
 def test_stream_requires_all_minutes_and_applies_late_corrections():

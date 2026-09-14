@@ -9,7 +9,7 @@ from typing import Any
 
 from core.enums import Timeframe
 from core.schemas import Bar
-from market_data.bar_store import load_bars, save_bars
+from market_data.bar_store import load_bars, load_bars_many, save_bars, save_bars_many
 from strategy.orb import OrbPlan
 
 logger = logging.getLogger(__name__)
@@ -18,6 +18,7 @@ _failures: dict[tuple[str, str, str], tuple[datetime, Exception]] = {}
 _cursor = 0
 _probe_after: dict[str, datetime] = {}
 _last_attempt: dict[tuple[str, str, str], datetime] = {}
+_coverage: dict[tuple[str, str, str], datetime] = {}
 
 HISTORY_BATCH = 25
 """Plans per full-session recovery request.
@@ -46,12 +47,17 @@ def first_gap(plan: OrbPlan, rows: list[Bar], end: datetime) -> datetime:
 def history_complete(plan: OrbPlan, *, now: datetime) -> bool:
     """Whether durable M5 evidence covers 09:35 through the current boundary."""
     end = _boundary(now)
+    if _coverage.get((plan.symbol, plan.session, plan.source), plan.range_end) >= end:
+        return True
     rows = load_bars(plan.source, plan.symbol, plan.range_end, end)
     return first_gap(plan, rows, end) == end
 
 
 def _remember(plan: OrbPlan, end: datetime, rows: list[Bar], now: datetime) -> None:
-    complete = first_gap(plan, rows, end) == end
+    complete = (
+        _coverage.get((plan.symbol, plan.session, plan.source), plan.range_end) >= end
+        or first_gap(plan, rows, end) == end
+    )
     expires = end + timedelta(minutes=5) if complete else now + timedelta(seconds=5)
     if len(_cache) > 1024:
         _cache.clear()
@@ -67,6 +73,16 @@ async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -
         return
     end = _boundary(now)
     jobs: dict[tuple[datetime, datetime, str, str], list[OrbPlan]] = defaultdict(list)
+    stored: dict[tuple[str, str, str], list[Bar]] = {}
+    storage_groups: dict[tuple[str, datetime], list[OrbPlan]] = defaultdict(list)
+    for plan in plans:
+        storage_groups[(plan.source, plan.range_end)].append(plan)
+    for (source, start), members in storage_groups.items():
+        loaded = await asyncio.to_thread(
+            load_bars_many, source, [p.symbol for p in members], start, end
+        )
+        for plan in members:
+            stored[(plan.symbol, plan.session, plan.source)] = loaded.get(plan.symbol, [])
     for plan in plans:
         key = (plan.symbol, plan.session, plan.source)
         feed = getattr(market_data, "_feed", None)
@@ -78,9 +94,11 @@ async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -
         failure = _failures.get(key)
         if failure and now < failure[0]:
             continue
-        rows = await asyncio.to_thread(load_bars, plan.source, plan.symbol, plan.range_end, end)
+        rows = stored.get(key, [])
         _remember(plan, end, rows, now)
-        gap = first_gap(plan, rows, end)
+        proved_through = _coverage.get(key)
+        covered = proved_through is not None and proved_through >= end
+        gap = end if covered else first_gap(plan, rows, end)
         from market_data.alpaca_stream import current
 
         if gap == end and current(plan.symbol, plan.source, now):
@@ -90,7 +108,14 @@ async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -
         # satisfying restart recovery, this also corrects any cached prefix
         # rather than trusting a state that may have been persisted while the
         # observer was lagging.  Complete plans only dogload a recent overlap.
-        start = plan.range_end if gap < end else max(plan.range_end, end - timedelta(minutes=10))
+        if proved_through is not None:
+            start = max(plan.range_end, proved_through - timedelta(minutes=10))
+        else:
+            start = (
+                plan.range_end
+                if gap < end
+                else max(plan.range_end, end - timedelta(minutes=10))
+            )
         if start >= end:
             continue
         stop = end
@@ -126,30 +151,28 @@ async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -
                     ),
                     timeout=60,
                 )
+                payload = {plan.symbol: response.get(plan.symbol, []) for plan in members}
                 for plan in members:
-                    rows = response.get(plan.symbol, [])
+                    rows = payload[plan.symbol]
                     if any(not start <= b.ts < stop for b in rows):
                         raise ValueError("ORB_RETEST_DATA_INVALID")
-                    await asyncio.to_thread(save_bars, plan.source, plan.symbol, rows)
-                    expected = [
-                        start + timedelta(minutes=5 * i)
-                        for i in range(int((stop - start).total_seconds() / 300))
-                    ]
-                    if sorted(b.ts for b in rows) != expected:
-                        missing = next(
-                            (ts for ts in expected if ts not in {b.ts for b in rows}), start
-                        )
-                        retry_seconds = 300 if now - missing > timedelta(minutes=30) else 5
-                        _failures[(plan.symbol, plan.session, plan.source)] = (
-                            now + timedelta(seconds=retry_seconds),
-                            ValueError("ORB_RETEST_HISTORY_GAP"),
-                        )
-                        _cache.pop((plan.symbol, plan.session, plan.source, end), None)
-                        continue
+                    timestamps = [b.ts for b in rows]
+                    if len(timestamps) != len(set(timestamps)):
+                        raise ValueError("ORB_RETEST_DATA_INVALID")
+                await asyncio.to_thread(save_bars_many, members[0].source, payload)
+                for plan in members:
+                    key = (plan.symbol, plan.session, plan.source)
+                    rows = payload[plan.symbol]
+                    # A successful bounded provider response proves the queried
+                    # interval was inspected. Alpaca omits no-trade intervals;
+                    # absence is coverage, never a fabricated zero-volume bar.
+                    _coverage[key] = max(stop, _coverage.get(key, plan.range_end))
                     _failures.pop((plan.symbol, plan.session, plan.source), None)
-                    merged = await asyncio.to_thread(
-                        load_bars, plan.source, plan.symbol, plan.range_end, end
-                    )
+                    previous = stored.get(key, [])
+                    merged_by_ts = {b.ts: b for b in previous}
+                    merged_by_ts.update({b.ts: b for b in rows})
+                    merged = sorted(merged_by_ts.values(), key=lambda b: b.ts)
+                    stored[key] = merged
                     _remember(plan, end, merged, now)
                 logger.info(
                     "ORB bars loaded: symbols=%s start=%s end=%s rows=%s",
@@ -220,12 +243,16 @@ async def read_bars(
     rows = await asyncio.to_thread(load_bars, plan.source, plan.symbol, plan.range_end, end)
     from market_data.alpaca_stream import current
 
-    if first_gap(plan, rows, end) == end and current(plan.symbol, plan.source, now):
+    key = (plan.symbol, plan.session, plan.source)
+    covered = _coverage.get(key, plan.range_end) >= end
+    if (covered or first_gap(plan, rows, end) == end) and current(plan.symbol, plan.source, now):
         return rows
     if cached and callable(getattr(market_data, "get_bars_batch", None)):
-        failure = _failures.get((plan.symbol, plan.session, plan.source))
+        failure = _failures.get(key)
         if failure:
             raise failure[1]
+        if not covered and first_gap(plan, rows, end) < end:
+            raise ValueError("ORB_RETEST_HISTORY_GAP")
         return rows
     if not callable(getattr(market_data, "get_bars_batch", None)):
         # Capability fallback for single-symbol providers. The same 30-minute
@@ -245,12 +272,17 @@ async def read_bars(
             result.extend(chunk)
             start = stop
         await asyncio.to_thread(save_bars, plan.source, plan.symbol, result)
+        _coverage[key] = end
         return result
-    if first_gap(plan, rows, end) < end and end - plan.range_end > timedelta(minutes=30):
+    if (
+        not covered
+        and first_gap(plan, rows, end) < end
+        and end - plan.range_end > timedelta(minutes=30)
+    ):
         raise ValueError("ORB_RETEST_HISTORY_GAP")
     start = (
         max(plan.range_end, end - timedelta(minutes=10))
-        if rows and first_gap(plan, rows, end) == end
+        if covered or (rows and first_gap(plan, rows, end) == end)
         else plan.range_end
     )
     fresh = (
@@ -264,5 +296,40 @@ async def read_bars(
     if any(not start <= b.ts < end for b in fresh):
         raise ValueError("ORB_RETEST_DATA_INVALID")
     await asyncio.to_thread(save_bars, plan.source, plan.symbol, fresh)
+    _coverage[key] = end
     # Missing rows in a fresh response cannot be replaced by stale cached rows.
     return [b for b in rows if b.ts < start] + fresh
+
+
+async def read_cached_bars(
+    plans: list[OrbPlan], *, now: datetime
+) -> tuple[dict[str, list[Bar]], dict[str, Exception]]:
+    """Read one observation batch and preserve per-symbol fail-closed results."""
+    if not plans:
+        return {}, {}
+    end = _boundary(now)
+    rows: dict[str, list[Bar]] = {}
+    errors: dict[str, Exception] = {}
+    groups: dict[tuple[str, datetime], list[OrbPlan]] = defaultdict(list)
+    for plan in plans:
+        groups[(plan.source, plan.range_end)].append(plan)
+    for (source, start), members in groups.items():
+        loaded = await asyncio.to_thread(
+            load_bars_many, source, [p.symbol for p in members], start, end
+        )
+        for plan in members:
+            key = (plan.symbol, plan.session, plan.source)
+            failure = _failures.get(key)
+            covered = _coverage.get(key, plan.range_end) >= end
+            values = loaded.get(plan.symbol, [])
+            if failure:
+                errors[plan.symbol] = failure[1]
+            elif not covered and first_gap(plan, values, end) < end:
+                errors[plan.symbol] = ValueError("ORB_RETEST_HISTORY_GAP")
+            else:
+                rows[plan.symbol] = values
+    return rows, errors
+
+
+def coverage_end(plan: OrbPlan) -> datetime | None:
+    return _coverage.get((plan.symbol, plan.session, plan.source))

@@ -6,6 +6,7 @@ from unittest.mock import ANY, AsyncMock
 import httpx
 import pytest
 
+from market_data.bar_store import load_bars
 from strategy.orb import retest_data
 from tests.unit.test_orb_retest import scenario
 
@@ -16,12 +17,14 @@ def clear_cache():
 
     retest_data._cache.clear()
     retest_data._failures.clear()
+    retest_data._coverage.clear()
     retest_data._cursor = 0
     runtime._pending_completed_bars.clear()
     runtime._last_ready_check = 0
     yield
     retest_data._cache.clear()
     retest_data._failures.clear()
+    retest_data._coverage.clear()
     runtime._pending_completed_bars.clear()
 
 
@@ -207,15 +210,16 @@ async def test_batch_reuses_completed_bars_but_approval_reads_fresh():
 
 
 @pytest.mark.asyncio
-async def test_missing_batch_member_is_not_fabricated_and_retried():
-    plan, rows, now = scenario()
+async def test_missing_batch_member_is_covered_without_fabricating_bars():
+    plan, _, now = scenario()
     feed = SimpleNamespace(get_bars_batch=AsyncMock(return_value={}), get_bars=AsyncMock())
     await retest_data.prime_bars(feed, [plan], now=now)
-    with pytest.raises(ValueError, match="ORB_RETEST_HISTORY_GAP"):
-        await retest_data.read_bars(feed, plan, now=now, cached=True)
-    feed.get_bars_batch.return_value = {plan.symbol: rows}
-    await retest_data.prime_bars(feed, [plan], now=now + timedelta(seconds=6))
+    assert await retest_data.read_bars(feed, plan, now=now, cached=True) == []
+    assert load_bars(plan.source, plan.symbol, plan.range_end, now) == []
+    feed.get_bars_batch.assert_awaited_once()
+    await retest_data.prime_bars(feed, [plan], now=now + timedelta(minutes=5))
     assert feed.get_bars_batch.await_count == 2
+    assert feed.get_bars_batch.await_args.args[1] == now - timedelta(minutes=10)
 
 
 @pytest.mark.asyncio
@@ -302,7 +306,7 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
         if event.symbol == plan.symbol and event.message.startswith("ORB observation unavailable:")
     ]
     feed.get_bars_batch.assert_awaited_once()
-    assert evaluate.await_count == 2
+    assert evaluate.await_count == 0
     broker.place_order.assert_not_awaited()
     with session_factory()() as db:
         assert db.query(OrderIntentRow).count() == 0
@@ -311,4 +315,4 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
     Clock.current = now + timedelta(seconds=31)
     monkeypatch.setattr(retest_data, "_failures", {})
     assert await runtime.observe(ctx) == {"wait_for_entry": 1}
-    assert evaluate.await_count == 3
+    assert evaluate.await_count == 1

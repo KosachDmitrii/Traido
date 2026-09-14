@@ -17,12 +17,18 @@ CENT = Decimal("0.01")
 
 
 def rebuild(
-    base: OrbPlan, bars: list[Bar], *, now: datetime, after: datetime | None = None
+    base: OrbPlan,
+    bars: list[Bar],
+    *,
+    now: datetime,
+    after: datetime | None = None,
+    coverage_end: datetime | None = None,
 ) -> OrbDecision:
     if (
         base.version not in RETEST_VERSIONS
         or now.tzinfo is None
         or (after is not None and after.tzinfo is None)
+        or (coverage_end is not None and coverage_end.tzinfo is None)
     ):
         return OrbDecision(state="DATA_BLOCKED", reasons=["ORB_INVALID_PROVENANCE"])
     # Discard old derived geometry before replay; an invalidated ready plan must
@@ -65,11 +71,14 @@ def rebuild(
         key=lambda b: b.ts,
     )
     expected = base.range_end
+    explicit_coverage = coverage_end is not None and coverage_end >= now.replace(
+        minute=now.minute - now.minute % 5, second=0, microsecond=0
+    )
     for b in rows:
-        if b.ts != expected:
+        if b.ts < expected or (not explicit_coverage and b.ts != expected):
             return result("DATA_BLOCKED", "ORB_RETEST_HISTORY_GAP")
-        expected += timedelta(minutes=5)
-    if now >= expected + timedelta(minutes=5):
+        expected = b.ts + timedelta(minutes=5)
+    if not explicit_coverage and now >= expected + timedelta(minutes=5):
         return result("DATA_BLOCKED", "ORB_RETEST_BARS_STALE")
     band = max(CENT, base.daily_atr * Decimal(PARAMETERS["retest_band_atr"]))
     buffer = max(CENT, base.daily_atr * Decimal(PARAMETERS["retest_stop_buffer_atr"]))

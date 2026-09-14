@@ -262,8 +262,11 @@ async def reconcile_positions(
 
     detail = (
         f"reconcile · closed {closed} · orphans {len(orphans)} · "
-        f"canceled_entries {canceled_entries} · stale_approving {stale} · {report.severity}"
+        f"canceled_entries {canceled_entries} · stale_approving {stale} · "
+        f"unresolved {len(report.unresolved)} · {report.severity}"
     )
+    if report.unresolved:
+        detail += f" · {report.unresolved[0]}"
     BOARD.set_agent("position", status="done", detail=detail)
     BOARD.log("position", detail)
 

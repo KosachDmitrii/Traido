@@ -513,3 +513,11 @@ previous and next state, reason codes, completed SIP OHLCV, quote snapshot,
 decision geometry, observation time and processing lag. The desk projection may
 be overwritten for fast reads; these event rows are never updated and remain
 the RCA history exposed by the symbol-inspection API.
+
+REST history coverage is tracked separately from returned bars. A successful
+bounded Alpaca response proves that the interval was inspected even when a
+thinly traded symbol has no bar in one or more five-minute buckets; only the
+real bars are stored and replayed. Provider errors, malformed/duplicate bars or
+an unproven interval still fail closed. Full-universe observation bulk-loads
+bars and commits passive states once, while confirmation and final admission
+continue to perform their own fresh reads.

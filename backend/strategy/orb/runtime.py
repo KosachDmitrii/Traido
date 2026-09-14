@@ -314,7 +314,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         from uuid import UUID
 
         from strategy.orb.retest import rebuild
-        from strategy.orb.retest_data import read_bars
+        from strategy.orb.retest_data import coverage_end, read_bars
         from strategy.orb.store import replace_unclaimed_plan
         from trading.opportunities import OPPORTUNITIES
 
@@ -357,7 +357,9 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             )
         rows = await read_bars(ctx.market_data, plan, now=now, cached=True)
         now = datetime.now(UTC)
-        revised = rebuild(plan, rows, now=now, after=after)
+        revised = rebuild(
+            plan, rows, now=now, after=after, coverage_end=coverage_end(plan)
+        )
         revised_state: dict[str, Any] = {
             "state": revised.state,
             "reasons": revised.reasons,
@@ -400,7 +402,13 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
                 and checked.state != "DATA_BLOCKED"
                 and (current.bid <= plan.stop or current.bid >= target)
             ):
-                reset_plan = rebuild(plan, rows, now=checked_at, after=checked_at).plan
+                reset_plan = rebuild(
+                    plan,
+                    rows,
+                    now=checked_at,
+                    after=checked_at,
+                    coverage_end=coverage_end(plan),
+                ).plan
                 if reset_plan is not None:
                     replaced = await asyncio.to_thread(
                         replace_unclaimed_plan,
@@ -858,8 +866,78 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
                 # Observation quotes are optional display data. Every actual
                 # entry still requires its own fresh quote/admission.
                 ctx.observation_snapshots = {}
+        # Most of the universe is still waiting for its first breakout. Replay
+        # those histories in memory and persist the projection once; only a
+        # symbol that can advance to an actionable retest enters the expensive
+        # per-symbol admission path.
+        from strategy.orb.retest import rebuild
+        from strategy.orb.retest_data import coverage_end, read_cached_bars
+
+        parsed = {symbol: OrbPlan.model_validate(raw) for symbol, raw in plans.items()}
+        simple = [
+            plan
+            for symbol, plan in parsed.items()
+            if not stored.get("states", {}).get(symbol, {}).get("opportunity_id")
+            and not stored.get("states", {}).get(symbol, {}).get("retest_after")
+            and not plan.evidence.get("retest")
+            and not plan.evidence.get("reentry")
+        ]
+        histories, history_errors = await read_cached_bars(simple, now=now)
+        passive: dict[str, dict[str, Any]] = {}
+        candidates = set(plans) - {plan.symbol for plan in simple}
+        for plan in simple:
+            error = history_errors.get(plan.symbol)
+            rows = histories.get(plan.symbol, [])
+            if error is not None:
+                decision_state = "DATA_BLOCKED"
+                reasons = [data_error_reason(error, feed=stored.get("feed", "sip"))]
+                previous = stored.get("states", {}).get(plan.symbol, {})
+                if previous.get("state") != "DATA_BLOCKED" or previous.get("reasons") != reasons:
+                    BOARD.log(
+                        "scanner",
+                        f"ORB observation unavailable: {reasons[0]}",
+                        symbol=plan.symbol,
+                        level="warn",
+                    )
+            else:
+                decision = rebuild(
+                    plan,
+                    rows,
+                    now=now,
+                    coverage_end=coverage_end(plan),
+                )
+                decision_state = decision.state
+                reasons = decision.reasons
+                if decision.plan is not None and decision.plan.evidence.get("retest"):
+                    candidates.add(plan.symbol)
+                    continue
+            state: dict[str, Any] = {
+                "state": decision_state,
+                "reasons": reasons,
+                "observed_at": now.isoformat(),
+                "bid": None,
+                "ask": None,
+                "quote_at": None,
+            }
+            if rows:
+                state.update(_bar_observation(max(rows, key=lambda bar: bar.ts), observed_at=now))
+            snap = getattr(ctx, "observation_snapshots", {}).get(plan.symbol)
+            if snap and snap.bid is not None and snap.ask is not None and snap.quote_ts:
+                state.update(
+                    bid=str(snap.bid), ask=str(snap.ask), quote_at=snap.quote_ts.isoformat()
+                )
+            passive[plan.symbol] = state
+            counts[
+                {
+                    "WAIT": "wait_for_entry",
+                    "NO_TRADE": "no_trade",
+                    "DATA_BLOCKED": "data_blocked",
+                }[decision_state]
+            ] += 1
+        if passive:
+            await asyncio.to_thread(update_states, stored["session"], passive)
         last_symbol: str | None = None
-        for symbol in plans:
+        for symbol in sorted(candidates):
             last_symbol = symbol
             try:
                 result = await evaluate_symbol(symbol, ctx)

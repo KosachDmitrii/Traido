@@ -108,12 +108,16 @@ async def final_admission(
 
     if plan.version == VERSION:
         from strategy.orb.retest import rebuild
-        from strategy.orb.retest_data import read_bars
+        from strategy.orb.retest_data import coverage_end, read_bars
 
         rows = await read_bars(market_data, plan, now=now)
         after_raw = plan.evidence.get("retest", {}).get("after")
         replay = rebuild(
-            fresh, rows, now=now, after=datetime.fromisoformat(after_raw) if after_raw else None
+            fresh,
+            rows,
+            now=now,
+            after=datetime.fromisoformat(after_raw) if after_raw else None,
+            coverage_end=coverage_end(plan),
         )
         if replay.state == "DATA_BLOCKED":
             raise PretradeRejection("DATA_BLOCKED", ",".join(replay.reasons))

@@ -145,6 +145,16 @@ def test_missing_or_unreliable_history_never_authorizes_entry(kind):
     assert not result.plan.evidence.get("retest")
 
 
+def test_provider_coverage_allows_real_sparse_bars_without_inventing_candles():
+    base, rows, now = scenario()
+    sparse = [rows[0], rows[2]]
+    result = rebuild(base, sparse, now=now, coverage_end=now)
+    assert result.state == "WAIT"
+    assert result.reasons == ["ORB_RETEST_WAIT_CONFIRMATION"]
+    assert len(sparse) == 2
+    assert not result.plan.evidence.get("retest")
+
+
 @pytest.mark.parametrize("low,high", [("100.80", "101.18"), ("101.0", "102.51")])
 def test_stop_or_target_touched_after_confirmation_invalidates_old_signal(low, high):
     p, rows, now = ready_plan()
