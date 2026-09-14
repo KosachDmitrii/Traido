@@ -352,11 +352,7 @@ def evaluate_trigger(
     ) -> OrbDecision:
         return OrbDecision(state=state, reasons=[reason], plan=plan)
 
-    if (
-        now.tzinfo is None
-        or plan.version not in SUPPORTED_VERSIONS
-        or plan.source != "alpaca:sip"
-    ):
+    if now.tzinfo is None or plan.version not in SUPPORTED_VERSIONS or plan.source != "alpaca:sip":
         return result("DATA_BLOCKED", "ORB_INVALID_PROVENANCE")
     if (
         not us_equity_rth_open(now)

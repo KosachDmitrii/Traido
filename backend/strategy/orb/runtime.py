@@ -135,11 +135,9 @@ async def discover(
             volume_low = adv < 1000000
             if volume_low or atr <= Decimal("0.50"):
                 counts["base_rejected"] += 1
-                rejected[symbol] = (
-                    ["ORB_DAILY_VOLUME_LOW"]
-                    if volume_low
-                    else []
-                ) + (["ORB_ATR_LOW"] if atr <= Decimal("0.50") else [])
+                rejected[symbol] = (["ORB_DAILY_VOLUME_LOW"] if volume_low else []) + (
+                    ["ORB_ATR_LOW"] if atr <= Decimal("0.50") else []
+                )
             else:
                 base.append(symbol)
         opening: dict[str, list[Bar]] = {s: [] for s in base}
