@@ -159,7 +159,7 @@ def ensure_builtin_strategies() -> list[dict[str, Any]]:
         name=LIVE_STRATEGY_NAME,
         version_tag=LIVE_STRATEGY_TAG,
         parameters=LIVE_PARAMETERS,
-        notes="ORB Paper: explicit Alpaca IEX/SIP feed, immutable opening range and session exit.",
+        notes="ORB Paper: mandatory Alpaca SIP feed, immutable opening range and session exit.",
     )
     research = register_version(
         key=RESEARCH_STRATEGY_KEY,

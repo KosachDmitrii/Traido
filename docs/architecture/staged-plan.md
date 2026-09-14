@@ -232,5 +232,5 @@ Required before any agent actually calls an LLM.
 
 ## Current execution scope — 2026-09-10
 
-Alpaca Paper is the sole execution provider; development data uses IEX.
+Alpaca Paper is the sole execution provider; every environment uses SIP data.
 See [cutover and validation](alpaca-only.md). Live execution remains prohibited.

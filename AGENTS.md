@@ -137,7 +137,7 @@
 
 ## Vendors (locked)
 - Execution: Alpaca Paper only (user decision 2026-09-10). Live remains prohibited.
-- Data: Alpaca SIP only (owner decision 2026-09-11). Do not downgrade to IEX.
+- Data: Alpaca SIP only (owner decision 2026-09-11). Do not downgrade feeds.
 - OHLCV: Alpaca
 - News: Finnhub · Macro: FRED · Notify: Telegram · LLM: Claude
 - Details: `docs/architecture/vendor-lock.md`

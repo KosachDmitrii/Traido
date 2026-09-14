@@ -59,6 +59,6 @@ EXPOSE 8000
 ENTRYPOINT ["/app/scripts/docker-entrypoint.sh"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD curl -fsS "http://localhost:${PORT:-8000}/health/ready" || exit 1
+    CMD curl -fsS "http://localhost:${PORT:-8000}/health" || exit 1
 
 CMD ["./scripts/railway-start.sh"]

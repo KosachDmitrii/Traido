@@ -75,7 +75,7 @@ async def final_admission(
     ):
         raise PretradeRejection("STRATEGY_RETIRED", "ORB_REQUIRED")
     feed = getattr(market_data, "_feed", None)
-    if feed not in {"iex", "sip"}:
+    if feed != "sip":
         raise PretradeRejection("DATA_BLOCKED", "ORB_UNSUPPORTED_FEED")
     plan = OrbPlan.model_validate(candidate.orb_plan)
     if plan.source != f"alpaca:{feed}":

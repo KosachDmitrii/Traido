@@ -89,7 +89,7 @@ async def discover(
             )
             return dict(STATUS)
         feed = ctx.market_data
-        if feed_name not in {"iex", "sip"} or not callable(getattr(feed, "get_bars_batch", None)):
+        if feed_name != "sip" or not callable(getattr(feed, "get_bars_batch", None)):
             STATUS.update(status="data_blocked", reason="ORB_UNSUPPORTED_FEED")
             return dict(STATUS)
         STATUS.update(status="loading_history", reason=None)
@@ -132,16 +132,11 @@ async def discover(
                 )
                 / 14
             )
-            mean_dollars = sum((b.close * b.volume for b in bs[-14:]), Decimal(0)) / 14
-            volume_low = (
-                adv < 1000000
-                if feed_name == "sip"
-                else mean_dollars < Decimal(str(PARAMETERS["iex_min_avg_dollar_volume"]))
-            )
+            volume_low = adv < 1000000
             if volume_low or atr <= Decimal("0.50"):
                 counts["base_rejected"] += 1
                 rejected[symbol] = (
-                    ["ORB_DAILY_VOLUME_LOW" if feed_name == "sip" else "ORB_IEX_DOLLAR_VOLUME_LOW"]
+                    ["ORB_DAILY_VOLUME_LOW"]
                     if volume_low
                     else []
                 ) + (["ORB_ATR_LOW"] if atr <= Decimal("0.50") else [])
@@ -536,7 +531,7 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
                     now=now,
                 )
             except Exception as exc:  # noqa: BLE001 — a failed batch blocks observation
-                reason = data_error_reason(exc, feed=stored.get("feed", "iex"))
+                reason = data_error_reason(exc, feed=stored.get("feed", "sip"))
                 BOARD.log("scanner", f"ORB history unavailable: {reason}", level="warn")
                 for symbol in stored.get("plans", {}):
                     update_state(
@@ -569,7 +564,7 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
                     result = await evaluate_symbol(symbol, ctx)
                     counts[result.status] += 1
                 except Exception as exc:  # noqa: BLE001 — a failed input blocks this symbol
-                    reason = data_error_reason(exc, feed=stored.get("feed", "iex"))
+                    reason = data_error_reason(exc, feed=stored.get("feed", "sip"))
                     previous = stored.get("states", {}).get(symbol, {})
                     # The activity feed is an operator journal, not a traceback.
                     # Report the stable domain reason once when the blocked state

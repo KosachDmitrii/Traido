@@ -351,7 +351,7 @@ See [`docs/architecture/vendor-lock.md`](architecture/vendor-lock.md).
 - [x] V1 scope / out-of-scope accepted
 - [x] Confirm-first flow accepted
 - [x] Design tokens accepted (Cabin/MedSync soft UI locked)
-- [x] Vendor stack locked (Alpaca Paper + IEX data, live disabled, Finnhub, FRED, Telegram)
+- [x] Vendor stack locked (Alpaca Paper + SIP data, live disabled, Finnhub, FRED, Telegram)
 - [x] Stage 1 authorized
 
 **Stage 0 freeze complete. Stage 1 in progress.**

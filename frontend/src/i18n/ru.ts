@@ -247,7 +247,7 @@ export const ru: Record<MessageKey, string> = {
   "rail.wait.block.STRUCTURAL_DAMAGE": "Структурный ущерб на подходе к зоне",
   "rail.wait.block.SPREAD_ACCEPTABLE": "Спред слишком широкий — ждём сужения",
   "rail.wait.block.SPREAD_DETAIL":
-    "Спред {bps} bps — лимит {max} bps (котировка IEX). Покупка заблокирована до сужения.",
+    "Спред {bps} bps — лимит {max} bps (котировка SIP). Покупка заблокирована до сужения.",
   "rail.wait.block.SPREAD_TOO_WIDE": "Спред слишком широкий — ждём сужения",
   "rail.wait.block.ZONE_ARRIVAL_MISSING": "Нет данных о подходе к зоне — вход отложен",
   "rail.wait.block.INSUFFICIENT_BARS": "Недостаточно баров для оценки подхода",
@@ -487,7 +487,7 @@ export const ru: Record<MessageKey, string> = {
   "settings.broker.what":
     "Котировки: Alpaca {feed}. Заявки, позиции и исполнение: Alpaca Paper.",
   "settings.broker.keeps":
-    "Котировка IEX может отличаться от paper-исполнения по NBBO. Лимит ограничивает цену покупки, но не гарантирует исполнение.",
+    "Котировка SIP/NBBO может отличаться от paper-исполнения. Лимит ограничивает цену покупки, но не гарантирует исполнение.",
   "settings.broker.hint": "Только Paper. Плановая цена входа, лимит заявки и фактическая цена исполнения — разные значения.",
   "settings.broker.alpaca": "Alpaca Paper",
   "settings.broker.status": "Статус: {state}",

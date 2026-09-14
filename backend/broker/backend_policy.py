@@ -25,5 +25,5 @@ def broker_backend_payload() -> dict[str, Any]:
         "market_data_provider": "alpaca",
         "market_data_feed": resolve_alpaca_data_feed(settings),
         "execution_price_source": "alpaca_paper_nbbo_simulation",
-        "note": "Alpaca Paper only. IEX quotes do not guarantee the simulated fill price.",
+        "note": "Alpaca Paper only. SIP/NBBO quotes do not guarantee the simulated fill price.",
     }

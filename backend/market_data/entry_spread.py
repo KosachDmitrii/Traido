@@ -1,7 +1,7 @@
 """Executable entry spread is always the observed bid/ask width.
 
 A last trade has no executable size or guaranteed freshness. It cannot replace
-one side of the quote or turn an uncertain IEX book into a zero-spread market.
+one side of the consolidated quote or turn an uncertain book into zero spread.
 """
 
 from __future__ import annotations

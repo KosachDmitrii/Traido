@@ -1,8 +1,7 @@
 """Unified entry spread gate — desk preview, WAIT, admission, and approve.
 
-One measurement rule (full observed bid/ask width on every feed), one
-ceiling from ``get_entry_thresholds()``, one feed resolver (IEX on paper, SIP
-on live unless ``ALPACA_DATA_FEED`` overrides).
+One measurement rule (full observed SIP bid/ask width), one ceiling from
+``get_entry_thresholds()``, and one mandatory SIP feed resolver.
 """
 
 from __future__ import annotations
@@ -77,8 +76,20 @@ def evaluate_entry_spread(
     """Measure spread and judge against the operator's aggressiveness ceiling."""
     th = thresholds or get_entry_thresholds()
     cfg = settings or get_settings()
-    feed_key = feed or resolve_alpaca_data_feed(cfg)
+    feed_key = (feed or resolve_alpaca_data_feed(cfg)).strip().lower()
     max_bps = th.max_spread_bps
+
+    if feed_key != "sip":
+        return EntrySpreadGateResult(
+            reading=SPREAD_UNAVAILABLE,
+            bps=None,
+            max_bps=max_bps,
+            feed=feed_key,
+            reference_price=None,
+            acceptable=False,
+            extreme=False,
+            reason_codes=("SIP_FEED_REQUIRED",),
+        )
 
     if quote is None:
         return EntrySpreadGateResult(

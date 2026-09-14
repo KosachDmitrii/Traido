@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, inspect
 from websockets.asyncio import client
 
 from core.clock import ET
-from market_data import iex_stream
+from market_data import alpaca_stream
 from market_data.bar_store import load_bars
 from strategy.orb import retest_data, runtime
 from strategy.orb.store import create_session
@@ -24,34 +24,34 @@ from tests.unit.test_orb_retest import scenario
 def isolated(monkeypatch):
     monkeypatch.setattr(retest_data, "_cache", {})
     monkeypatch.setattr(retest_data, "_failures", {})
-    monkeypatch.setattr(iex_stream, "_latest", {})
-    monkeypatch.setattr(iex_stream, "_completed", {})
-    monkeypatch.setattr(iex_stream, "_connected", False)
-    monkeypatch.setattr(iex_stream, "_connected_at", None)
-    monkeypatch.setattr(iex_stream, "_symbol_limit", None)
-    monkeypatch.setattr(iex_stream, "_feed", "iex")
+    monkeypatch.setattr(alpaca_stream, "_latest", {})
+    monkeypatch.setattr(alpaca_stream, "_completed", {})
+    monkeypatch.setattr(alpaca_stream, "_connected", False)
+    monkeypatch.setattr(alpaca_stream, "_connected_at", None)
+    monkeypatch.setattr(alpaca_stream, "_symbol_limit", None)
+    monkeypatch.setattr(alpaca_stream, "_feed", "sip")
 
 
 def test_reconnected_stream_cannot_reuse_old_completion(monkeypatch):
     p, _, now = scenario()
-    monkeypatch.setattr(iex_stream, "_connected", True)
-    iex_stream._latest[p.symbol] = now
-    assert not iex_stream.current(p.symbol, "alpaca:iex", now)
-    iex_stream._completed[p.symbol] = now - timedelta(minutes=10)
-    assert not iex_stream.current(p.symbol, "alpaca:iex", now)
-    iex_stream._completed[p.symbol] = now - timedelta(minutes=5)
-    assert iex_stream.current(p.symbol, "alpaca:iex", now)
-    assert not iex_stream.current(p.symbol, "alpaca:sip", now)
+    monkeypatch.setattr(alpaca_stream, "_connected", True)
+    alpaca_stream._latest[p.symbol] = now
+    assert not alpaca_stream.current(p.symbol, "alpaca:sip", now)
+    alpaca_stream._completed[p.symbol] = now - timedelta(minutes=10)
+    assert not alpaca_stream.current(p.symbol, "alpaca:sip", now)
+    alpaca_stream._completed[p.symbol] = now - timedelta(minutes=5)
+    assert alpaca_stream.current(p.symbol, "alpaca:sip", now)
+    assert not alpaca_stream.current(p.symbol, "alpaca:other", now)
 
 
 def test_current_accepts_only_the_connected_feed(monkeypatch):
     p, _, now = scenario()
-    monkeypatch.setattr(iex_stream, "_feed", "sip")
-    monkeypatch.setattr(iex_stream, "_connected", True)
-    iex_stream._latest[p.symbol] = now
-    iex_stream._completed[p.symbol] = now - timedelta(minutes=5)
-    assert iex_stream.current(p.symbol, "alpaca:sip", now)
-    assert not iex_stream.current(p.symbol, "alpaca:iex", now)
+    monkeypatch.setattr(alpaca_stream, "_feed", "sip")
+    monkeypatch.setattr(alpaca_stream, "_connected", True)
+    alpaca_stream._latest[p.symbol] = now
+    alpaca_stream._completed[p.symbol] = now - timedelta(minutes=5)
+    assert alpaca_stream.current(p.symbol, "alpaca:sip", now)
+    assert not alpaca_stream.current(p.symbol, "alpaca:other", now)
 
 
 def test_market_bar_migration_upgrade_and_downgrade():
@@ -65,21 +65,18 @@ def test_market_bar_migration_upgrade_and_downgrade():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("limited", [False, True])
-async def test_stream_handshake_subscription_and_shutdown(monkeypatch, limited):
+async def test_stream_handshake_subscription_and_shutdown(monkeypatch):
     now = datetime.now(UTC)
     start = now.replace(minute=now.minute - now.minute % 5, second=0, microsecond=0) - timedelta(
         minutes=10
     )
-    symbols = ["AAPL"] + ([f"S{i}" for i in range(53)] if limited else [])
-    selected = symbols[:30]
+    symbols = ["AAPL", "MSFT"]
     create_session(str(now.astimezone(ET).date()), {"plans": {s: {} for s in symbols}})
     frames = iter(
         [
             [{"T": "success", "msg": "connected"}],
             [{"T": "success", "msg": "authenticated"}],
-            *([[{"T": "error", "code": 405}]] if limited else []),
-            [{"T": "subscription", "bars": selected, "updatedBars": selected}],
+            [{"T": "subscription", "bars": symbols, "updatedBars": symbols}],
             [minute(i, start) for i in range(5)],
         ]
     )
@@ -110,12 +107,13 @@ async def test_stream_handshake_subscription_and_shutdown(monkeypatch, limited):
 
     monkeypatch.setattr(client, "connect", connect)
     with pytest.raises(asyncio.CancelledError):
-        await iex_stream._run("test-key", "test-secret")
-    assert calls == ["wss://stream.data.alpaca.markets/v2/iex"]
+        await alpaca_stream._run("test-key", "test-secret")
+    assert calls == ["wss://stream.data.alpaca.markets/v2/sip"]
     assert sent[0]["action"] == "auth" and sent[1]["updatedBars"] == symbols
-    assert sent[-1]["updatedBars"] == selected
-    assert len(load_bars("alpaca:iex", "AAPL", start, now)) == 1
-    assert not iex_stream._connected and not iex_stream._latest and not iex_stream._completed
+    assert sent[-1]["updatedBars"] == symbols
+    assert len(load_bars("alpaca:sip", "AAPL", start, now)) == 1
+    assert not alpaca_stream._connected and not alpaca_stream._latest
+    assert not alpaca_stream._completed
 
 
 @pytest.mark.asyncio
@@ -159,10 +157,10 @@ async def test_sip_stream_uses_sip_source_without_basic_symbol_limit(monkeypatch
 
     monkeypatch.setattr(client, "connect", connect)
     with pytest.raises(asyncio.CancelledError):
-        await iex_stream._run("test-key", "test-secret", "sip")
+        await alpaca_stream._run("test-key", "test-secret", "sip")
     assert calls == ["wss://stream.data.alpaca.markets/v2/sip"]
     assert len(load_bars("alpaca:sip", "AAPL", start, now)) == 1
-    assert load_bars("alpaca:iex", "AAPL", start, now) == []
+    assert load_bars("alpaca:other", "AAPL", start, now) == []
 
 
 @pytest.mark.asyncio

@@ -77,7 +77,7 @@ After changing `VITE_API_BASE_URL`, **redeploy** the frontend so the bundle is r
 ## 4. Deploy order
 
 1. Postgres + Redis (provisioned automatically)
-2. **backend** — wait until `/health/ready` is green
+2. **backend** — Railway waits for the dependency-free `/health` liveness probe
 3. **frontend** — needs backend public domain for `VITE_API_BASE_URL`
 
 ## 5. Verify
@@ -92,6 +92,8 @@ open https://<frontend-domain>
 ```
 
 Health must show `broker_env: paper` and `live_trading: false`.
+Use `/health/ready` after deployment to inspect dependency health; Alpaca,
+Redis, or Postgres latency must not reject a healthy process during rollout.
 
 ## 6. Optional: persistent `/app/data`
 

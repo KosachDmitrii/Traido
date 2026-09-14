@@ -650,24 +650,9 @@ def get_entry_aggressiveness() -> int:
         return _cached
 
 
-def _with_feed_spread(th: EntryThresholds) -> EntryThresholds:
-    """Widen spread cap on IEX — single-exchange quotes run wider than SIP/NBBO."""
-    from dataclasses import replace
-
-    from core.config import get_settings
-    from market_data.factory import resolve_alpaca_data_feed
-    from market_data.spread_threshold import max_spread_bps_for_feed
-
-    feed = resolve_alpaca_data_feed(get_settings())
-    adjusted = max_spread_bps_for_feed(th.max_spread_bps, feed)
-    if adjusted == th.max_spread_bps:
-        return th
-    return replace(th, max_spread_bps=adjusted)
-
-
 def get_entry_thresholds() -> EntryThresholds:
     """Candidate fields are Medium-fixed; confirmation follows the slider."""
-    return _with_feed_spread(thresholds_for(get_entry_aggressiveness()))
+    return thresholds_for(get_entry_aggressiveness())
 
 
 def get_buy_confirmation_strictness() -> int:
@@ -677,7 +662,7 @@ def get_buy_confirmation_strictness() -> int:
 
 def get_candidate_thresholds() -> EntryThresholds:
     """Fixed Medium candidate policy — independent of the confirmation slider."""
-    return _with_feed_spread(thresholds_for(CANDIDATE_POLICY_LEVEL))
+    return thresholds_for(CANDIDATE_POLICY_LEVEL)
 
 
 def set_buy_confirmation_strictness(
@@ -699,7 +684,7 @@ def set_entry_aggressiveness(
     """Persist (Redis + file) and return the resolved thresholds."""
     global _cached
     a = clamp_aggressiveness(value, experimental=experimental)
-    thresholds = _with_feed_spread(thresholds_for(a))
+    thresholds = thresholds_for(a)
     updated_at = datetime.now(UTC).isoformat()
     _write_file(a, actor=actor, thresholds=thresholds, updated_at=updated_at)
     wrote_redis = _write_redis(a, actor=actor, updated_at=updated_at)

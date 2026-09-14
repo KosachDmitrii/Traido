@@ -47,7 +47,7 @@ export function EvaluationPage() {
     <OrbSymbolInspector />
     <section className={styles.card}>
       <div className={styles.sectionHead}><h2>{ru ? "Результаты Paper" : "Paper results"}</h2><span>{result?.strategy_version ?? "ORB"}</span></div>
-      <p className={styles.description}>{ru ? "Только закрытые сделки текущей версии ORB из журнала. Старые стратегии и бэктесты исключены. Источники IEX/SIP в этой сводке не разделены." : "Closed journal trades for the current ORB version only. Legacy strategies and backtests are excluded. IEX/SIP results are not separated in this summary."}</p>
+      <p className={styles.description}>{ru ? "Только закрытые сделки текущей версии ORB на SIP из журнала. Старые стратегии и бэктесты исключены." : "Closed journal trades for the current SIP-only ORB version. Legacy strategies and backtests are excluded."}</p>
       {error && <p className={styles.notice} role="alert">{ru ? "Результаты не удалось загрузить. Нажмите «Обновить результаты»." : "Could not load results. Select Refresh results."}</p>}
       <div className={styles.stats} aria-busy={loading}>{stats.map(({icon: Icon, label, value}) => <div key={label}><span><Icon size={15} aria-hidden />{label}</span><strong>{value}</strong></div>)}</div>
       <div className={styles.outcomes}><span>{ru ? "Прибыль / убыток / без изменения" : "Wins / losses / breakeven"}: <b>{shown ? `${shown.wins} / ${shown.losses} / ${shown.breakeven}` : "—"}</b></span><span>Profit factor: <b>{px(shown?.profit_factor)}</b></span></div>

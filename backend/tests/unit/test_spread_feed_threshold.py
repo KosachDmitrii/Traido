@@ -1,4 +1,4 @@
-"""Spread threshold scales with Alpaca data feed."""
+"""Spread thresholds are calibrated only for Alpaca SIP."""
 
 from __future__ import annotations
 
@@ -13,10 +13,9 @@ def test_sip_keeps_base_spread_bands() -> None:
     assert max_spread_bps_for_feed(42.0, "sip") == pytest.approx(42.0)
 
 
-def test_iex_widens_weak_step_to_70_bps() -> None:
-    assert max_spread_bps_for_feed(42.0, "iex") == pytest.approx(70.0)
-    assert max_spread_bps_for_feed(30.0, "iex") == pytest.approx(50.0)
-    assert max_spread_bps_for_feed(35.0, "iex") == pytest.approx(58.3)
+def test_non_sip_feed_is_rejected() -> None:
+    with pytest.raises(ValueError, match="ALPACA_SIP_FEED_REQUIRED"):
+        max_spread_bps_for_feed(42.0, "other")
 
 
 def test_get_entry_thresholds_use_sip_in_production(monkeypatch) -> None:

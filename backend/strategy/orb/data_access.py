@@ -18,8 +18,6 @@ def data_error_reason(exc: Exception, *, feed: str = "sip") -> str:
         return str(exc)
     if isinstance(exc, httpx.HTTPStatusError):
         if exc.response.status_code == 403:
-            if feed != "sip":
-                return "ORB_DATA_ACCESS_DENIED"
             if "subscription does not permit" in exc.response.text.lower():
                 return "ORB_SIP_SUBSCRIPTION_REQUIRED"
             return "ORB_SIP_ACCESS_DENIED"
@@ -35,7 +33,7 @@ def data_error_reason(exc: Exception, *, feed: str = "sip") -> str:
 async def check_access(market_data: Any) -> dict[str, Any]:
     reason = None
     feed = getattr(market_data, "_feed", None)
-    if feed not in {"iex", "sip"}:
+    if feed != "sip":
         reason = "ORB_UNSUPPORTED_FEED"
     else:
         try:

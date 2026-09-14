@@ -124,7 +124,7 @@ as its own CI job. If a change breaks one, the change is wrong.
     but "left in place" is not "confirmed working", so they stay external state
     that each pass has to read back.
 18. **Alpaca is the only market-data and execution provider.** Data and
-    execution remain separate ports; development uses IEX and Alpaca Paper.
+    execution remain separate ports; every environment uses SIP and Alpaca Paper.
 19. **The execution endpoint is fixed to Alpaca Paper.** Quotes do not guarantee
     fills; entries use bounded limits and actual fills come from order reports.
 
@@ -488,21 +488,11 @@ parameters, their research source, application adaptations, lifecycle and
 validation contract. Risk authority, Paper-only broker execution, durable
 intents and protective reconciliation remain shared capital infrastructure.
 
-### ORB IEX development profile — 2026-09-10
+### ORB SIP-only profile — 2026-09-11
 
-`orb@1.1.0` originally restored IEX support. The owner's 2026-09-11 decision now
-fixes production and Paper configuration to `ALPACA_DATA_FEED=sip`; IEX remains
-readable only for historical evidence and isolated compatibility tests.
-Same-feed relative volume replaces the SIP-only restriction; IEX selection uses
-observed dollar liquidity rather than a consolidated share-volume threshold.
-Plans and quote metadata must agree on feed. Capital/execution controls are unchanged.
-See `docs/architecture/orb-replacement.md` for parameters and limitations.
-
-### ORB entitled SIP production profile — 2026-09-11
-
-When the configured Alpaca credentials prove SIP entitlement, production may set
+The Alpaca credentials must prove SIP entitlement and every environment sets
 `ALPACA_DATA_FEED=sip`. REST snapshots, REST bars, WebSocket minute bars and durable
 bar provenance must all remain `alpaca:sip`; an authorization failure is
-`DATA_BLOCKED` and must never trigger a silent IEX downgrade. This changes only the
+`DATA_BLOCKED` and must never trigger a feed downgrade. This changes only the
 market-data source. Alpaca Paper remains the sole broker and live execution remains
 disabled.

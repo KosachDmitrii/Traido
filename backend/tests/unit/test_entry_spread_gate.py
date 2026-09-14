@@ -29,7 +29,7 @@ def test_resolve_reference_prefers_tape_last() -> None:
     assert resolve_spread_reference_price(q, tape_last=100.0, card_entry=99.0) == 100.0
 
 
-def test_iex_wide_book_rejected_despite_nearby_last() -> None:
+def test_sip_wide_book_rejected_despite_nearby_last() -> None:
     q = _quote(90.0, 100.01)
     now = RTH_INSTANT.astimezone(UTC)
     th = thresholds_for(0)
@@ -38,7 +38,7 @@ def test_iex_wide_book_rejected_despite_nearby_last() -> None:
         now=now,
         tape_last=100.0,
         thresholds=th,
-        feed="iex",
+        feed="sip",
     )
     assert gate.bps is not None
     assert gate.bps > 1000
@@ -50,8 +50,7 @@ def test_desk_and_admission_share_same_gate_at_weak_level() -> None:
     q = _quote(99.95, 100.05)
     now = RTH_INSTANT.astimezone(UTC)
     th = get_entry_thresholds()
-    gate = evaluate_entry_spread(q, now=now, tape_last=100.0, thresholds=th, feed="iex")
-    # SIP is the configured source; a caller cannot widen its spread cap by labelling a quote IEX.
+    gate = evaluate_entry_spread(q, now=now, tape_last=100.0, thresholds=th, feed="sip")
     assert gate.max_bps == pytest.approx(35.0)
     assert gate.acceptable is True
 
@@ -65,7 +64,7 @@ def test_all_alpaca_environments_default_to_sip(monkeypatch) -> None:
     assert resolve_alpaca_data_feed(live) == "sip"
 
 
-def test_iex_configuration_is_rejected(monkeypatch) -> None:
+def test_non_sip_configuration_is_rejected(monkeypatch) -> None:
     from pydantic import ValidationError
 
     from core.config import Settings

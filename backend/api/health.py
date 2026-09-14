@@ -78,7 +78,7 @@ async def _timed(name: str, required: bool, coro) -> Check:  # type: ignore[no-u
     )
 
 
-async def _check_database() -> str:
+def _check_database_sync() -> str:
     from sqlalchemy import text
 
     from database.session import get_sync_engine
@@ -87,6 +87,12 @@ async def _check_database() -> str:
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
     return engine.dialect.name
+
+
+async def _check_database() -> str:
+    # Keep the event loop responsive so _timed() can enforce its deadline even
+    # if the synchronous database driver stalls while opening a connection.
+    return await asyncio.to_thread(_check_database_sync)
 
 
 async def _check_redis() -> str:

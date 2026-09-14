@@ -424,7 +424,7 @@ strict side boundaries, and invalid reference prices.
 
 | Condition | Response | Recovery |
 | --- | --- | --- |
-| SIP unavailable or configured IEX | DATA_BLOCKED; no invented opening volume | Restore authorized SIP access, retry observation |
+| SIP unavailable or a non-SIP feed is configured | DATA_BLOCKED; no invented opening volume | Restore authorized SIP access, retry observation |
 | Missing/conflicting opening history | No plan for that symbol; visible data reason | A complete, consistent session dataset |
 | Quote outside cap, stale or below breakout | No new entry intent or broker submission | Fresh check within the same fixed plan and deadline |
 | Quote ages after approval, before initial submission | Mark the provably unsent intent rejected; no broker call | New explicit review through the established admission path |
@@ -434,12 +434,12 @@ strict side boundaries, and invalid reference prices.
 | ORB fill without price target | Journal nullable target and original session exit timestamp | Protection and recovery retain the same geometry |
 | Session exit due, broker unavailable | Keep stop protection, record failure, retry due exit | Shared durable exit path reconciles existing intent before another order |
 
-| ORB IEX development failure | Required result |
+| ORB SIP feed failure | Required result |
 | --- | --- |
 | Quote/provider feed differs from saved plan | Refuse entry; never relabel stored bars |
 | Feed or strategy revision changes after daily selection | Keep saved evidence; require next-session selection |
-| IEX volume below consolidated share floor but dollar liquidity sufficient | Allow observation using IEX RVOL; execution still runs all liquidity/capital gates |
-| IEX request returns 403 | Report configured-feed access denial, not a SIP subscription requirement |
+| Non-SIP provider is supplied | Refuse observation and entry; do not reinterpret its data |
+| SIP request returns 403 | Report SIP access or entitlement failure; do not fall back |
 
 ## Alpaca-only execution — 2026-09-10
 
@@ -450,7 +450,7 @@ strict side boundaries, and invalid reference prices.
 | Live URL or lookalike Paper host | Constructor refuses before sending credentials |
 | Production mock requested | Refuse; mock is only for explicit local tests |
 | Submission timeout / HTTP 5xx | Unresolved, never a definitive rejection |
-| IEX quote differs from NBBO | Preserve the admitted limit; no market-order retry |
+| SIP quote differs from simulated Paper fill | Preserve the admitted limit; no market-order retry |
 | No Alpaca observed risk period | Weekly risk/drawdown unknown; entries blocked |
 | Risk store unavailable/suspended | Unknown risk; defensive execution remains available |
 | Legacy venue journal has unresolved/open state | Refuse cutover; never reconcile it through Alpaca |
@@ -574,7 +574,7 @@ Regression coverage: policy price boundaries; real execution path with zero brok
 
 A capped limit constrains execution price, not future market value. This guard does not certify a profitable entry.
 
-| IEX last print near/above ask despite a wide book | Use full observed bid/ask width; last price cannot reduce measured spread to zero |
+| Last print near/above ask despite a wide book | Use full observed bid/ask width; last price cannot reduce measured spread to zero |
 | Nonfinite or crossed quote | Spread unavailable; never admit |
 
 Regression: AXP screenshot 318.55/320.98 measures 75.99 bps regardless of last print, exceeding the default 30 bps execution cap. This later quote is not evidence of the historical submission quote.
@@ -645,10 +645,10 @@ Default `protected` behavior below is unchanged. Enable only in Paper after depl
 | REST group fails | Keep other groups; retry only failed symbols after backoff |
 | Restart | Load feed-separated source bars from SQL; fetch gaps and recent correction overlap |
 | History missing | DATA_BLOCKED; no synthetic candles, entry intent or broker submission |
-| Configured IEX or SIP stream connected | Persist minute bars and corrections under that exact feed; aggregate only five complete source minutes |
+| SIP stream connected | Persist SIP minute bars and corrections; aggregate only five complete source minutes |
 | Stream disconnected or older than 90 seconds | Do not authorize from stream liveness; fresh REST read required |
 | Complete history and current same-feed stream | Rebuild from durable source bars; final fresh quote and all admission gates still required |
-| SIP configured without SIP entitlement | DATA_BLOCKED; never downgrade to IEX silently |
+| SIP configured without SIP entitlement | DATA_BLOCKED; never downgrade feeds silently |
 | ORB observation remains blocked by the same data reason | Keep the card `DATA_BLOCKED`; write the domain reason to the operator activity feed only when the blocked state or reason changes |
 | Display snapshot fails | Clear displayed quote; preserve independent candle evaluation |
 

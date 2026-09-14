@@ -32,7 +32,7 @@ export function StrategiesPage() {
     [ru ? "История для сравнения" : "Lookback", `${v("lookback_sessions")} ${ru ? "сессий" : "sessions"}`],
     [ru ? "Цена открытия" : "Opening price", `> $${v("min_price")}`],
     [ru ? "Дневной ATR" : "Daily ATR", `> $${v("min_daily_atr")}`],
-    [data?.feed === "iex" ? (ru ? "Средний дневной оборот IEX" : "Average daily IEX turnover") : (ru ? "Средний дневной объём SIP" : "Average daily SIP volume"), data?.feed === "iex" ? `≥ $${v("iex_min_avg_dollar_volume")}` : `≥ ${v("sip_min_daily_volume")} ${ru ? "акций" : "shares"}`],
+    [ru ? "Средний дневной объём SIP" : "Average daily SIP volume", `≥ ${v("sip_min_daily_volume")} ${ru ? "акций" : "shares"}`],
     [ru ? "Относительный объём окна открытия" : "Opening relative volume", `≥ ${v("min_relative_volume")}×`],
     [ru ? "Направление первой свечи" : "First candle direction", ru ? "Растущая: закрытие выше открытия" : "Bullish: close above open"],
     [ru ? "Отбор по относительному объёму" : "Relative volume selection", ru ? "Все прошедшие отбор" : "All qualifying plans"],
@@ -78,7 +78,7 @@ export function StrategiesPage() {
         <div><span>P&L · USD</span><strong>{px(data.paper.pnl)}</strong></div>
         <div><span>{ru ? "Прибыльных" : "Win rate"}</span><strong>{data.paper.win_rate == null ? "—" : `${(data.paper.win_rate*100).toFixed(1)}%`}</strong></div>
         <div><span>{ru ? "Средняя сделка · USD" : "Average trade · USD"}</span><strong>{px(data.paper.expectancy)}</strong></div>
-      </div><p>{ru ? "Только текущая версия ORB; старые стратегии и бэктесты исключены. Результаты IEX/SIP здесь объединены." : "Current ORB version only; legacy strategies and backtests excluded. IEX/SIP results are combined here."}</p></section>
+      </div><p>{ru ? "Только текущая версия ORB на SIP; старые стратегии и бэктесты исключены." : "Current SIP-only ORB version; legacy strategies and backtests excluded."}</p></section>
     </>}
   </div>;
 }

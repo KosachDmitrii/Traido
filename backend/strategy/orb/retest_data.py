@@ -65,7 +65,7 @@ async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -
         rows = await asyncio.to_thread(load_bars, plan.source, plan.symbol, plan.range_end, end)
         _remember(plan, end, rows, now)
         gap = first_gap(plan, rows, end)
-        from market_data.iex_stream import current
+        from market_data.alpaca_stream import current
 
         if gap == end and current(plan.symbol, plan.source, now):
             _failures.pop(key, None)
@@ -198,7 +198,7 @@ async def read_bars(
     if feed is not None and plan.source != f"alpaca:{feed}":
         raise ValueError("ORB_DATA_FEED_MISMATCH")
     rows = await asyncio.to_thread(load_bars, plan.source, plan.symbol, plan.range_end, end)
-    from market_data.iex_stream import current
+    from market_data.alpaca_stream import current
 
     if first_gap(plan, rows, end) == end and current(plan.symbol, plan.source, now):
         return rows

@@ -1,6 +1,6 @@
 # ORB replacement decision — 2026-09-10
 
-The active strategy is `orb@1.1.0` (IEX development support). It replaces the desk's multi-timeframe pullback,
+The active strategy is ORB with mandatory consolidated SIP data. It replaces the desk's multi-timeframe pullback,
 arrival-quality score, aggressiveness slider and mandatory price-target/R:R admission.
 Historical executions, their evidence and protective orders are not rewritten.
 Unclaimed old proposals are withdrawn; an in-flight or UNKNOWN order retains its
@@ -49,28 +49,14 @@ Application adaptations, not universal trading standards:
   paper. They must be visible separately from ORB observation.
 
 The data feed is fixed to SIP by the owner's 2026-09-11 decision. Configuration
-rejects IEX instead of silently downgrading consolidated quotes. The account must
-retain an active Alpaca SIP entitlement.
-
-The historical IEX profile below remains documented for audit only and is not a
-deployable configuration. For IEX, the 1-million-share consolidated-volume condition is not applied.
-Selection instead requires at least $20 million of mean observed daily dollar
-volume over the 14-session baseline, matching the existing execution liquidity
-floor in units (execution independently checks its 20-bar history). Opening
-relative volume compares IEX with IEX for the same 5-minute window; no market-share
-multiplier invents consolidated volume. The existing execution liquidity,
-participation, spread, quote-age, and portfolio risk gates are unchanged. IEX
-prices and volumes describe one exchange, not NBBO or total US market turnover.
-This is a Paper development adaptation, not a reproduction of published SIP
-backtest results. SIP retains the original share-volume selection condition.
+rejects every other feed. The account must retain an active Alpaca SIP entitlement.
 
 Each plan records its feed. Quotes carry adapter feed metadata; a mismatched
 quote or provider is rejected. A saved session is never reinterpreted after a
 feed/version change; a new selection requires the next session. Prior versions
 remain readable for audit and existing-position recovery. The registry gets a
 new immutable version rather than rewriting the existing parameter hash.
-Access probes operate on the configured feed and IEX errors never request SIP
-subscription. There is no silent fallback or artificial quote/volume scaling.
+Access probes operate on SIP. There is no fallback or artificial quote/volume scaling.
 
 ## Persistence and execution
 
@@ -96,7 +82,7 @@ remain available.
 ## Verification contract
 
 New tests cover exact volume/ATR inputs, missing and contradictory bars, partial
-opening intervals, IEX rejection, quote age, price bounds, early close, full-pool
+opening intervals, non-SIP rejection, quote age, price bounds, early close, full-pool
 ranking, restart persistence and atomic publication. Execution lifecycle tests
 use synthetic ORB bars through the actual admission functions, keeping the real
 sizing, durable intent, partial-fill, protective-stop and recovery assertions.

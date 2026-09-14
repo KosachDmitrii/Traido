@@ -1,7 +1,7 @@
 # Production readiness — 2026-09-10
 
 Status: **PAPER_TESTING_ONLY**. Alpaca Paper is the only execution provider.
-Data uses Alpaca IEX in development; live trading remains disabled.
+Data uses Alpaca SIP in every environment; live trading remains disabled.
 
 The Alpaca-only change was verified locally with 1462 passing backend tests
 (one existing skip), 107 focused safety/adapter/risk tests, Ruff lint and format,

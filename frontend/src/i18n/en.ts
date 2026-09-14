@@ -244,7 +244,7 @@ export const en = {
   "rail.wait.block.STRUCTURAL_DAMAGE": "Structural damage on approach to the zone",
   "rail.wait.block.SPREAD_ACCEPTABLE": "Spread too wide — waiting for it to tighten",
   "rail.wait.block.SPREAD_DETAIL":
-    "Spread {bps} bps — limit {max} bps (IEX quote). Buy blocked until it tightens.",
+    "Spread {bps} bps — limit {max} bps (SIP quote). Buy blocked until it tightens.",
   "rail.wait.block.SPREAD_TOO_WIDE": "Spread too wide — waiting for it to tighten",
   "rail.wait.block.ZONE_ARRIVAL_MISSING": "No zone-arrival data — entry deferred",
   "rail.wait.block.INSUFFICIENT_BARS": "Not enough bars to score zone approach",
@@ -480,7 +480,7 @@ export const en = {
   "settings.broker.what":
     "Quotes: Alpaca {feed}. Orders, positions and fills: Alpaca Paper.",
   "settings.broker.keeps":
-    "IEX quotes can differ from Paper fills simulated against NBBO. A limit bounds the buy price; it does not guarantee a fill.",
+    "SIP/NBBO quotes can differ from simulated Paper fills. A limit bounds the buy price; it does not guarantee a fill.",
   "settings.broker.hint": "Paper only. Planned entry, order limit and actual fill are separate prices.",
   "settings.broker.alpaca": "Alpaca Paper",
   "settings.broker.status": "Status: {state}",

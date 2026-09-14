@@ -248,7 +248,7 @@ export type EntryWatchCard = {
   desk_block_reason?: string | null;
   /** Latest admission/trigger failure while revalidating (spread, R:R, chase…). */
   desk_revalidation_hint?: string | null;
-  /** Live top-of-book spread from the watch loop (IEX/SIP). */
+  /** Live top-of-book spread from the SIP watch loop. */
   live_spread_bps?: number | null;
   max_spread_bps?: number | null;
   spread_acceptable?: boolean | null;

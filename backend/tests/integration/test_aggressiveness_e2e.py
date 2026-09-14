@@ -27,7 +27,7 @@ def test_spread_refusal_uses_same_gate_as_desk(desk, level: int) -> None:
     set_entry_aggressiveness(level, actor="integration")
     th = get_entry_thresholds()
     cap = th.max_spread_bps
-    # Stay below IEX orphan-ask threshold (80 bps above last) but above cap.
+    # Stay below the extreme-spread threshold but above the configured cap.
     over_cap_bps = min(cap + 10.0, 79.0)
     assert over_cap_bps > cap
     ask = 100.0 * (1.0 + over_cap_bps / 10_000.0)

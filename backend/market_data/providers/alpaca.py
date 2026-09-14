@@ -271,7 +271,9 @@ class AlpacaMarketData:
         self._key = api_key
         self._secret = api_secret
         self._base = base_url.rstrip("/")
-        self._feed = feed.strip().lower() or "iex"
+        self._feed = feed.strip().lower() or "sip"
+        if self._feed != "sip":
+            raise ValueError("ALPACA_SIP_FEED_REQUIRED")
 
     async def _resolve_feed(
         self,

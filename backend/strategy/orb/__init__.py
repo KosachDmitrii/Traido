@@ -33,7 +33,6 @@ PARAMETERS: dict[str, Any] = {
     "lookback_sessions": 14,
     "min_price": "5",
     "sip_min_daily_volume": 1000000,
-    "iex_min_avg_dollar_volume": "20000000",
     "min_daily_atr": "0.50",
     "min_relative_volume": "1",
     "selection_scope": "all_qualified",
@@ -44,7 +43,7 @@ PARAMETERS: dict[str, Any] = {
     "entry_cutoff_minutes_before_exit": 5,
     "max_entry_drift_r": "1.0",
     "entry_policy_revision": "paper-flex-1",
-    "supported_feeds": ["iex", "sip"],
+    "supported_feeds": ["sip"],
     "default_paper_feed": "sip",
 }
 
@@ -211,7 +210,7 @@ def form_plan(
     }[version]
     if now.tzinfo is None:
         return blocked("ORB_TIMEZONE_REQUIRED")
-    if feed not in {"iex", "sip"}:
+    if feed != "sip":
         return blocked("ORB_UNSUPPORTED_FEED")
     local = now.astimezone(ET)
     start = datetime.combine(local.date(), time(9, 30), ET)
@@ -265,11 +264,9 @@ def form_plan(
     reasons = []
     if today.open <= 5:
         reasons.append("ORB_PRICE_BELOW_MINIMUM")
-    if feed == "sip" and mean_volume < 1000000:
+    if mean_volume < 1000000:
         reasons.append("ORB_DAILY_VOLUME_LOW")
     mean_dollars = sum((b.close * b.volume for b in prior[-14:]), Decimal(0)) / 14
-    if feed == "iex" and mean_dollars < Decimal(str(parameters["iex_min_avg_dollar_volume"])):
-        reasons.append("ORB_IEX_DOLLAR_VOLUME_LOW")
     if atr <= Decimal("0.50"):
         reasons.append("ORB_ATR_LOW")
     if rv < 1:
@@ -358,7 +355,7 @@ def evaluate_trigger(
     if (
         now.tzinfo is None
         or plan.version not in SUPPORTED_VERSIONS
-        or plan.source not in {"alpaca:iex", "alpaca:sip"}
+        or plan.source != "alpaca:sip"
     ):
         return result("DATA_BLOCKED", "ORB_INVALID_PROVENANCE")
     if (

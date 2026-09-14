@@ -98,7 +98,7 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
         plan.session,
         {
             "session": plan.session,
-            "feed": "iex",
+            "feed": "sip",
             "plans": {plan.symbol: plan.model_dump(mode="json")},
             "states": {
                 plan.symbol: {

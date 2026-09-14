@@ -25,7 +25,7 @@ _feed = "sip"
 
 def _source(feed: str | None = None) -> str:
     selected = (feed or _feed).strip().lower()
-    if selected not in {"iex", "sip"}:
+    if selected != "sip":
         raise ValueError("ALPACA_STREAM_FEED_INVALID")
     return f"alpaca:{selected}"
 
@@ -95,7 +95,7 @@ def ingest(message: dict[str, Any], *, now: datetime, feed: str | None = None) -
     return True
 
 
-async def _run(key: str, secret: str, feed: str = "iex") -> None:
+async def _run(key: str, secret: str, feed: str = "sip") -> None:
     from websockets.asyncio.client import connect
 
     from strategy.orb.store import read_session
@@ -105,7 +105,7 @@ async def _run(key: str, secret: str, feed: str = "iex") -> None:
     _source(feed)  # Validate before constructing the vendor URL.
     _feed = feed
     _symbol_limit = None
-    wire_logger = logging.getLogger("market_data.iex_wire")
+    wire_logger = logging.getLogger("market_data.alpaca_wire")
     wire_logger.setLevel(logging.WARNING)
     while True:
         try:
@@ -131,7 +131,7 @@ async def _run(key: str, secret: str, feed: str = "iex") -> None:
                         raw = await asyncio.wait_for(ws.recv(), timeout=30)
                     except TimeoutError:
                         if not authenticated or not subscribed:
-                            raise RuntimeError("IEX_STREAM_HANDSHAKE_TIMEOUT") from None
+                            raise RuntimeError("ALPACA_STREAM_HANDSHAKE_TIMEOUT") from None
                         # A quiet feed must not imply fresh market data.
                         if day != str(datetime.now(ET).date()):
                             break
@@ -146,24 +146,6 @@ async def _run(key: str, secret: str, feed: str = "iex") -> None:
                     messages = json.loads(raw)
                     for message in messages:
                         if message.get("T") == "error":
-                            if feed == "iex" and message.get("code") == 405 and len(symbols) > 30:
-                                # Respect Basic entitlements; the remaining plans
-                                # continue independent REST recovery.
-                                _symbol_limit = 30
-                                symbols = symbols[:30]
-                                await ws.send(
-                                    json.dumps(
-                                        {
-                                            "action": "subscribe",
-                                            "bars": symbols,
-                                            "updatedBars": symbols,
-                                        }
-                                    )
-                                )
-                                logger.warning(
-                                    "IEX stream symbol limit: using 30; remaining plans use REST"
-                                )
-                                continue
                             logger.warning(
                                 "Alpaca %s stream rejected: code=%s", feed, message.get("code")
                             )
@@ -226,7 +208,7 @@ def start() -> None:
     global _task
     settings = get_settings()
     feed = resolve_alpaca_data_feed(settings)
-    if settings.environment == "test" or feed not in {"iex", "sip"}:
+    if settings.environment == "test" or feed != "sip":
         return
     if settings.alpaca_api_key and settings.alpaca_api_secret and (_task is None or _task.done()):
         _task = asyncio.create_task(_run(settings.alpaca_api_key, settings.alpaca_api_secret, feed))
