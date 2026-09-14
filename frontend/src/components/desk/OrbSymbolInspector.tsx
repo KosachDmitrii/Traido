@@ -47,7 +47,7 @@ export function OrbSymbolInspector() {
         : retest?.previous_day_high_state === "above_observed_target"
           ? (ru ? "выше наблюдаемой цели" : "above observed target")
           : "—";
-  const ready = !["orb@2.0.0", "orb@2.1.0"].includes(plan?.version ?? "") || !!retest;
+  const ready = !["orb@2.0.0", "orb@2.1.0", "orb@2.2.0"].includes(plan?.version ?? "") || !!retest;
   const metrics = [
     ["Bid · USD", px(data?.quote?.bid)], ["Ask · USD", px(data?.quote?.ask)],
     [ru ? "Диапазон открытия" : "Opening range", plan ? `${px(plan.range_low)}–${px(plan.range_high)}` : "—"],
@@ -55,8 +55,8 @@ export function OrbSymbolInspector() {
     [ru ? "Стоп" : "Stop", ready ? px(plan?.stop) : "—"], [ru ? "Максимальная цена входа" : "Maximum entry", ready ? px(plan?.max_entry) : "—"],
     [ru ? "Относительный объём" : "Relative volume", plan ? `${px(plan.relative_volume)}×` : "—"],
     ["ATR14", px(plan?.daily_atr)],
-    ...(["orb@2.0.0", "orb@2.1.0"].includes(plan?.version ?? "") ? [[ru ? "Цель выхода" : "Exit target", px(retest?.target)]] : []),
-    ...(plan?.version === "orb@2.1.0" ? [
+    ...(["orb@2.0.0", "orb@2.1.0", "orb@2.2.0"].includes(plan?.version ?? "") ? [[ru ? "Цель выхода" : "Exit target", px(retest?.target)]] : []),
+    ...(["orb@2.1.0", "orb@2.2.0"].includes(plan?.version ?? "") ? [
       ["PDH", px(retest?.previous_day_high)],
       [ru ? "Роль PDH" : "PDH role", pdhState],
       [ru ? "Тело свечи" : "Candle body", percent(quality?.body_to_range)],

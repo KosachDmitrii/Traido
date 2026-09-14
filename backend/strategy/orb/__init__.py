@@ -15,8 +15,9 @@ from trading.session_hours import is_market_holiday, session_close, us_equity_rt
 
 PULLBACK_VERSION = "orb@1.5.0"
 RETEST_VERSION = "orb@2.0.0"
-VERSION = "orb@2.1.0"
-RETEST_VERSIONS = frozenset({RETEST_VERSION, VERSION})
+CONTEXT_VERSION = "orb@2.1.0"
+VERSION = "orb@2.2.0"
+RETEST_VERSIONS = frozenset({RETEST_VERSION, CONTEXT_VERSION, VERSION})
 SUPPORTED_VERSIONS = frozenset(
     {
         "orb@1.1.0",
@@ -201,6 +202,7 @@ def form_plan(
         return blocked("ORB_INVALID_PROVENANCE")
     parameters = {
         VERSION: PARAMETERS,
+        CONTEXT_VERSION: PARAMETERS,
         RETEST_VERSION: RETEST_PARAMETERS,
         PULLBACK_VERSION: PULLBACK_PARAMETERS,
         "orb@1.4.0": EARLY_PARAMETERS,

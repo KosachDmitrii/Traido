@@ -43,7 +43,7 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                 raw_plan = payload.get("orb_plan") or {}
                 if (
                     reason is None
-                    and raw_plan.get("version") in {"orb@2.0.0", "orb@2.1.0"}
+                    and raw_plan.get("version") in {"orb@2.0.0", "orb@2.1.0", "orb@2.2.0"}
                     and row.qty > 0
                 ):
                     from strategy.orb import PARAMETERS, OrbPlan
