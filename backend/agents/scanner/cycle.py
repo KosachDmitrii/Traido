@@ -6,6 +6,7 @@ Selection itself uses complete opening ranges and relative volume.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -84,7 +85,10 @@ async def run_cycle(
     if on_progress:
         on_progress(result.funnel)
     started = time.monotonic()
-    retire_pending_legacy()
+    # The ORB stores use SQLAlchemy's synchronous session API. A production
+    # session can contain hundreds of plans, so the sweep must not run on the
+    # FastAPI event loop while the dashboard is trying to load.
+    await asyncio.to_thread(retire_pending_legacy)
     if context is None:
         async with open_scan_context(settings or get_settings()) as ctx:
             data = await discover(ctx, universe_service)

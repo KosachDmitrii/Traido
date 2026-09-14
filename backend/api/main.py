@@ -31,7 +31,7 @@ from core.desk_bus import DESK_BUS
 from core.log_retention import prune_audit_events, start_log_retention, stop_log_retention
 from core.logging import configure_logging, get_logger
 from database.session import init_db
-from risk.kill_switch import get_kill_switch_state
+from risk.kill_switch import get_local_kill_switch_state
 from risk.limits import default_risk_limits
 from strategy.orb.loop import start_entry_watch_loop, stop_entry_watch_loop
 from trading.reconcile_supervisor import start_reconcile_loop, stop_reconcile_loop
@@ -202,7 +202,7 @@ async def root() -> RedirectResponse:
 @app.get("/health")
 async def health() -> dict:
     """Liveness only — deliberately touches no dependency."""
-    kill = get_kill_switch_state()
+    kill = get_local_kill_switch_state()
     return {
         "status": "ok",
         "app": settings.app_name,

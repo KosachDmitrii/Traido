@@ -51,7 +51,7 @@ async def discover(
     day = str(now.astimezone(ET).date())
     async with _discovery_lock:
         feed_name = getattr(ctx.market_data, "_feed", None)
-        existing = read_session(day)
+        existing = await asyncio.to_thread(read_session, day)
         if existing is not None:
             STATUS.clear()
             STATUS.update(existing)
@@ -65,7 +65,9 @@ async def discover(
             from strategy.orb.store import upgrade_unpublished_entry_limits
 
             if get_settings().broker_env is BrokerEnvironment.PAPER:
-                existing = upgrade_unpublished_entry_limits(day, now=now) or existing
+                existing = (
+                    await asyncio.to_thread(upgrade_unpublished_entry_limits, day, now=now)
+                ) or existing
                 STATUS.update(existing)
             if existing.get("selection_scope") == "all_qualified":
                 return existing
@@ -189,7 +191,7 @@ async def discover(
             "outranked": [],
             "selection_scope": "all_qualified",
         }
-        payload = create_session(day, payload, expand=existing is not None)
+        payload = await asyncio.to_thread(create_session, day, payload, expand=existing is not None)
         STATUS.update(payload)
         return payload
 
@@ -208,7 +210,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
     now = datetime.now(UTC)
     symbol = symbol.upper()
     result = PipelineResult(pipeline_run_id=uuid4(), symbol=symbol, status="wait_for_entry")
-    stored = read_session(str(now.astimezone(ET).date()))
+    stored = await asyncio.to_thread(read_session, str(now.astimezone(ET).date()))
     if stored is None or symbol not in stored.get("plans", {}):
         return result.model_copy(update={"status": "no_trade", "errors": ["ORB_NOT_SELECTED"]})
     plan = OrbPlan.model_validate(stored["plans"][symbol])
@@ -217,7 +219,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         from strategy.orb.reentry import rearm_closed_trade
 
         if await rearm_closed_trade(plan.session, symbol, ctx.broker, now=now):
-            refreshed = read_session(plan.session)
+            refreshed = await asyncio.to_thread(read_session, plan.session)
             if refreshed is None or symbol not in refreshed.get("plans", {}):
                 return result.model_copy(
                     update={"status": "data_blocked", "errors": ["ORB_SESSION_UNRESOLVED"]}
@@ -234,7 +236,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         from trading.opportunities import OPPORTUNITIES
 
         linked = (
-            OPPORTUNITIES.get(UUID(prior["opportunity_id"]))
+            await asyncio.to_thread(OPPORTUNITIES.get, UUID(prior["opportunity_id"]))
             if prior.get("opportunity_id")
             else None
         )
@@ -264,7 +266,8 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         }
         if linked is not None and reset and prior.get("retest_reset_id") != str(linked.id):
             after = now + timedelta(seconds=60)
-            update_state(
+            await asyncio.to_thread(
+                update_state,
                 plan.session,
                 symbol,
                 {"retest_after": after.isoformat(), "retest_reset_id": str(linked.id)},
@@ -278,12 +281,13 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             "observed_at": now.isoformat(),
         }
         if revised.plan is None:
-            update_state(plan.session, symbol, revised_state)
+            await asyncio.to_thread(update_state, plan.session, symbol, revised_state)
             return result.model_copy(update={"status": "no_trade", "errors": revised.reasons})
         if after:
             revised_state["retest_after"] = after.isoformat()
         if revised.plan and (revised.plan != plan or reset):
-            if not replace_unclaimed_plan(
+            if not await asyncio.to_thread(
+                replace_unclaimed_plan,
                 plan.session,
                 symbol,
                 plan.model_dump(mode="json"),
@@ -293,7 +297,11 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             ):
                 return result
             plan = revised.plan
-            prior = (read_session(plan.session) or {}).get("states", {}).get(symbol, {})
+            prior = (
+                ((await asyncio.to_thread(read_session, plan.session)) or {})
+                .get("states", {})
+                .get(symbol, {})
+            )
         if plan.evidence.get("retest"):
             quoter = getattr(ctx.market_data, "get_quote", None)
             current = await quoter(symbol) if quoter else None
@@ -306,7 +314,8 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
                 and (current.bid <= plan.stop or current.bid >= target)
             ):
                 reset_plan = rebuild(plan, rows, now=checked_at, after=checked_at).plan
-                if reset_plan and replace_unclaimed_plan(
+                if reset_plan and await asyncio.to_thread(
+                    replace_unclaimed_plan,
                     plan.session,
                     symbol,
                     plan.model_dump(mode="json"),
@@ -339,7 +348,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
                     ask=str(watched_quote.ask),
                     quote_at=watched_quote.ts.isoformat(),
                 )
-            update_state(plan.session, symbol, revised_state)
+            await asyncio.to_thread(update_state, plan.session, symbol, revised_state)
             return result.model_copy(
                 update={
                     "status": "data_blocked"
@@ -354,9 +363,10 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
 
         from trading.opportunities import OPPORTUNITIES
 
-        opp = OPPORTUNITIES.get(UUID(prior["opportunity_id"]))
+        opp = await asyncio.to_thread(OPPORTUNITIES.get, UUID(prior["opportunity_id"]))
         if opp is None:
-            update_state(
+            await asyncio.to_thread(
+                update_state,
                 plan.session,
                 symbol,
                 {"state": "DATA_BLOCKED", "reasons": ["ORB_PUBLICATION_UNRESOLVED"]},
@@ -369,28 +379,34 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
 
             quoter = getattr(ctx.market_data, "get_quote", None)
             quote = await quoter(symbol) if quoter else None
-            if rearm_skipped_plan(plan.session, symbol, str(opp.id), quote, now=now):
+            if await asyncio.to_thread(
+                rearm_skipped_plan, plan.session, symbol, str(opp.id), quote, now=now
+            ):
                 from core.config import get_settings
                 from core.enums import BrokerEnvironment
 
                 if get_settings().broker_env is BrokerEnvironment.PAPER:
-                    upgrade_unpublished_entry_limits(plan.session, now=now)
+                    await asyncio.to_thread(upgrade_unpublished_entry_limits, plan.session, now=now)
             return result
         if opp.status is not OpportunityStatus.AWAITING_CONFIRMATION:
-            update_state(
+            await asyncio.to_thread(
+                update_state,
                 plan.session,
                 symbol,
                 {"state": opp.status.value.upper(), "reasons": ["ORB_ATTEMPT_CONSUMED"]},
             )
         elif now >= plan.entry_deadline:
-            update_state(
-                plan.session, symbol, {"state": "NO_TRADE", "reasons": ["ORB_ENTRY_EXPIRED"]}
+            await asyncio.to_thread(
+                update_state,
+                plan.session,
+                symbol,
+                {"state": "NO_TRADE", "reasons": ["ORB_ENTRY_EXPIRED"]},
             )
         if opp is not None:
             return result.model_copy(
                 update={"status": opp.status.value, "opportunity": opp, "candidate": opp.candidate}
             )
-    if LEDGER.find_open_by_symbol(symbol) is not None:
+    if await asyncio.to_thread(LEDGER.find_open_by_symbol, symbol) is not None:
         return result.model_copy(update={"status": "position_open"})
     quoter = getattr(ctx.market_data, "get_quote", None)
     quote = await quoter(symbol) if quoter else None
@@ -404,7 +420,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         "ask": str(quote.ask) if quote else None,
         "quote_at": quote.ts.isoformat() if quote else None,
     }
-    update_state(plan.session, symbol, state)
+    await asyncio.to_thread(update_state, plan.session, symbol, state)
     if trigger.state != "BUY_ALLOWED" or quote is None:
         return result.model_copy(
             update={
@@ -418,7 +434,8 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         )
     held = await ctx.broker.list_positions()
     if any(p.symbol.upper() == symbol and p.qty != 0 for p in held):
-        update_state(
+        await asyncio.to_thread(
+            update_state,
             plan.session,
             symbol,
             {**state, "state": "NO_TRADE", "reasons": ["POSITION_ALREADY_OPEN"]},
@@ -461,7 +478,12 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             sector_source_ts=sector.benchmark_last_bar_ts,
         )
     except PretradeRejection as exc:
-        update_state(plan.session, symbol, {**state, "state": "BLOCKED", "reasons": [str(exc)]})
+        await asyncio.to_thread(
+            update_state,
+            plan.session,
+            symbol,
+            {**state, "state": "BLOCKED", "reasons": [str(exc)]},
+        )
         return result.model_copy(
             update={"candidate": candidate, "status": "data_blocked", "errors": [str(exc)]}
         )
@@ -485,13 +507,18 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         }
     )
     if risk.verdict != RiskVerdict.PASS:
-        update_state(plan.session, symbol, {**state, "state": "BLOCKED", "reasons": risk.reasons})
+        await asyncio.to_thread(
+            update_state,
+            plan.session,
+            symbol,
+            {**state, "state": "BLOCKED", "reasons": risk.reasons},
+        )
         return result.model_copy(update={"status": "risk_rejected", "errors": risk.reasons})
     if not publish:
         return result.model_copy(update={"status": "risk_passed"})
     from strategy.orb.publication import publish_orb
 
-    opp = publish_orb(result, final, ctx.settings.trading_mode)
+    opp = await asyncio.to_thread(publish_orb, result, final, ctx.settings.trading_mode)
     from core.audit import create_audit
     from trading.auto_trigger_policy import enqueue_auto_approve_opportunity
 
@@ -508,7 +535,7 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
         return {}
     async with _observation_lock:
         now = datetime.now(UTC)
-        stored = read_session(str(now.astimezone(ET).date()))
+        stored = await asyncio.to_thread(read_session, str(now.astimezone(ET).date()))
         if stored is None:
             return {}
         counts: Counter[str] = Counter()
@@ -532,7 +559,8 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
                 reason = data_error_reason(exc, feed=stored.get("feed", "sip"))
                 BOARD.log("scanner", f"ORB history unavailable: {reason}", level="warn")
                 for symbol in stored.get("plans", {}):
-                    update_state(
+                    await asyncio.to_thread(
+                        update_state,
                         stored["session"],
                         symbol,
                         {
@@ -544,7 +572,7 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
                             "quote_at": None,
                         },
                     )
-                STATUS.update(read_session(stored["session"]) or {})
+                STATUS.update((await asyncio.to_thread(read_session, stored["session"])) or {})
                 DESK_BUS.bump_desk(kind="orb_observation")
                 return {"data_blocked": len(stored.get("plans", {}))}
             snapshots = getattr(ctx.market_data, "get_snapshots", None)
@@ -577,7 +605,8 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
                             symbol=symbol,
                             level="warn",
                         )
-                    update_state(
+                    await asyncio.to_thread(
+                        update_state,
                         stored["session"],
                         symbol,
                         {
@@ -590,7 +619,7 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
                         },
                     )
                     counts["data_blocked"] += 1
-        STATUS.update(read_session(stored["session"]) or {})
+        STATUS.update((await asyncio.to_thread(read_session, stored["session"])) or {})
         DESK_BUS.bump_desk(kind="orb_observation")
         return dict(counts)
 

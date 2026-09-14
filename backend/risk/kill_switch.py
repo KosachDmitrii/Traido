@@ -135,6 +135,24 @@ def get_kill_switch_state() -> KillSwitchState:
     )
 
 
+def get_local_kill_switch_state() -> KillSwitchState:
+    """Dependency-free state for liveness probes.
+
+    The durable flag is always written before Redis, so its presence is enough
+    to report a halt.  A liveness probe must not contact Redis: otherwise a
+    slow DNS or Redis connection can make a healthy API look dead and cause the
+    platform to restart it repeatedly.
+    """
+    enabled, meta = _read_file_state()
+    return KillSwitchState(
+        enabled=enabled,
+        source="local_file",
+        changed_at=meta.get("changed_at"),
+        actor=meta.get("actor"),
+        reason=meta.get("reason"),
+    )
+
+
 def _from_file(
     enabled: bool, meta: dict[str, str], redis_configured: bool = True
 ) -> KillSwitchState:

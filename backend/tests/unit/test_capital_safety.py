@@ -354,3 +354,17 @@ def test_unreadable_flag_contents_still_read_as_halted(flag) -> None:  # type: i
     flag.FLAG.write_text("{not json", encoding="utf-8")
 
     assert flag.is_kill_switch_on() is True
+
+
+def test_liveness_kill_switch_state_never_contacts_redis(flag, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Container liveness must remain responsive during a Redis outage."""
+    monkeypatch.setenv("REDIS_URL", "redis://unreachable.invalid")
+
+    def unexpected_redis_call():  # type: ignore[no-untyped-def]
+        raise AssertionError("liveness contacted Redis")
+
+    monkeypatch.setattr(flag, "_redis_client", unexpected_redis_call)
+    state = flag.get_local_kill_switch_state()
+
+    assert state.enabled is False
+    assert state.source == "local_file"
