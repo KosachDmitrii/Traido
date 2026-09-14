@@ -1,7 +1,7 @@
 import asyncio
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 
 import httpx
 import pytest
@@ -62,6 +62,7 @@ async def test_completed_non_breakout_bar_updates_phase_without_full_pass(monkey
 
     from core.enums import Timeframe
     from core.schemas import Bar
+    from market_data.bar_store import save_bars
     from strategy.orb import runtime
     from strategy.orb.store import create_session, list_decisions, read_session
 
@@ -93,6 +94,9 @@ async def test_completed_non_breakout_bar_updates_phase_without_full_pass(monkey
             "states": {plan.symbol: {"state": "WAIT", "reasons": ["ORB_RETEST_WAIT_BREAKOUT"]}},
         },
     )
+    # Production stream ingestion persists the completed bar before notifying
+    # the priority observer.
+    save_bars(plan.source, plan.symbol, [bar])
     runtime.notify_completed_bar(bar)
     assert await runtime.observe_priority(SimpleNamespace()) == {"wait_for_entry": 1}
     state = read_session(plan.session)["states"][plan.symbol]
@@ -102,6 +106,60 @@ async def test_completed_non_breakout_bar_updates_phase_without_full_pass(monkey
     history = list_decisions(plan.session, plan.symbol)
     assert len(history) == 1
     assert history[0]["payload"]["last_bar"]["ts"] == bar.ts.isoformat()
+
+
+@pytest.mark.asyncio
+async def test_restart_backfills_from_session_start_before_non_breakout_fast_path(monkeypatch):
+    from datetime import UTC, datetime
+    from decimal import Decimal
+
+    from market_data.bar_store import save_bars
+    from strategy.orb import runtime
+    from strategy.orb.store import create_session
+
+    plan, history, history_end = scenario()
+    current = history[-1].model_copy(
+        update={
+            "ts": history_end,
+            "open": plan.range_high - Decimal("0.05"),
+            "high": plan.range_high,
+            "low": plan.range_high - Decimal("0.10"),
+            "close": plan.range_high - Decimal("0.02"),
+        }
+    )
+    instant = current.ts + timedelta(minutes=5, seconds=2)
+
+    class Clock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return instant.astimezone(tz or UTC)
+
+    monkeypatch.setattr(runtime, "datetime", Clock)
+    create_session(
+        plan.session,
+        {
+            "session": plan.session,
+            "plans": {plan.symbol: plan.model_dump(mode="json")},
+            "states": {plan.symbol: {"state": "WAIT", "reasons": ["ORB_RETEST_WAIT_BREAKOUT"]}},
+        },
+    )
+    # This is deliberately only the newest stream bar.  The earlier session
+    # sequence must be recovered from Alpaca before the state may stay 1/3.
+    save_bars(plan.source, plan.symbol, [current])
+    runtime.notify_completed_bar(current)
+    feed = SimpleNamespace(
+        get_bars_batch=AsyncMock(return_value={plan.symbol: [*history, current]}),
+        get_snapshots=AsyncMock(return_value={}),
+    )
+    evaluate = AsyncMock(return_value=SimpleNamespace(status="wait_for_entry"))
+    monkeypatch.setattr(runtime, "evaluate_symbol", evaluate)
+
+    assert await runtime.observe_priority(SimpleNamespace(market_data=feed)) == {
+        "wait_for_entry": 1
+    }
+    feed.get_bars_batch.assert_awaited_once()
+    assert feed.get_bars_batch.await_args.args[1] == plan.range_end
+    evaluate.assert_awaited_once_with(plan.symbol, ANY)
 
 
 def test_persisted_orb_session_restores_real_agent_statuses(monkeypatch):

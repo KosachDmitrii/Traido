@@ -57,8 +57,8 @@ async def test_gap_recovery_never_refetches_prefix():
     save_bars(p.source, p.symbol, [rows[0], rows[2]])
 
     async def batch(symbols, start, end, timeframe):
-        assert start == rows[1].ts
-        return {p.symbol: rows[1:]}
+        assert start == p.range_end
+        return {p.symbol: rows}
 
     feed = SimpleNamespace(get_bars_batch=AsyncMock(side_effect=batch))
     await retest_data.prime_bars(feed, [p], now=now)
@@ -68,7 +68,7 @@ async def test_gap_recovery_never_refetches_prefix():
 @pytest.mark.asyncio
 async def test_failed_group_does_not_discard_healthy_group():
     p, rows, now = scenario()
-    plans = [p.model_copy(update={"symbol": f"S{i}"}) for i in range(10)]
+    plans = [p.model_copy(update={"symbol": f"S{i}"}) for i in range(30)]
 
     async def batch(symbols, start, end, timeframe):
         if "S0" in symbols:
@@ -81,20 +81,24 @@ async def test_failed_group_does_not_discard_healthy_group():
         await retest_data.read_bars(feed, plans[0], now=now, cached=True)
     assert len(await retest_data.read_bars(feed, plans[-1], now=now, cached=True)) == 3
     assert feed.get_bars_batch.await_count == 2
-    assert all(len(call.args[0]) <= 5 for call in feed.get_bars_batch.await_args_list)
+    assert all(
+        len(call.args[0]) <= retest_data.HISTORY_BATCH
+        for call in feed.get_bars_batch.await_args_list
+    )
 
 
 @pytest.mark.asyncio
-async def test_requests_bounded_and_failed_groups_shrink():
+async def test_full_session_requests_are_batched_and_failed_groups_shrink():
     p, _, now = scenario()
     plans = [p.model_copy(update={"symbol": f"S{i}"}) for i in range(54)]
     feed = SimpleNamespace(get_bars_batch=AsyncMock(side_effect=TimeoutError()))
     await retest_data.prime_bars(feed, plans, now=now + timedelta(hours=3))
-    assert feed.get_bars_batch.await_count == 6
+    assert feed.get_bars_batch.await_count == 3
     for call in feed.get_bars_batch.await_args_list:
-        assert call.args[2] - call.args[1] < timedelta(minutes=30)
+        assert call.args[1] == p.range_end
+        assert call.args[2] - call.args[1] > timedelta(hours=3)
     await retest_data.prime_bars(feed, plans[:5], now=now + timedelta(hours=3, seconds=31))
-    assert all(len(call.args[0]) == 1 for call in feed.get_bars_batch.await_args_list[6:])
+    assert all(len(call.args[0]) == 1 for call in feed.get_bars_batch.await_args_list[3:])
 
 
 def minute(i, start, close=101):

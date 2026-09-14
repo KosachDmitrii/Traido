@@ -695,6 +695,22 @@ async def observe_priority(context: ScanContext | None = None) -> dict[str, int]
         if ready_due:
             _last_ready_check = asyncio.get_running_loop().time()
 
+        # The stream can deliver a current bar after a restart while older bars
+        # are still absent.  A non-breakout current bar is only a valid fast-path
+        # decision when the durable series is contiguous from 09:35 ET.  Without
+        # this guard an earlier breakout is silently lost and the UI lies with a
+        # fresh-looking WAIT_BREAKOUT state.
+        from strategy.orb.retest_data import history_complete
+
+        history_checks = asyncio.Semaphore(8)
+
+        async def complete(symbol: str) -> tuple[str, bool]:
+            async with history_checks:
+                plan = OrbPlan.model_validate(plans[symbol])
+                value = await asyncio.to_thread(history_complete, plan, now=now)
+                return symbol, value
+
+        history_ready = dict(await asyncio.gather(*(complete(symbol) for symbol in by_symbol)))
         candidates = set(ready_symbols if ready_due else ())
         passive: dict[str, dict[str, Any]] = {}
         for symbol, bars in by_symbol.items():
@@ -711,6 +727,7 @@ async def observe_priority(context: ScanContext | None = None) -> dict[str, int]
             if (
                 wait_breakout
                 and not can_breakout
+                and history_ready.get(symbol, False)
                 and now < plan.entry_deadline
                 and not state.get("opportunity_id")
             ):

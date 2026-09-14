@@ -19,6 +19,15 @@ _cursor = 0
 _probe_after: dict[str, datetime] = {}
 _last_attempt: dict[tuple[str, str, str], datetime] = {}
 
+HISTORY_BATCH = 25
+"""Plans per full-session recovery request.
+
+One regular session contributes at most 77 completed five-minute bars per
+symbol.  Twenty-five symbols therefore stay comfortably below Alpaca's 10,000
+row page while allowing a restarted process to recover a several-hundred-name
+ORB universe in one pass instead of advancing it thirty minutes at a time.
+"""
+
 
 def _boundary(now: datetime) -> datetime:
     end = now.astimezone(UTC).replace(second=0, microsecond=0)
@@ -34,6 +43,13 @@ def first_gap(plan: OrbPlan, rows: list[Bar], end: datetime) -> datetime:
     return min(expected, end)
 
 
+def history_complete(plan: OrbPlan, *, now: datetime) -> bool:
+    """Whether durable M5 evidence covers 09:35 through the current boundary."""
+    end = _boundary(now)
+    rows = load_bars(plan.source, plan.symbol, plan.range_end, end)
+    return first_gap(plan, rows, end) == end
+
+
 def _remember(plan: OrbPlan, end: datetime, rows: list[Bar], now: datetime) -> None:
     complete = first_gap(plan, rows, end) == end
     expires = end + timedelta(minutes=5) if complete else now + timedelta(seconds=5)
@@ -43,7 +59,7 @@ def _remember(plan: OrbPlan, end: datetime, rows: list[Bar], now: datetime) -> N
 
 
 async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -> None:
-    """Six groups of five, two concurrently, 30-minute windows; failures shrink to probes."""
+    """Recover complete session history; retry failed plans as isolated probes."""
     global _cursor
     started = time.monotonic()
     batch = getattr(market_data, "get_bars_batch", None)
@@ -70,15 +86,19 @@ async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -
         if gap == end and current(plan.symbol, plan.source, now):
             _failures.pop(key, None)
             continue
-        start = gap if gap < end else max(plan.range_end, end - timedelta(minutes=10))
+        # An incomplete plan is rebuilt from the session boundary.  Besides
+        # satisfying restart recovery, this also corrects any cached prefix
+        # rather than trusting a state that may have been persisted while the
+        # observer was lagging.  Complete plans only dogload a recent overlap.
+        start = plan.range_end if gap < end else max(plan.range_end, end - timedelta(minutes=10))
         if start >= end:
             continue
-        stop = min(end, start + timedelta(minutes=30))
+        stop = end
         jobs[(start, stop, plan.source, plan.symbol if failure else "")].append(plan)
     groups = [
-        (start, stop, members[i : i + 5])
+        (start, stop, members[i : i + HISTORY_BATCH])
         for (start, stop, _source, _probe), members in jobs.items()
-        for i in range(0, len(members), 5)
+        for i in range(0, len(members), HISTORY_BATCH)
     ]
     if not groups:
         return
@@ -88,7 +108,7 @@ async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -
             for p in group[2]
         )
     )
-    selected = groups[:6]
+    selected = groups
     _cursor += len(selected)
     semaphore = asyncio.Semaphore(2)
 
@@ -104,7 +124,7 @@ async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -
                         stop - timedelta(microseconds=1),
                         Timeframe.M5,
                     ),
-                    timeout=12,
+                    timeout=60,
                 )
                 for plan in members:
                     rows = response.get(plan.symbol, [])

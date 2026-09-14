@@ -5,7 +5,7 @@ import ts from "typescript";
 
 const source = readFileSync(new URL("../src/components/desk/orbSignalStatus.ts", import.meta.url), "utf8");
 const { outputText } = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.ESNext } });
-const { orbSignalStatus, observationTime } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
+const { isPotentialOrbState, orbSignalStatus, observationTime } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString("base64")}`);
 
 test("shows the observed phase without inferring progress from price", () => {
   assert.equal(orbSignalStatus("WAIT", ["ORB_RETEST_WAIT_BREAKOUT"]), "1/3 · Ждём пробой");
@@ -21,6 +21,15 @@ test("missing or blocked facts never imply a ready signal", () => {
 test("expired signals and price waits remain distinct", () => {
   assert.equal(orbSignalStatus("WAIT", ["ORB_RETEST_EXPIRED"]), "Сигнал истёк · ждём новый");
   assert.equal(orbSignalStatus("WAIT", ["ORB_WAITING_PULLBACK"]), "Ждём цену в зоне покупки");
+});
+test("cards contain only genuine potential entries", () => {
+  assert.equal(isPotentialOrbState("DATA_BLOCKED", ["ORB_RETEST_WAIT_RETURN"]), false);
+  assert.equal(isPotentialOrbState("WAIT", ["ORB_RETEST_WAIT_BREAKOUT"]), false);
+  assert.equal(isPotentialOrbState("WAIT", ["ORB_RETEST_WAIT_RETURN"]), true);
+  assert.equal(isPotentialOrbState("WAIT", ["ORB_RETEST_WAIT_CONFIRMATION"]), true);
+  assert.equal(isPotentialOrbState("WAIT", [], true), true);
+  assert.equal(isPotentialOrbState("WAIT", [], false, "CHECKING"), true);
+  assert.equal(isPotentialOrbState("WAIT", [], false, "EXPIRED"), false);
 });
 test("observation time uses ET and does not fabricate missing timestamps", () => {
   assert.equal(observationTime("2026-09-11T13:43:12Z"), "09:43:12");

@@ -1,4 +1,30 @@
 /** Presentation only: never infer a completed setup from the current quote. */
+const potentialReasons = new Set([
+  "ORB_RETEST_WAIT_RETURN",
+  "ORB_RETEST_WAIT_CONFIRMATION",
+  "ORB_RETEST_CONFIRMED",
+  "ORB_RETEST_WAIT_RECOVERY",
+  "ORB_WAITING_PULLBACK",
+  "ORB_PRICE_WITHIN_LIMIT",
+  "ORB_BREAKOUT_CONFIRMED",
+]);
+
+const terminalExecutionStages = new Set([
+  "EXECUTED", "CLOSED", "DISCARDED", "EXPIRED", "SKIPPED", "TERMINAL_REJECT", "NO_TRADE",
+]);
+
+export function isPotentialOrbState(
+  state: string | undefined,
+  reasons: string[],
+  hasOpportunity = false,
+  executionStage?: string,
+): boolean {
+  if (state === "DATA_BLOCKED") return false;
+  if (hasOpportunity) return true;
+  if (executionStage && !terminalExecutionStages.has(executionStage)) return true;
+  return reasons.some(reason => potentialReasons.has(reason));
+}
+
 export function orbSignalStatus(state: string | undefined, reasons: string[]): string {
   if (state === "DATA_BLOCKED") return "Нет данных для проверки";
   if (state === "BLOCKED") return "Вход заблокирован";

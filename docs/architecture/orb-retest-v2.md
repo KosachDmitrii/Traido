@@ -14,6 +14,10 @@ The first 09:30–09:35 ET range and previous completed daily data are captured.
 Selection itself is only a watch plan. It does not authorize an order.
 
 Replay contiguous completed five-minute bars from 09:35 through evaluation.
+On process start or reconnect, recover that complete interval from Alpaca SIP
+in full-session batches before publishing an observed phase. A newly streamed
+bar cannot preserve `WAIT_BREAKOUT` while an earlier interval is missing;
+incomplete recovery is `DATA_BLOCKED`, never a fresh-looking phase 1 state.
 Require a bullish close strictly above opening high + $0.01; a later bar
 returns within a band of max($0.01, 0.05 daily ATR) around that high; a distinct
 later bullish bar closes above the high + $0.01 and above the return-bar close.

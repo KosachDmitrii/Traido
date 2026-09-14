@@ -584,7 +584,7 @@ Regression: AXP screenshot 318.55/320.98 measures 75.99 bps regardless of last p
 | Situation | Behaviour |
 |---|---|
 | Opening-range selection only; no completed breakout, return and separate confirmation | WAIT; no executable proposal and no displayed provisional stop/entry |
-| Missing, duplicated, stale, malformed or wrong-symbol five-minute history | DATA_BLOCKED; approval reads fresh history and cannot reuse a cached authorization |
+| Missing, duplicated, stale, malformed or wrong-symbol five-minute history | Fetch the full 09:35-to-current SIP interval; remain DATA_BLOCKED until contiguous. A current non-breakout bar cannot hide an earlier gap or preserve phase 1 without full history |
 | Confirmation close outside affordable geometry, or observed pre-retest high provides insufficient reward after modeled costs | No entry; never move the stop or manufacture a higher target to pass R/R |
 | Ask above frozen confirmation ceiling or bid below the entry floor | WAIT; never raise the limit to follow the quote |
 | Stop/target touched in a subsequent completed bar, or observed fresh bid reaches either before entry | Invalidate unclaimed plan; require another pattern |
