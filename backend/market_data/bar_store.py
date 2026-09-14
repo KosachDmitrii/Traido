@@ -48,11 +48,7 @@ def save_many(
     feed: str, timeframe: str, values: dict[str, list[tuple[datetime, dict[str, Any]]]]
 ) -> None:
     """Upsert several symbols in one transaction."""
-    flattened = [
-        (symbol, ts, payload)
-        for symbol, rows in values.items()
-        for ts, payload in rows
-    ]
+    flattened = [(symbol, ts, payload) for symbol, rows in values.items() for ts, payload in rows]
     if not flattened:
         return
     with session_factory()() as db:

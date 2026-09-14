@@ -112,9 +112,7 @@ async def prime_bars(market_data: Any, plans: list[OrbPlan], *, now: datetime) -
             start = max(plan.range_end, proved_through - timedelta(minutes=10))
         else:
             start = (
-                plan.range_end
-                if gap < end
-                else max(plan.range_end, end - timedelta(minutes=10))
+                plan.range_end if gap < end else max(plan.range_end, end - timedelta(minutes=10))
             )
         if start >= end:
             continue

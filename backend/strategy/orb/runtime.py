@@ -357,9 +357,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             )
         rows = await read_bars(ctx.market_data, plan, now=now, cached=True)
         now = datetime.now(UTC)
-        revised = rebuild(
-            plan, rows, now=now, after=after, coverage_end=coverage_end(plan)
-        )
+        revised = rebuild(plan, rows, now=now, after=after, coverage_end=coverage_end(plan))
         revised_state: dict[str, Any] = {
             "state": revised.state,
             "reasons": revised.reasons,
