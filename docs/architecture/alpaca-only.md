@@ -7,7 +7,7 @@ order intents, protective exits and reconciliation remain required.
 
 ## Data and execution contract
 
-Development uses `ALPACA_DATA_FEED=iex`. IEX describes one exchange. Alpaca Paper
+Traido uses `ALPACA_DATA_FEED=sip`. SIP is the consolidated US-equities feed. Alpaca Paper
 simulates fills against NBBO, so using one provider does not guarantee that a
 displayed quote equals the fill. The interface discloses this distinction.
 Keep plan entry, order limit and broker filled average price separate. Never
@@ -41,7 +41,7 @@ Do not copy/relabel foreign orders, positions or IDs into it. Preserve the prior
 database for audit. The runtime refuses a journal containing foreign unresolved
 intents or open positions without Alpaca entry provenance.
 
-Set `TRAIDO_BROKER=alpaca`, Paper credentials and `ALPACA_DATA_FEED=iex`. Remove
+Set `TRAIDO_BROKER=alpaca`, Paper credentials and `ALPACA_DATA_FEED=sip`. Remove
 obsolete venue and tunnel environment variables. Apply migrations, inspect the
 reported Alpaca account, start its observed risk period, then perform a manually
 confirmed Paper lifecycle: entry, protection, partial fill, exit and restart.

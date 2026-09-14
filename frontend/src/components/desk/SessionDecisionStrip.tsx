@@ -1,6 +1,6 @@
 import type { DeskResponse } from "@/lib/api";
 export function SessionDecisionStrip({ desk }: { desk: DeskResponse | null }) {
-  if (!desk) return null;
+  if (!desk?.light_available) return null;
   const states = Object.values(desk.orb?.states ?? {});
   return <section className="session-strip" aria-label="Состояние ORB">
     <span className="session-strip__item">Предложения купить <b>{desk.buy_opportunities?.length ?? 0}</b></span>

@@ -41,6 +41,13 @@ export function humanizeError(raw: string): FlashMessage {
   const text = raw || t("toast.error.unknown");
   const upper = text.toUpperCase();
 
+  if (upper.includes("REQUEST_TIMEOUT")) {
+    return {
+      kind: "error",
+      title: t("toast.error.timeout.title"),
+      detail: t("toast.error.timeout.detail"),
+    };
+  }
   if (upper.includes("ALPACA_RATE_LIMIT") || upper.includes("429")) {
     return {
       kind: "error",

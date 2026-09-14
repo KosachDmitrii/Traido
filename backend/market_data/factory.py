@@ -7,12 +7,8 @@ from core.ports import MarketDataPort
 
 
 def resolve_alpaca_data_feed(settings: Settings) -> str:
-    """Respect explicit data feed; Paper development defaults to free IEX."""
-    return (
-        (settings.alpaca_data_feed or ("iex" if settings.broker_env.value == "paper" else "sip"))
-        .strip()
-        .lower()
-    )
+    """Return the owner-selected consolidated feed; Settings rejects downgrades."""
+    return settings.alpaca_data_feed
 
 
 def create_market_data_port(settings: Settings) -> MarketDataPort:

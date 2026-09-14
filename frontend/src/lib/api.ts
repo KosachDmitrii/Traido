@@ -457,6 +457,8 @@ export type BrokerSnapshot = {
 
 /** Merged view for existing desk components. */
 export type DeskResponse = DeskLight & {
+  /** False while only the independent broker snapshot has arrived. */
+  light_available?: boolean;
   orb?: OrbSession;
   open_orders?: DeskOpenOrder[];
   open_orders_verified?: boolean;
@@ -476,13 +478,58 @@ function apiHeaders(json = false): Record<string, string> {
   return h;
 }
 
+const READ_TIMEOUT_MS = 8000;
+
+async function fetchRead(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = READ_TIMEOUT_MS,
+): Promise<Response> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const upstream = init.signal;
+  const forwardAbort = () => controller.abort(upstream?.reason);
+  if (upstream?.aborted) forwardAbort();
+  else upstream?.addEventListener("abort", forwardAbort, { once: true });
+  const timer = window.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (timedOut) throw new Error("request_timeout");
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+    upstream?.removeEventListener("abort", forwardAbort);
+  }
+}
+
 let deskEtag: string | null = null;
 
-export function mergeDesk(light: DeskLight, broker: BrokerSnapshot | null): DeskResponse {
+const PARTIAL_LIGHT: DeskLight = {
+  mode: "confirmation",
+  scanner: {},
+  buy_opportunities: [],
+  sell_opportunities: [],
+  positions: [],
+  review: { trade_count: 0, win_rate: 0, recent: [] },
+  activity: { agents: [], events: [] },
+  message: "",
+};
+
+export function mergeDesk(
+  light: DeskLight | null,
+  broker: BrokerSnapshot | null,
+): DeskResponse | null {
+  if (!light && !broker) return null;
+  const base = light ?? PARTIAL_LIGHT;
   return {
-    ...light,
+    ...base,
+    light_available: light !== null,
     portfolio: broker?.portfolio ?? null,
-    positions: broker?.positions?.length ? broker.positions : light.positions,
+    positions: broker?.positions?.length ? broker.positions : base.positions,
     open_orders: broker?.open_orders ?? [],
     open_orders_verified: broker?.open_orders_verified ?? false,
     reconciliation: broker?.reconciliation,
@@ -494,7 +541,7 @@ export function mergeDesk(light: DeskLight, broker: BrokerSnapshot | null): Desk
 export async function fetchDeskLight(signal?: AbortSignal): Promise<DeskLight | null> {
   const headers = apiHeaders();
   if (deskEtag) headers["If-None-Match"] = deskEtag;
-  const res = await fetch(apiUrl("/api/v1/desk"), {
+  const res = await fetchRead(apiUrl("/api/v1/desk"), {
     headers,
     cache: "no-store",
     signal,
@@ -514,11 +561,12 @@ export function invalidateDeskEtag(): void {
   deskEtag = null;
 }
 
-export async function fetchBroker(fresh = false): Promise<BrokerSnapshot> {
+export async function fetchBroker(fresh = false, signal?: AbortSignal): Promise<BrokerSnapshot> {
   const q = fresh ? "?fresh=1" : "";
-  const res = await fetch(apiUrl(`/api/v1/desk/broker${q}`), {
+  const res = await fetchRead(apiUrl(`/api/v1/desk/broker${q}`), {
     headers: apiHeaders(),
     cache: "no-store",
+    signal,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -655,7 +703,7 @@ export async function fetchReview(liveOnly = true): Promise<ReviewPayload> {
 }
 
 export async function fetchKillSwitch(): Promise<{ enabled: boolean }> {
-  const res = await fetch(apiUrl("/api/v1/kill-switch"), { headers: apiHeaders(), cache: "no-store" });
+  const res = await fetchRead(apiUrl("/api/v1/kill-switch"), { headers: apiHeaders(), cache: "no-store" }, 5000);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(parseApiError(data, "kill_switch_failed"));
   return data as { enabled: boolean };
@@ -712,10 +760,10 @@ export async function setAutoTrigger(enabled: boolean): Promise<AutoTrigger> {
 }
 
 export async function fetchBrokerBackend(): Promise<BrokerBackend> {
-  const res = await fetch(apiUrl("/api/v1/broker-backend"), {
+  const res = await fetchRead(apiUrl("/api/v1/broker-backend"), {
     headers: apiHeaders(),
     cache: "no-store",
-  });
+  }, 5000);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(parseApiError(data, "broker_backend_failed"));
   return data as BrokerBackend;

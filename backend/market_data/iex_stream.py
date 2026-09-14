@@ -20,7 +20,7 @@ _connected = False
 _connected_at: datetime | None = None
 _completed: dict[str, datetime] = {}
 _symbol_limit: int | None = None
-_feed = "iex"
+_feed = "sip"
 
 
 def _source(feed: str | None = None) -> str:

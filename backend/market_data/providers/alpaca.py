@@ -266,7 +266,7 @@ class AlpacaMarketData:
         api_secret: str,
         base_url: str,
         *,
-        feed: str = "iex",
+        feed: str = "sip",
     ) -> None:
         self._key = api_key
         self._secret = api_secret

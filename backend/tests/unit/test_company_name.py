@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -9,6 +10,7 @@ import pytest
 
 from market_data.providers.company_name import (
     CompanyNameResolver,
+    attach_cached_company_names,
     parse_name_payload,
 )
 
@@ -69,3 +71,31 @@ async def test_resolve_many_maps_symbols() -> None:
     resolver = CompanyNameResolver(_KEY, transport=httpx.MockTransport(handler))
     names = await resolver.resolve_many(["aapl", "MSFT", "aapl"])
     assert names == {"AAPL": "AAPL Corp", "MSFT": "MSFT Corp"}
+
+
+@pytest.mark.asyncio
+async def test_cached_attachment_never_waits_for_finnhub(monkeypatch) -> None:
+    import market_data.providers.company_name as module
+
+    release = asyncio.Event()
+    started = asyncio.Event()
+    resolver = CompanyNameResolver(_KEY, prefetch_interval=0)
+
+    async def slow_fetch(symbol: str):
+        started.set()
+        await release.wait()
+        return parse_name_payload(symbol, {"name": f"{symbol} Corp"})
+
+    monkeypatch.setattr(resolver, "_fetch", slow_fetch)
+    monkeypatch.setattr(module, "_RESOLVER", resolver)
+    rows = [{"symbol": f"S{i}"} for i in range(416)]
+
+    attach_cached_company_names(rows, _KEY)
+    assert all(row["name"] is None for row in rows)
+    await asyncio.wait_for(started.wait(), timeout=0.1)
+    assert resolver._prefetch_task is not None and not resolver._prefetch_task.done()
+
+    task = resolver._prefetch_task
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

@@ -6,11 +6,11 @@ from core.config import Settings
 from market_data.factory import resolve_alpaca_data_feed
 
 
-def test_paper_defaults_to_free_iex() -> None:
-    s = Settings(ALPACA_DATA_FEED=None, TRAIDO_BROKER_ENV="paper")
-    assert resolve_alpaca_data_feed(s) == "iex"
+def test_paper_defaults_to_consolidated_sip() -> None:
+    s = Settings(TRAIDO_BROKER_ENV="paper")
+    assert resolve_alpaca_data_feed(s) == "sip"
 
 
-def test_explicit_feed_overrides() -> None:
+def test_explicit_sip_is_accepted() -> None:
     s = Settings(ALPACA_DATA_FEED="sip")
     assert resolve_alpaca_data_feed(s) == "sip"

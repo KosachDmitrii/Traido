@@ -18,6 +18,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
   const [busy, setBusy] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const buys = desk?.buy_opportunities ?? [];
+  const lightAvailable = desk?.light_available === true;
   const automatic = desk?.auto_trigger?.enabled === true;
   const manualTarget = desk?.position_exit_policy === "manual_target";
   const planPriority = (symbol: string) => {
@@ -47,10 +48,10 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
     {layout === "page" ? <>
       <header className={styles.heading}><div><span className={styles.eyebrow}>ORB · ALPACA PAPER</span><h1>Торговые возможности</h1><p>От наблюдения за ценой до покупки — каждый план перед глазами.</p></div><span className={styles.mode}><ShieldCheck size={15} />{automatic ? "Автопокупка" : "Ручное подтверждение"}</span></header>
       <div className={styles.summary}>
-        <div><Layers size={18} /><span>Планы сессии</span><strong>{desk ? plans.length : "—"}</strong></div>
+        <div><Layers size={18} /><span>Планы сессии</span><strong>{lightAvailable ? plans.length : "—"}</strong></div>
         <div><Clock3 size={18} /><span>Ожидают условий</span><strong>{desk?.orb ? Object.values(desk.orb.states ?? {}).filter(s => s.state === "WAIT").length : "—"}</strong></div>
         <div><Clock3 size={18} /><span>Нет данных</span><strong>{desk?.orb ? Object.values(desk.orb.states ?? {}).filter(s => s.state === "DATA_BLOCKED").length : "—"}</strong></div>
-        <div><ArrowUpRight size={18} /><span>Предложения покупки</span><strong>{desk ? buys.filter(o => ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", "orb@1.5.0", "orb@2.0.0", "orb@2.1.0"].includes(o.candidate.strategy_version ?? "")).length : "—"}</strong></div>
+        <div><ArrowUpRight size={18} /><span>Предложения покупки</span><strong>{lightAvailable ? buys.filter(o => ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", "orb@1.5.0", "orb@2.0.0", "orb@2.1.0"].includes(o.candidate.strategy_version ?? "")).length : "—"}</strong></div>
       </div>
       <div className={styles.sectionHead}><h2>Планы ORB</h2><span>Диапазон открытия · 09:30–09:35 ET</span></div>
     </> : <>
@@ -58,7 +59,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
     <header className={styles.railHead}><span className={styles.eyebrow}>ALPACA PAPER</span><h2>Планы ORB</h2><p>Диапазон открытия · 09:30–09:35 ET</p></header>
     </>}
     {plans.length > 0 && desk?.orb?.reason && <p className={styles.notice} role="alert">{orbReason(desk.orb.reason)}</p>}
-    {!plans.length && <div className={styles.empty} role="status"><span className={styles.emptyIcon}><Radar size={28} /></span><h3>{!desk ? "Получаем торговые планы" : "Пока нет планов для входа"}</h3><p>{orbReason(desk?.orb?.reason ?? (desk?.orb?.status === "ready" ? "ORB_NO_CANDIDATES" : "ORB_LOADING"))}</p><span className={styles.emptyNote}>Планы появятся автоматически после отбора инструментов.</span></div>}
+    {!plans.length && <div className={styles.empty} role="status"><span className={styles.emptyIcon}><Radar size={28} /></span><h3>{!lightAvailable ? "Получаем торговые планы" : "Пока нет планов для входа"}</h3><p>{orbReason(desk?.orb?.reason ?? (desk?.orb?.status === "ready" ? "ORB_NO_CANDIDATES" : "ORB_LOADING"))}</p><span className={styles.emptyNote}>Планы появятся автоматически после отбора инструментов.</span></div>}
     <div className={styles.grid}>
     {plans.map(plan => {
       const state = desk?.orb?.states?.[plan.symbol];

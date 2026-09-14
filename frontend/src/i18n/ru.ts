@@ -696,6 +696,9 @@ export const ru: Record<MessageKey, string> = {
   "toast.error.invalidStatus.detail":
     "Это предложение уже в другом статусе (повторный клик или параллельный запрос).",
   "toast.error.generic.title": "Запрос не прошёл",
+  "toast.error.timeout.title": "Источник данных отвечает медленно",
+  "toast.error.timeout.detail":
+    "Пульт продолжает работать с доступными данными и повторит чтение автоматически.",
   "toast.buy.ok.executed.title": "{symbol} · покупка исполнена",
   "toast.buy.ok.executed.detail":
     "Исполнение получено, защитный стоп выставлен, позиция в книге учёта. Смотрите блок «Позиции».",

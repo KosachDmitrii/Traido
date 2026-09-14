@@ -31,11 +31,11 @@ from core.config import get_settings
 from core.desk_bus import DESK_BUS
 from core.enums import UserDecision
 from core.schemas import Position
-from market_data.providers.company_name import attach_company_names
+from market_data.providers.company_name import attach_cached_company_names
 from strategy.orb.position_policy import observed_target
 from trading.decision_outcome import DECISION_OUTCOMES, DecisionOutcomeRecord
 from trading.desk_positions import protective_stop_for_display
-from trading.desk_viability import attach_buy_viability
+from trading.desk_viability import attach_cached_buy_viability
 from trading.exits import EXITS, ExitOpportunity
 from trading.ledger import LEDGER
 from trading.opportunities import OPPORTUNITIES
@@ -422,35 +422,34 @@ def _etag_for(payload: dict) -> str:
 async def desk(
     if_none_match: str | None = Header(default=None, alias="If-None-Match"),
 ):
-    buys = await attach_buy_viability(OPPORTUNITIES.list_open())
+    buys = attach_cached_buy_viability(OPPORTUNITIES.list_open())
     payload = _light_payload(buy_opportunities=buys)
     key = get_settings().finnhub_api_key
-    # Names are presentation data: never mutate the persisted ORB plan.
+    # Names are presentation data: never mutate the persisted ORB plan and,
+    # crucially, never wait on Finnhub before returning the local desk.  A SIP
+    # session may contain hundreds of qualified plans; serial profile lookups
+    # made this endpoint take minutes and hid already-loaded broker values.
     orb = payload.get("orb")
+    name_rows: list[dict] = []
     if isinstance(orb, dict):
         plans = {symbol: dict(plan) for symbol, plan in (orb.get("plans") or {}).items()}
-        await attach_company_names(list(plans.values()), key)
+        name_rows.extend(plans.values())
         payload["orb"] = {**orb, "plans": plans}
-    await attach_company_names(payload["positions"], key)
-    await attach_company_names(payload.get("review", {}).get("recent") or [], key)
+    name_rows.extend(payload["positions"])
+    name_rows.extend(payload.get("review", {}).get("recent") or [])
     # Cards: name sits next to the ticker on BUY / WAIT / SELL — display only.
-    await attach_company_names(
-        [
-            b["candidate"]
-            for b in payload.get("buy_opportunities") or []
-            if isinstance(b.get("candidate"), dict)
-        ],
-        key,
+    name_rows.extend(
+        b["candidate"]
+        for b in payload.get("buy_opportunities") or []
+        if isinstance(b.get("candidate"), dict)
     )
-    await attach_company_names(payload.get("entry_watches") or [], key)
-    await attach_company_names(
-        [
-            s["proposal"]
-            for s in payload.get("sell_opportunities") or []
-            if isinstance(s.get("proposal"), dict)
-        ],
-        key,
+    name_rows.extend(payload.get("entry_watches") or [])
+    name_rows.extend(
+        s["proposal"]
+        for s in payload.get("sell_opportunities") or []
+        if isinstance(s.get("proposal"), dict)
     )
+    attach_cached_company_names(name_rows, key)
     etag = _etag_for(payload)
     if if_none_match and if_none_match == etag:
         return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
@@ -632,7 +631,7 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
             "open_orders": len(open_orders_out) if open_orders_verified else None,
         }
 
-    await attach_company_names(positions_out, get_settings().finnhub_api_key)
+    attach_cached_company_names(positions_out, get_settings().finnhub_api_key)
 
     snap = {
         "portfolio": portfolio_dict,

@@ -54,7 +54,7 @@ class Settings(BaseSettings):
         default="https://paper-api.alpaca.markets", alias="ALPACA_BROKER_BASE_URL"
     )
     """Alpaca market-data feed: ``iex`` (real-time IEX) or ``sip`` (matches Alpaca dashboard on paper)."""
-    alpaca_data_feed: str | None = Field(default=None, alias="ALPACA_DATA_FEED")
+    alpaca_data_feed: Literal["sip"] = Field(default="sip", alias="ALPACA_DATA_FEED")
 
     # Later-stage providers
     finnhub_api_key: str | None = Field(default=None, alias="FINNHUB_API_KEY")

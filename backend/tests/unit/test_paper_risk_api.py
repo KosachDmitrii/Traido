@@ -218,7 +218,7 @@ async def test_order_read_failure_is_not_verified_empty(broker, monkeypatch):
 
     monkeypatch.setattr(desk, "create_broker", lambda _: broker)
     monkeypatch.setattr(desk.RECONCILE, "run_if_stale", AsyncMock())
-    monkeypatch.setattr(desk, "attach_company_names", AsyncMock())
+    monkeypatch.setattr(desk, "attach_cached_company_names", lambda *_args, **_kwargs: None)
     broker.list_open_orders = AsyncMock(side_effect=RuntimeError("offline"))
     snapshot = await desk._build_broker_snapshot(force=True)
     assert snapshot["open_orders_verified"] is False

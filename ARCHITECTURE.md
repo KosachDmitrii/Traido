@@ -490,7 +490,9 @@ intents and protective reconciliation remain shared capital infrastructure.
 
 ### ORB IEX development profile — 2026-09-10
 
-`orb@1.1.0` restores explicit `ALPACA_DATA_FEED=iex` and Paper's IEX default.
+`orb@1.1.0` originally restored IEX support. The owner's 2026-09-11 decision now
+fixes production and Paper configuration to `ALPACA_DATA_FEED=sip`; IEX remains
+readable only for historical evidence and isolated compatibility tests.
 Same-feed relative volume replaces the SIP-only restriction; IEX selection uses
 observed dollar liquidity rather than a consolidated share-volume threshold.
 Plans and quote metadata must agree on feed. Capital/execution controls are unchanged.

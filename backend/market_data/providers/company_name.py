@@ -10,6 +10,7 @@ own cache. Display only: a missing name is a blank, never a refused trade.
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -21,6 +22,7 @@ FINNHUB_PROFILE_URL = "https://finnhub.io/api/v1/stock/profile2"
 CACHE_TTL = timedelta(days=7)
 FAILURE_TTL = timedelta(minutes=2)
 REQUEST_TIMEOUT = 8.0
+PREFETCH_INTERVAL = 1.05
 
 
 @dataclass(frozen=True)
@@ -60,13 +62,18 @@ class CompanyNameResolver:
         ttl: timedelta = CACHE_TTL,
         failure_ttl: timedelta = FAILURE_TTL,
         transport: httpx.AsyncBaseTransport | None = None,
+        prefetch_interval: float = PREFETCH_INTERVAL,
     ) -> None:
         self._api_key = api_key
         self._ttl = ttl
         self._failure_ttl = failure_ttl
         self._transport = transport
+        self._prefetch_interval = prefetch_interval
         self._cache: dict[str, _CacheEntry] = {}
         self._lock = asyncio.Lock()
+        self._pending: deque[str] = deque()
+        self._queued: set[str] = set()
+        self._prefetch_task: asyncio.Task[None] | None = None
 
     @property
     def configured(self) -> bool:
@@ -120,6 +127,44 @@ class CompanyNameResolver:
         results = await asyncio.gather(*(self.resolve(s) for s in unique))
         return {info.symbol: info.name for info in results}
 
+    def cached_many(self, symbols: list[str]) -> dict[str, str | None]:
+        """Return only process-cached display data; never wait on Finnhub."""
+        unique = list(dict.fromkeys(s.upper() for s in symbols if s))
+        return {symbol: self.peek(symbol) for symbol in unique}
+
+    def prefetch(self, symbols: list[str]) -> None:
+        """Queue missing names behind one paced background worker.
+
+        Company names are presentation data.  They must never hold up `/desk`,
+        and starting hundreds of per-request tasks would merely move the same
+        Finnhub rate-limit storm elsewhere.  One deduplicated worker warms the
+        existing process cache gradually; later desk polls pick names up.
+        """
+        if not self.configured:
+            return
+        now = datetime.now(UTC)
+        for raw in symbols:
+            symbol = raw.upper()
+            if not symbol or symbol in self._queued or self._cached(symbol, now) is not None:
+                continue
+            self._queued.add(symbol)
+            self._pending.append(symbol)
+        if self._pending and (self._prefetch_task is None or self._prefetch_task.done()):
+            self._prefetch_task = asyncio.create_task(
+                self._drain_prefetch(), name="company-name-prefetch"
+            )
+
+    async def _drain_prefetch(self) -> None:
+        try:
+            while self._pending:
+                symbol = self._pending.popleft()
+                self._queued.discard(symbol)
+                await self.resolve(symbol)
+                if self._pending and self._prefetch_interval > 0:
+                    await asyncio.sleep(self._prefetch_interval)
+        finally:
+            self._prefetch_task = None
+
     async def _fetch(self, symbol: str) -> CompanyName:
         params = {"symbol": symbol}
         headers = {"X-Finnhub-Token": self._api_key or ""}
@@ -165,3 +210,23 @@ async def attach_company_names(
     for row in rows:
         sym = str(row.get(symbol_key) or "").upper()
         row[name_key] = names.get(sym)
+
+
+def attach_cached_company_names(
+    rows: list[dict],
+    api_key: str | None,
+    *,
+    symbol_key: str = "symbol",
+    name_key: str = "name",
+) -> None:
+    """Attach cached names immediately and warm misses outside the request."""
+    if not rows:
+        return
+    resolver = get_company_name_resolver(api_key)
+    symbols = [str(row.get(symbol_key) or "") for row in rows]
+    names = resolver.cached_many(symbols)
+    for row in rows:
+        symbol = str(row.get(symbol_key) or "").upper()
+        if not row.get(name_key):
+            row[name_key] = names.get(symbol)
+    resolver.prefetch(symbols)

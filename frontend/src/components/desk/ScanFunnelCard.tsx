@@ -20,7 +20,7 @@ export function ScanFunnelCard() {
   ];
   return <section className="panel" style={{padding:24}}>
     <h2>Отбор ORB · {orb?.session ?? "текущая сессия"}</h2>
-    <p>Alpaca {(orb?.feed ?? "iex").toUpperCase()} · первые 5 минут · история 14 сессий · только покупки</p>
+    <p>Alpaca {(orb?.feed ?? "sip").toUpperCase()} · первые 5 минут · история 14 сессий · только покупки</p>
     {orb?.reason && <p role="status">{orbReason(orb.reason)}</p>}
     <table style={{width:"100%"}}><tbody>{rows.map(([label,value])=><tr key={label}><td style={{padding:"8px 0"}}>{label}</td><td style={{textAlign:"right"}}>{value ?? "—"}</td></tr>)}</tbody></table>
     <details><summary>Условия отбора</summary><p>Открытие выше $5; {orb?.feed === "sip" ? "средний дневной объём ≥ 1 млн акций" : "средний дневной оборот IEX ≥ $20 млн"}; ATR14 &gt; $0.50; объём первых пяти минут ≥ среднего объёма этого окна за 14 сессий; растущая первая свеча. Наблюдаем все прошедшие отбор планы. Для ORB «Возврат» последовательно ждём пробой, возврат и подтверждение по закрытым пятиминутным свечам. Перед покупкой повторно проверяем цену и условия входа. Действующий режим выхода указан в карточке сделки.</p></details>

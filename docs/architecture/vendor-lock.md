@@ -14,8 +14,8 @@ Live execution is disabled. No selectable execution backend or workstation
 session is required. Mock execution requires explicit local test configuration.
 
 Credentials: `ALPACA_API_KEY`, `ALPACA_API_SECRET`.
-Data URL: `https://data.alpaca.markets`; `ALPACA_DATA_FEED=iex` for development or
-`ALPACA_DATA_FEED=sip` only when the configured credentials prove SIP entitlement.
+Data URL: `https://data.alpaca.markets`; `ALPACA_DATA_FEED=sip`. The configured
+credentials must retain SIP entitlement; the application does not downgrade to IEX.
 Execution URL: `https://paper-api.alpaca.markets` (exact endpoint enforced).
 
 See [Alpaca-only decision and migration](alpaca-only.md).

@@ -123,5 +123,5 @@ See [Alpaca-only decision](../architecture/alpaca-only.md). Use a dedicated
 Alpaca journal database/schema when the previous desk contains another venue’s
 positions or unresolved orders. Preserve its audit/history and reconcile that
 venue before retiring the old deployment. Never relabel old broker IDs.
-Set `TRAIDO_BROKER=alpaca`, `ALPACA_DATA_FEED=iex` and Paper credentials.
+Set `TRAIDO_BROKER=alpaca`, `ALPACA_DATA_FEED=sip` and Paper credentials.
 The image needs no network tunnel or workstation session.

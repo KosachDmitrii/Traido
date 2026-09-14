@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 
 _CACHE_TTL_SEC = 5.0
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
+_refresh_pending: dict[str, TradeOpportunity] = {}
+_refresh_task: asyncio.Task[None] | None = None
 
 
 def _unverified(reason: str = "LIVE_QUOTE_REQUIRED") -> dict[str, Any]:
@@ -126,6 +128,53 @@ async def attach_buy_viability(
     return list(await asyncio.gather(*(_one(opp) for opp in opportunities)))
 
 
+def attach_cached_buy_viability(opportunities: list[TradeOpportunity]) -> list[dict[str, Any]]:
+    """Return immediately from cache and refresh misses outside `/desk`.
+
+    Live viability remains fail-closed: an uncached or expired card is rendered
+    unverified and therefore cannot present an enabled BUY action.  The final
+    admission path still re-reads current execution facts independently.
+    """
+    global _refresh_task
+    now_mono = time.monotonic()
+    out: list[dict[str, Any]] = []
+    for opportunity in opportunities:
+        payload = opportunity.model_dump(mode="json")
+        key = str(opportunity.id)
+        cached = _cache.get(key)
+        if cached is not None and (now_mono - cached[0]) < _CACHE_TTL_SEC:
+            payload["viability"] = cached[1]
+        else:
+            payload["viability"] = _unverified("LIVE_QUOTE_REFRESHING")
+            _refresh_pending[key] = opportunity
+        out.append(payload)
+
+    if _refresh_pending and (_refresh_task is None or _refresh_task.done()):
+        _refresh_task = asyncio.create_task(
+            _drain_viability_refresh(), name="desk-viability-refresh"
+        )
+    return out
+
+
+async def _drain_viability_refresh() -> None:
+    global _refresh_task
+    try:
+        while _refresh_pending:
+            batch = list(_refresh_pending.values())
+            _refresh_pending.clear()
+            await attach_buy_viability(batch)
+            from core.desk_bus import DESK_BUS
+
+            DESK_BUS.bump_desk(kind="buy_viability_refreshed")
+    finally:
+        _refresh_task = None
+
+
 def clear_viability_cache() -> None:
     """Tests only — drop the process cache between cases."""
+    global _refresh_task
+    if _refresh_task is not None and not _refresh_task.done():
+        _refresh_task.cancel()
+    _refresh_task = None
     _cache.clear()
+    _refresh_pending.clear()

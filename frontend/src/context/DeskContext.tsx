@@ -212,19 +212,27 @@ export function DeskProvider({ children }: { children: ReactNode }) {
     // page loads drive the scan cadence, and in development the double-invoked
     // effect asked twice per load.
     (async () => {
-      try {
-        if (!alive) return;
-        await refreshLight(lightAbort.signal);
-        if (!alive) return;
-        await refreshBroker(false);
-      } catch (err) {
-        if (!alive) return;
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        showFlash(humanizeError(err instanceof Error ? err.message : String(err)));
-        setScannerUnavailable(true);
-      } finally {
-        if (alive) scheduleLight();
+      if (!alive) return;
+      const [lightResult, brokerResult] = await Promise.allSettled([
+        refreshLight(lightAbort.signal),
+        refreshBroker(false),
+      ]);
+      if (!alive) return;
+      if (lightResult.status === "rejected") {
+        const err = lightResult.reason;
+        if (!(err instanceof DOMException && err.name === "AbortError")) {
+          showFlash(humanizeError(err instanceof Error ? err.message : String(err)));
+          setScannerUnavailable(true);
+        }
       }
+      if (brokerResult.status === "rejected") {
+        showFlash(humanizeError(
+          brokerResult.reason instanceof Error
+            ? brokerResult.reason.message
+            : String(brokerResult.reason),
+        ));
+      }
+      if (alive) scheduleLight();
     })();
 
     const brokerId = setInterval(() => {
@@ -274,8 +282,8 @@ export function DeskProvider({ children }: { children: ReactNode }) {
   }, [refreshLight, refreshBroker, refreshBrokerBackend, refreshKillSwitch, showFlash]);
 
   const desk = useMemo(() => {
-    if (!light) return null;
     const merged = mergeDesk(light, broker);
+    if (!merged) return null;
     const backend = brokerBackend ?? merged.broker_backend;
     return backend ? { ...merged, broker_backend: backend } : merged;
   }, [light, broker, brokerBackend]);

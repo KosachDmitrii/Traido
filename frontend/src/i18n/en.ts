@@ -685,6 +685,9 @@ export const en = {
   "toast.error.invalidStatus.detail":
     "This proposal is already in another status (double-click or parallel request).",
   "toast.error.generic.title": "Request failed",
+  "toast.error.timeout.title": "Data source is responding slowly",
+  "toast.error.timeout.detail":
+    "The desk remains available with the data it has and will retry automatically.",
   "toast.buy.ok.executed.title": "{symbol} · BUY filled",
   "toast.buy.ok.executed.detail":
     "Fill received, protective stop placed, position in ledger. See Positions.",

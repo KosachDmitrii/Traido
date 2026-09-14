@@ -18,7 +18,7 @@ def test_only_alpaca_is_constructed(monkeypatch):
     broker = create_broker(Settings(ALPACA_API_KEY="test", ALPACA_API_SECRET="secret"))
     assert isinstance(broker, AlpacaPaperBroker)
     assert broker.environment == "paper"
-    assert broker_backend_payload()["market_data_feed"] == "iex"
+    assert broker_backend_payload()["market_data_feed"] == "sip"
 
 
 def test_retired_deployment_selection_fails_closed(monkeypatch):
@@ -80,7 +80,7 @@ async def test_status_reads_account_before_reporting_ready(monkeypatch):
     result = await get_broker_backend_route()
     assert result["connection_state"] == "ready"
     assert result["account_id"] == "verified-account"
-    assert result["market_data_feed"] == "iex"
+    assert result["market_data_feed"] == "sip"
 
 
 @pytest.mark.asyncio

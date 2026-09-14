@@ -45,7 +45,7 @@ PARAMETERS: dict[str, Any] = {
     "max_entry_drift_r": "1.0",
     "entry_policy_revision": "paper-flex-1",
     "supported_feeds": ["iex", "sip"],
-    "default_paper_feed": "iex",
+    "default_paper_feed": "sip",
 }
 
 

@@ -48,11 +48,12 @@ Application adaptations, not universal trading standards:
   These additional gates and the application's risk sizing also differ from the
   paper. They must be visible separately from ORB observation.
 
-The data feed is explicit. Paper defaults to IEX, as required by the user;
-SIP is only used when explicitly configured. The profile below supersedes the
-initial SIP-only implementation. No subscription is required for IEX.
+The data feed is fixed to SIP by the owner's 2026-09-11 decision. Configuration
+rejects IEX instead of silently downgrading consolidated quotes. The account must
+retain an active Alpaca SIP entitlement.
 
-For IEX, the 1-million-share consolidated-volume condition is not applied.
+The historical IEX profile below remains documented for audit only and is not a
+deployable configuration. For IEX, the 1-million-share consolidated-volume condition is not applied.
 Selection instead requires at least $20 million of mean observed daily dollar
 volume over the 14-session baseline, matching the existing execution liquidity
 floor in units (execution independently checks its 20-bar history). Opening
