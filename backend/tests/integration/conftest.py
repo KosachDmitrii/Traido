@@ -767,7 +767,9 @@ def desk(monkeypatch: pytest.MonkeyPatch) -> Iterator[Desk]:
         )
 
     class _IntegrationSectorPort:
-        async def assess(self, symbol, *, market_data=None, symbol_bars=None, now=None):
+        async def assess(
+            self, symbol, *, market_data=None, symbol_bars=None, now=None, asset_class=None
+        ):
             evaluated_at = now or _dt.now(UTC)
             if evaluated_at.tzinfo is None:
                 evaluated_at = evaluated_at.replace(tzinfo=UTC)

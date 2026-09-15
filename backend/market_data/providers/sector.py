@@ -17,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 import httpx
 
 from core.enums import SectorCheck
-from core.universe import UNKNOWN_SECTOR, Universe, default_universe
+from core.universe import ETF_SECTOR, UNKNOWN_SECTOR, Universe, default_universe
 from core.vendor_http import describe_http_error, get_with_retry
 
 FINNHUB_PROFILE_URL = "https://finnhub.io/api/v1/stock/profile2"
@@ -152,9 +152,27 @@ class SectorResolver:
             return None
         return entry.info
 
-    async def resolve(self, symbol: str, *, now: datetime | None = None) -> SectorInfo:
+    async def resolve(
+        self,
+        symbol: str,
+        *,
+        now: datetime | None = None,
+        asset_class: str | None = None,
+    ) -> SectorInfo:
         symbol = symbol.upper()
         now = now or datetime.now(UTC)
+
+        # Alpaca identifies ETFs in its reference feed. Funds do not have a
+        # corporate industry for Finnhub to classify, so retain that explicit
+        # identity instead of turning a blank company profile into missing
+        # metadata. A separate bars-based gate still decides tradability.
+        if str(getattr(asset_class, "value", asset_class) or "").lower() == "etf":
+            return SectorInfo(
+                symbol=symbol,
+                sector=ETF_SECTOR,
+                status=SectorCheck.CHECKED,
+                source="alpaca_asset",
+            )
 
         curated = self._from_universe(symbol)
         if curated is not None:

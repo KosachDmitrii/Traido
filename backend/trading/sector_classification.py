@@ -85,6 +85,7 @@ async def resolve_symbol_classification(
     *,
     finnhub_api_key: str | None,
     now: datetime | None = None,
+    asset_class: str | None = None,
 ) -> SectorClassification:
     """Resolve broad-universe names through the Risk Engine's canonical source.
 
@@ -96,10 +97,14 @@ async def resolve_symbol_classification(
     if static.sector is not None and static.benchmark is not None:
         return static
 
-    from core.universe import default_universe
+    from core.universe import ETF_SECTOR, default_universe
     from market_data.providers.sector import get_sector_resolver
 
-    info = await get_sector_resolver(finnhub_api_key).resolve(static.symbol, now=now)
+    info = await get_sector_resolver(finnhub_api_key).resolve(
+        static.symbol,
+        now=now,
+        asset_class=asset_class,
+    )
     if not info.available or info.sector is None:
         return SectorClassification(
             symbol=static.symbol,
@@ -110,7 +115,13 @@ async def resolve_symbol_classification(
     return SectorClassification(
         symbol=static.symbol,
         sector=info.sector,
-        benchmark=default_universe().sector_etf.get(info.sector),
+        # For a fund, its own real daily bars are the authoritative regime
+        # benchmark. Equities retain the canonical sector-ETF benchmark.
+        benchmark=(
+            static.symbol
+            if info.sector == ETF_SECTOR
+            else default_universe().sector_etf.get(info.sector)
+        ),
         classification_provider=info.source or "sector_resolver",
         classification_version=DYNAMIC_CLASSIFICATION_VERSION,
     )

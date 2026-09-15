@@ -158,6 +158,7 @@ async def discover(
         BOARD.set_agent("universe", status="working", detail="Loading Alpaca SIP universe")
         snapshot = await universe.get_scan_universe(tier=UniverseTier.BROAD, max_size=0)
         symbols = snapshot.symbols
+        instruments = {instrument.key: instrument for instrument in snapshot.eligible}
         BOARD.set_agent(
             "universe",
             status="done",
@@ -241,7 +242,16 @@ async def discover(
             )
             counts["opening_evaluated"] += 1
             if decision.plan is not None:
-                plans.append(decision.plan)
+                instrument = instruments[symbol]
+                evidence = {
+                    **decision.plan.evidence,
+                    "instrument": {
+                        "asset_class": instrument.asset_class.value,
+                        "provider": instrument.provider,
+                        "as_of": instrument.as_of.isoformat() if instrument.as_of else None,
+                    },
+                }
+                plans.append(decision.plan.model_copy(update={"evidence": evidence}))
             else:
                 rejected[symbol] = decision.reasons
         plans.sort(key=lambda p: (-p.relative_volume, p.symbol))
@@ -559,7 +569,14 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
     BOARD.set_agent("context", status="working", detail="Checking market regime", symbol=symbol)
     market = await assess_market(ctx.settings.fred_api_key, now=now)
     gate = evaluate_market_gate(market, now=now, require_sector=False)
-    sector = await get_sector_assessment_port().assess(symbol, market_data=ctx.market_data, now=now)
+    instrument_evidence = plan.evidence.get("instrument") or {}
+    asset_class = instrument_evidence.get("asset_class")
+    sector = await get_sector_assessment_port().assess(
+        symbol,
+        market_data=ctx.market_data,
+        now=now,
+        asset_class=asset_class,
+    )
     BOARD.set_agent(
         "context",
         status="done",
@@ -568,6 +585,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         score=market.score,
     )
     BOARD.set_agent("checklist", status="working", detail="Running final admission", symbol=symbol)
+    BOARD.set_agent("risk", status="idle", detail="Waiting for final admission", symbol=symbol)
     try:
         final = await build_and_evaluate_final_admission(
             candidate,
@@ -577,6 +595,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             market=market,
             sector_label=sector.sector_regime.value if sector.sector_regime else None,
             sector_tradable=sector.tradable_long,
+            sector_reason_codes=sector.reason_codes,
             sector_benchmark=sector.benchmark,
             sector_provider=sector.market_data_provider,
             sector_source_ts=sector.benchmark_last_bar_ts,
@@ -601,6 +620,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         finnhub_api_key=ctx.settings.finnhub_api_key,
         regime_tradable=gate.tradable_long,
         now=now,
+        asset_class=asset_class,
     )
     risk = RiskEngine(default_risk_limits()).evaluate(
         candidate, await ctx.portfolio(), context=built.context

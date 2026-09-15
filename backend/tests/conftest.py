@@ -467,7 +467,9 @@ def capital_path_ready(
     from trading.sector_policy import SECTOR_ASSESSMENT_VERSION
 
     class _CapitalPathSectorPort:
-        async def assess(self, symbol: str, *, market_data=None, symbol_bars=None, now=None):
+        async def assess(
+            self, symbol: str, *, market_data=None, symbol_bars=None, now=None, asset_class=None
+        ):
             evaluated_at = now or datetime.now(UTC)
             if evaluated_at.tzinfo is None:
                 evaluated_at = evaluated_at.replace(tzinfo=UTC)

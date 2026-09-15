@@ -56,6 +56,7 @@ async def final_admission(
     market: MarketAssessment | None = None,
     sector_label: str | None = None,
     sector_tradable: bool | None = None,
+    sector_reason_codes: tuple[str, ...] | list[str] = (),
     sector_benchmark: str | None = None,
     sector_provider: str | None = None,
     sector_source_ts: datetime | None = None,
@@ -139,6 +140,7 @@ async def final_admission(
         now=now,
         sector_label=sector_label,
         sector_tradable=sector_tradable,
+        sector_reason_codes=sector_reason_codes,
         require_sector=require_sector,
     )
     if not gate.tradable_long or gate.status is DataHealthStatus.UNHEALTHY:

@@ -56,6 +56,7 @@ def evaluate_market_gate(
     now: datetime | None = None,
     sector_label: str | None = None,
     sector_tradable: bool | None = None,
+    sector_reason_codes: tuple[str, ...] | list[str] = (),
     require_sector: bool = True,
     ttl_seconds: float = REGIME_TTL_SECONDS,
 ) -> MarketGateResult:
@@ -146,7 +147,7 @@ def evaluate_market_gate(
     if require_sector and sector_tradable is None:
         return _blocked(
             label=label,
-            reasons=["SECTOR_ASSESSMENT_MISSING"],
+            reasons=list(sector_reason_codes) or ["SECTOR_ASSESSMENT_MISSING"],
             now=now,
             sector_label=sector_label,
             sector_tradable=None,
@@ -156,7 +157,7 @@ def evaluate_market_gate(
     if sector_tradable is False:
         return _blocked(
             label=label,
-            reasons=["SECTOR_BLOCKED"],
+            reasons=list(sector_reason_codes) or ["SECTOR_BLOCKED"],
             now=now,
             sector_label=sector_label,
             sector_tradable=False,

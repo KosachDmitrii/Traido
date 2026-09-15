@@ -264,6 +264,7 @@ class SectorAssessmentPort(Protocol):
         market_data: MarketDataPort | None = None,
         symbol_bars: list[Bar] | None = None,
         now: datetime | None = None,
+        asset_class: str | None = None,
     ) -> SectorMarketAssessment: ...
 
 
@@ -280,6 +281,7 @@ class BenchmarkBarsSectorAssessment:
         market_data: MarketDataPort | None = None,
         symbol_bars: list[Bar] | None = None,
         now: datetime | None = None,
+        asset_class: str | None = None,
     ) -> SectorMarketAssessment:
         evaluated_at = now or datetime.now(UTC)
         if evaluated_at.tzinfo is None:
@@ -298,6 +300,7 @@ class BenchmarkBarsSectorAssessment:
                 symbol,
                 finnhub_api_key=get_settings().finnhub_api_key,
                 now=evaluated_at,
+                asset_class=asset_class,
             )
         if classification.benchmark is None:
             return _blocked(
@@ -350,6 +353,7 @@ class MetadataSectorAssessment:
         market_data: MarketDataPort | None = None,
         symbol_bars: list[Bar] | None = None,
         now: datetime | None = None,
+        asset_class: str | None = None,
     ) -> SectorMarketAssessment:
         # If market_data is provided, behave like the production assessor.
         if market_data is not None:
@@ -358,6 +362,7 @@ class MetadataSectorAssessment:
                 market_data=market_data,
                 symbol_bars=symbol_bars,
                 now=now,
+                asset_class=asset_class,
             )
         evaluated_at = now or datetime.now(UTC)
         if evaluated_at.tzinfo is None:

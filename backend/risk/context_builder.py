@@ -52,6 +52,7 @@ async def build_risk_context(
     news: NewsCheck | None = None,
     observation_only: bool = False,
     now: datetime | None = None,
+    asset_class: str | None = None,
 ) -> ContextBuildResult:
     """Assemble everything outside the candidate that can veto a trade.
 
@@ -136,7 +137,7 @@ async def build_risk_context(
     # Curated universe.json wins; Finnhub fills names outside the file. Either
     # way `"unknown"` never travels as a sector — that is what let a name skip
     # its real sector's cap.
-    candidate = await sectors.resolve(symbol, now=now)
+    candidate = await sectors.resolve(symbol, now=now, asset_class=asset_class)
     if candidate.note and candidate.status is not SectorCheck.CHECKED:
         notes.append(candidate.note)
 

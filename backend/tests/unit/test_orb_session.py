@@ -8,6 +8,7 @@ import pytest
 from strategy.orb.runtime import discover
 from strategy.orb.store import read_session, update_state
 from tests.unit.test_orb_policy import NOW, evidence
+from universe.models import AssetClass, Instrument
 
 
 class OpeningFeed:
@@ -57,7 +58,11 @@ class Universe:
 
     async def get_scan_universe(self, **kwargs):
         self.calls.append(kwargs)
-        return SimpleNamespace(symbols=self.symbols, total=len(self.symbols))
+        eligible = [
+            Instrument(symbol=symbol, asset_class=AssetClass.STOCK, provider="test")
+            for symbol in self.symbols
+        ]
+        return SimpleNamespace(symbols=self.symbols, eligible=eligible, total=len(self.symbols))
 
 
 @pytest.mark.asyncio
@@ -73,6 +78,10 @@ async def test_all_qualifying_names_are_retained_and_ranked_on_opening_volume():
     assert result["counts"]["qualified"] == 75
     assert result["counts"]["selected"] == 75
     assert all(s["state"] == "WAIT" for s in result["states"].values())
+    assert all(
+        plan["evidence"]["instrument"]["asset_class"] == "stock"
+        for plan in result["plans"].values()
+    )
     # No broker, risk snapshot or account history was supplied. Observation is independent.
 
 

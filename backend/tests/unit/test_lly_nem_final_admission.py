@@ -144,7 +144,9 @@ async def test_sector_blocked_cannot_be_overridden_by_setup_score(
     set_kill_switch(False)
 
     class _BlockedSector:
-        async def assess(self, symbol, *, market_data=None, symbol_bars=None, now=None):
+        async def assess(
+            self, symbol, *, market_data=None, symbol_bars=None, now=None, asset_class=None
+        ):
             from trading.sector_assessment import SectorMarketAssessment
 
             evaluated_at = now or datetime.now(UTC)

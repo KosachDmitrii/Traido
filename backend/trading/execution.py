@@ -295,6 +295,9 @@ class ExecutionService:
             regime = None
 
         try:
+            instrument_evidence = ((candidate.orb_plan or {}).get("evidence") or {}).get(
+                "instrument"
+            ) or {}
             built = await build_risk_context(
                 candidate.symbol.upper(),
                 broker=self.broker,
@@ -302,6 +305,7 @@ class ExecutionService:
                 finnhub_api_key=get_settings().finnhub_api_key,
                 regime_tradable=regime,
                 now=now,
+                asset_class=instrument_evidence.get("asset_class"),
             )
         except Exception as exc:  # noqa: BLE001 — refuse rather than guess
             return RiskContext(now=now), [f"risk context unavailable: {exc!r}"]
@@ -480,6 +484,9 @@ class ExecutionService:
             priced.symbol,
             market_data=self.market_data,
             now=evaluated_at,
+            asset_class=(
+                ((priced.orb_plan or {}).get("evidence") or {}).get("instrument") or {}
+            ).get("asset_class"),
         )
         if sector.tradable_long is None or sector.data_status is not DataHealthStatus.HEALTHY:
             from core.metrics import METRICS
@@ -508,6 +515,7 @@ class ExecutionService:
                 market=fresh_market,
                 sector_label=sector.sector_label,
                 sector_tradable=sector.tradable_long,
+                sector_reason_codes=sector.reason_codes,
                 sector_benchmark=sector.benchmark,
                 sector_provider=sector.provider,
                 sector_source_ts=sector.source_ts,

@@ -84,6 +84,17 @@ async def test_lly_uses_xlv() -> None:
 
 
 @pytest.mark.asyncio
+async def test_curated_etf_uses_itself_as_regime_benchmark() -> None:
+    classification = await resolve_symbol_classification(
+        "XLE", finnhub_api_key=None, now=datetime.now(UTC)
+    )
+
+    assert classification.sector == "etf"
+    assert classification.benchmark == "XLE"
+    assert classification.classification_provider == "universe"
+
+
+@pytest.mark.asyncio
 async def test_nem_gdx_pass() -> None:
     cls = classify_symbol("NEM")
     bars = _bars("GDX", BENCHMARK_MIN_BARS + 10, trend=0.004)
@@ -160,7 +171,7 @@ async def test_broad_symbol_uses_canonical_dynamic_sector_and_benchmark(
     from market_data.providers.sector import SectorInfo
 
     class _Resolver:
-        async def resolve(self, symbol: str, *, now=None):
+        async def resolve(self, symbol: str, *, now=None, asset_class=None):
             return SectorInfo(
                 symbol=symbol,
                 sector="energy",
@@ -206,6 +217,34 @@ async def test_broad_symbol_uses_canonical_dynamic_sector_and_benchmark(
 
 
 @pytest.mark.asyncio
+async def test_dynamic_etf_uses_its_own_real_bars_as_regime_benchmark() -> None:
+    now = datetime.now(UTC)
+
+    class _MarketData:
+        def __init__(self) -> None:
+            self.requested: list[str] = []
+
+        async def get_bars(self, symbol, timeframe, start, end):
+            self.requested.append(symbol)
+            return _bars(symbol, BENCHMARK_MIN_BARS + 10, trend=0.004, now=end)
+
+    market_data = _MarketData()
+    result = await BenchmarkBarsSectorAssessment().assess(
+        "TZA",
+        market_data=market_data,  # type: ignore[arg-type]
+        now=now,
+        asset_class="etf",
+    )
+
+    assert market_data.requested == ["TZA"]
+    assert result.sector == "etf"
+    assert result.benchmark == "TZA"
+    assert result.classification_provider == "alpaca_asset"
+    assert result.tradable_long is True
+    assert result.data_status is DataHealthStatus.HEALTHY
+
+
+@pytest.mark.asyncio
 async def test_sector_label_without_tradable_is_data_blocked() -> None:
     from core.enums import AssessmentKind, MarketRegimeLabel
     from core.schemas import MarketAssessment
@@ -224,8 +263,9 @@ async def test_sector_label_without_tradable_is_data_blocked() -> None:
         market,
         sector_label="healthcare",
         sector_tradable=None,
+        sector_reason_codes=("SECTOR_METADATA_MISSING", "SECTOR_ASSESSMENT_MISSING"),
         require_sector=True,
     )
     assert gate.status is DataHealthStatus.UNHEALTHY
-    assert "SECTOR_ASSESSMENT_MISSING" in gate.reason_codes
+    assert gate.reason_codes == ["SECTOR_METADATA_MISSING", "SECTOR_ASSESSMENT_MISSING"]
     assert gate.tradable_long is False

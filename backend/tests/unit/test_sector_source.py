@@ -83,6 +83,28 @@ async def test_curated_universe_wins_over_finnhub() -> None:
 
 
 @pytest.mark.asyncio
+async def test_explicit_etf_identity_does_not_require_company_profile() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, json={})
+
+    resolver = SectorResolver(
+        _KEY,
+        universe=_universe(),
+        transport=httpx.MockTransport(handler),
+    )
+    info = await resolver.resolve("TZA", now=_NOW, asset_class="etf")
+
+    assert info.status is SectorCheck.CHECKED
+    assert info.sector == "etf"
+    assert info.source == "alpaca_asset"
+    assert calls == 0
+
+
+@pytest.mark.asyncio
 async def test_finnhub_fills_a_name_outside_the_file() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert "token" not in str(request.url).lower()
