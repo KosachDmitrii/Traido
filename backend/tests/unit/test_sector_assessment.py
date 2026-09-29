@@ -95,6 +95,36 @@ async def test_curated_etf_uses_itself_as_regime_benchmark() -> None:
 
 
 @pytest.mark.asyncio
+async def test_uvxy_uses_verified_etf_classification_when_asset_tag_is_missing() -> None:
+    classification = await resolve_symbol_classification(
+        "UVXY", finnhub_api_key=None, now=datetime.now(UTC), asset_class="stock"
+    )
+
+    assert classification.sector == "etf"
+    assert classification.benchmark == "UVXY"
+    assert classification.classification_provider == "universe"
+
+    # Classification alone never authorizes an entry without fresh benchmark bars.
+    blocked = assess_from_benchmark_bars(classification, None)
+    assert blocked.tradable_long is None
+    assert "SECTOR_BENCHMARK_UNAVAILABLE" in blocked.reason_codes
+
+    class _MarketData:
+        async def get_bars(self, symbol, timeframe, start, end):
+            assert symbol == "UVXY"
+            assert timeframe is Timeframe.D1
+            return _bars(symbol, BENCHMARK_MIN_BARS + 10, trend=0.004, now=end)
+
+    assessed = await BenchmarkBarsSectorAssessment().assess(
+        "UVXY",
+        market_data=_MarketData(),
+        asset_class="stock",  # type: ignore[arg-type]
+    )
+    assert assessed.benchmark == "UVXY"
+    assert assessed.data_status is DataHealthStatus.HEALTHY
+
+
+@pytest.mark.asyncio
 async def test_nem_gdx_pass() -> None:
     cls = classify_symbol("NEM")
     bars = _bars("GDX", BENCHMARK_MIN_BARS + 10, trend=0.004)

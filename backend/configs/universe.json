@@ -48,7 +48,7 @@
     "sector": [
       "XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"
     ],
-    "other": ["GLD", "SLV", "TLT", "IEF", "HYG", "LQD", "EEM", "EFA", "SMH", "XBI"]
+    "other": ["GLD", "SLV", "TLT", "IEF", "HYG", "LQD", "EEM", "EFA", "SMH", "XBI", "UVXY"]
   },
   "sector_etf": {
     "technology": "XLK",
