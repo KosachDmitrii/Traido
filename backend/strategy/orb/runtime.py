@@ -527,6 +527,24 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         "ask": str(quote.ask) if quote else None,
         "quote_at": quote.ts.isoformat() if quote else None,
     }
+    if plan.evidence.get("retest") and (
+        prior.get("state") != trigger.state or prior.get("reasons") != trigger.reasons
+    ):
+        retest = plan.evidence["retest"]
+        logger.info(
+            "ORB entry trigger: symbol=%s state=%s reasons=%s bid=%s ask=%s "
+            "trigger=%s max_entry=%s stop=%s target=%s valid_until=%s",
+            symbol,
+            trigger.state,
+            trigger.reasons,
+            state["bid"],
+            state["ask"],
+            plan.trigger,
+            plan.max_entry,
+            plan.stop,
+            retest.get("target"),
+            retest.get("valid_until"),
+        )
     await asyncio.to_thread(update_state, plan.session, symbol, state)
     if trigger.state != "BUY_ALLOWED" or quote is None:
         return result.model_copy(
