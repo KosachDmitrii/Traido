@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections import Counter
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
@@ -47,6 +48,7 @@ _pending_completed_bars: dict[tuple[str, datetime], Bar] = {}
 _pending_completed_bars_lock = Lock()
 _last_ready_check = 0.0
 STATUS: dict[str, Any] = {"status": "not_started", "version": VERSION, "parameters": PARAMETERS}
+logger = logging.getLogger(__name__)
 
 
 def notify_completed_bar(bar: Bar) -> None:
@@ -996,6 +998,20 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
     refreshed = await asyncio.to_thread(read_session, stored["session"])
     if refreshed is not None:
         STATUS.update(refreshed)
+        current_states = refreshed.get("states") or {}
+        state_counts = Counter(
+            str(item.get("state") or "UNKNOWN") for item in current_states.values()
+        )
+        reason_counts = Counter(
+            str(reason) for item in current_states.values() for reason in item.get("reasons") or []
+        )
+        logger.info(
+            "ORB decision summary: session=%s plans=%s states=%s reasons=%s",
+            stored["session"],
+            len(plans),
+            dict(state_counts),
+            dict(reason_counts.most_common(12)),
+        )
     DESK_BUS.bump_desk(kind="orb_observation")
     return dict(counts)
 
