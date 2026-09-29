@@ -73,9 +73,20 @@ async def assess_market(
     if not fred_api_key:
         return _blocked(reasons=["FRED_NOT_CONFIGURED", "DATA_BLOCKED"])
 
-    async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
-        dgs_raw = await _fred_latest(client, fred_api_key, "DGS10", fetched_at=evaluated_at)
-        unrate_raw = await _fred_latest(client, fred_api_key, "UNRATE", fetched_at=evaluated_at)
+    try:
+        async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
+            dgs_raw = await _fred_latest(client, fred_api_key, "DGS10", fetched_at=evaluated_at)
+            unrate_raw = await _fred_latest(client, fred_api_key, "UNRATE", fetched_at=evaluated_at)
+    except httpx.HTTPError as exc:
+        # Do not include str(exc): httpx errors contain the FRED URL and key.
+        status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        return _blocked(
+            reasons=[
+                "FRED_UNAVAILABLE",
+                f"FRED_HTTP_{status}" if status else "FRED_TRANSPORT_ERROR",
+                "DATA_BLOCKED",
+            ]
+        )
 
     dgs = _as_observation(dgs_raw, series_id="DGS10", fetched_at=evaluated_at)
     unrate = _as_observation(unrate_raw, series_id="UNRATE", fetched_at=evaluated_at)

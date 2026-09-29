@@ -4,9 +4,26 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
+import httpx
 import pytest
 
 from agents.market.agent import FredObservation, assess_market
+from trading.market_gate import evaluate_market_gate
+
+
+@pytest.mark.asyncio
+async def test_fred_http_failure_blocks_with_safe_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _latest(_client, key, _series, *, fetched_at=None):
+        request = httpx.Request("GET", f"https://example.org/?api_key={key}")
+        response = httpx.Response(502, request=request)
+        raise httpx.HTTPStatusError("failed", request=request, response=response)
+
+    monkeypatch.setattr("agents.market.agent._fred_latest", _latest)
+    result = await assess_market("test-secret-value-12345")
+    gate = evaluate_market_gate(result, require_sector=False)
+    assert result.evaluated_at is None
+    assert "FRED_HTTP_502" in gate.reason_codes
+    assert "test-secret-value-12345" not in repr(gate)
 
 
 @pytest.mark.asyncio
@@ -24,6 +41,10 @@ async def test_stale_dgs10_is_data_blocked(monkeypatch: pytest.MonkeyPatch) -> N
     assert result.evaluated_at is None
     assert "FRED_OBSERVATION_STALE" in result.reasons
     assert "DATA_BLOCKED" in result.reasons
+    gate = evaluate_market_gate(result, now=fetched, require_sector=False)
+    assert gate.tradable_long is False
+    assert "REGIME_TIMESTAMP_MISSING" in gate.reason_codes
+    assert "FRED_OBSERVATION_STALE" in gate.reason_codes
 
 
 @pytest.mark.asyncio

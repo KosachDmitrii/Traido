@@ -19,6 +19,8 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+from core.redaction import redact_payload, redact_secrets
+
 SECRET_HINTS = ("key", "secret", "token", "password", "authorization", "cookie")
 REDACTED = "***"
 
@@ -66,20 +68,23 @@ class JsonFormatter(logging.Formatter):
             "ts": datetime.fromtimestamp(record.created, UTC).isoformat(),
             "level": record.levelname,
             "logger": record.name,
-            "message": record.getMessage(),
+            "message": redact_secrets(record.getMessage()),
         }
         for key, value in record.__dict__.items():
             if key in _STANDARD_ATTRS or key.startswith("_"):
                 continue
-            payload[key] = redact(value, key)
+            payload[key] = redact_payload(redact(value, key))
         if record.exc_info:
-            payload["exception"] = self.formatException(record.exc_info)
+            payload["exception"] = redact_secrets(self.formatException(record.exc_info))
         return json.dumps(payload, default=str)
 
 
 class TextFormatter(logging.Formatter):
     def __init__(self) -> None:
         super().__init__("%(asctime)s %(levelname)-7s %(name)s — %(message)s", "%H:%M:%S")
+
+    def format(self, record: logging.LogRecord) -> str:
+        return redact_secrets(super().format(record))
 
 
 def configure_logging(*, level: str | None = None, json_output: bool | None = None) -> None:

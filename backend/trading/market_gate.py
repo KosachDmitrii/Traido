@@ -78,9 +78,13 @@ def evaluate_market_gate(
 
     regime_ts = getattr(market, "evaluated_at", None) or getattr(market, "as_of", None)
     if regime_ts is None:
+        # Preserve the upstream data failure. The timestamp is deliberately absent
+        # when the macro assessment cannot be trusted; reporting only the missing
+        # timestamp hides the reason an operator can actually investigate.
+        source_reasons = [r for r in market.reasons if r.startswith("FRED_")]
         return _blocked(
             label=market.regime.value if market.regime else "unknown",
-            reasons=["REGIME_TIMESTAMP_MISSING"],
+            reasons=["REGIME_TIMESTAMP_MISSING", *source_reasons],
             now=now,
             sector_label=sector_label,
             sector_tradable=sector_tradable,
