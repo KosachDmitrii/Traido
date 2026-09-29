@@ -14,8 +14,10 @@ PROMPT_VERSION = "market@0.1.0"
 
 # Daily Treasury; allow a long weekend plus a delayed print.
 DGS10_MAX_AGE = timedelta(days=10)
-# Monthly unemployment; one missed release still leaves the prior print usable.
-UNRATE_MAX_AGE = timedelta(days=45)
+# FRED dates a monthly UNRATE observation to the start of its measured month,
+# not to the day BLS publishes it. Allow the current/prior two calendar months
+# so a release near the start of the next month does not become falsely stale.
+UNRATE_MAX_MONTHS_OLD = 2
 
 
 @dataclass(frozen=True)
@@ -148,7 +150,12 @@ async def assess_market(
             reasons=["FRED_OBSERVATION_STALE", "DATA_BLOCKED", "STALE_DGS10"],
             notes=[f"DGS10_OBS={dgs_date.isoformat()}"],
         )
-    if unrate_date is not None and (today - unrate_date).days > UNRATE_MAX_AGE.days:
+    months_old = (
+        (today.year - unrate_date.year) * 12 + today.month - unrate_date.month
+        if unrate_date is not None
+        else None
+    )
+    if months_old is not None and months_old > UNRATE_MAX_MONTHS_OLD:
         return _blocked(
             reasons=["FRED_OBSERVATION_STALE", "DATA_BLOCKED", "STALE_UNRATE"],
             notes=[f"UNRATE_OBS={unrate_date.isoformat()}"],

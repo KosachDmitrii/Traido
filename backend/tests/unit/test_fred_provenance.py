@@ -66,6 +66,41 @@ async def test_fresh_observation_keeps_print_date(monkeypatch: pytest.MonkeyPatc
     assert any("DGS10_OBS=2026-09-03" in n for n in result.macro_notes)
 
 
+@pytest.mark.parametrize("day", [date(2026, 9, 29), date(2026, 10, 1)])
+@pytest.mark.asyncio
+async def test_august_unrate_is_current_across_month_boundary(
+    monkeypatch: pytest.MonkeyPatch, day: date
+) -> None:
+    evaluated = datetime(day.year, day.month, day.day, 15, 0, tzinfo=UTC)
+
+    async def _latest(_client, _key, series, *, fetched_at=None):
+        if series == "DGS10":
+            return FredObservation(series, 4.20, day - timedelta(days=1), evaluated)
+        return FredObservation(series, 4.10, date(2026, 8, 1), evaluated)
+
+    monkeypatch.setattr("agents.market.agent._fred_latest", _latest)
+    result = await assess_market("fake-key", now=evaluated)
+    assert result.evaluated_at == evaluated
+    assert result.observation_date == date(2026, 8, 1)
+    assert "FRED_OBSERVATION_STALE" not in result.reasons
+
+
+@pytest.mark.asyncio
+async def test_unrate_three_calendar_months_old_blocks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evaluated = datetime(2026, 11, 1, 15, 0, tzinfo=UTC)
+
+    async def _latest(_client, _key, series, *, fetched_at=None):
+        obs = date(2026, 10, 30) if series == "DGS10" else date(2026, 8, 1)
+        return FredObservation(series, 4.10, obs, evaluated)
+
+    monkeypatch.setattr("agents.market.agent._fred_latest", _latest)
+    result = await assess_market("fake-key", now=evaluated)
+    assert result.evaluated_at is None
+    assert "STALE_UNRATE" in result.reasons
+
+
 @pytest.mark.asyncio
 async def test_future_observation_date_is_data_blocked(monkeypatch: pytest.MonkeyPatch) -> None:
     fetched = datetime(2026, 9, 4, 15, 0, tzinfo=UTC)
