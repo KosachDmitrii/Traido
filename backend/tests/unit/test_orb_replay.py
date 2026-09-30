@@ -7,7 +7,7 @@ from database.models.orb import OrbDecisionEventRow
 from database.session import session_factory
 from market_data.bar_store import save_bars
 from strategy.orb.replay import replay_plan, session_replay
-from strategy.orb.store import create_session
+from strategy.orb.store import create_session, update_state
 from tests.unit.test_orb_retest import scenario
 
 
@@ -45,3 +45,14 @@ def test_session_report_is_read_only_and_labels_its_limits():
     with session_factory()() as db:
         assert db.query(OrderIntentRow).count() == 0
         assert db.query(OrbDecisionEventRow).count() == 0
+
+
+def test_recorded_reason_summary_does_not_require_replaying_bars():
+    plan, _, now = scenario()
+    create_session(plan.session, {"plans": {plan.symbol: plan.model_dump(mode="json")}})
+    for _ in range(2):
+        update_state(plan.session, plan.symbol, {"state": "BLOCKED", "reasons": ["REGIME_STALE"]})
+    report = session_replay(plan.range_start.date(), as_of=now, replay_bars=False)
+    assert report["status"] == "recorded_observations"
+    assert report["recorded_observation_states"] == {"BLOCKED": 2}
+    assert report["recorded_observation_reasons"] == {"REGIME_STALE": 2}

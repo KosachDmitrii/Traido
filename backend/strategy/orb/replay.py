@@ -1,10 +1,11 @@
 """Read-only replay of persisted ORB evidence, without assumed quotes or fills."""
 
+import json
 from collections import Counter
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import String, cast, select
 
 from core.schemas import Bar
 from database.models.orb import OrbDecisionEventRow, OrbSessionRow
@@ -85,16 +86,19 @@ def session_replay(
         # Query aggregates instead of loading the potentially large event corpus.
         from sqlalchemy import func
 
+        # The deployed migration uses PostgreSQL JSON (not JSONB), which has
+        # no equality operator. Group its text representation portably.
+        reason_text = cast(OrbDecisionEventRow.reason_codes, String)
         observations = db.execute(
-            select(OrbDecisionEventRow.to_state, OrbDecisionEventRow.reason_codes, func.count())
+            select(OrbDecisionEventRow.to_state, reason_text, func.count())
             .where(OrbDecisionEventRow.session == day.isoformat())
-            .group_by(OrbDecisionEventRow.to_state, OrbDecisionEventRow.reason_codes)
+            .group_by(OrbDecisionEventRow.to_state, reason_text)
         ).all()
     observation_states: Counter[str] = Counter()
     observation_reasons: Counter[str] = Counter()
-    for state, codes, count in observations:
+    for state, codes_json, count in observations:
         observation_states[state] += count
-        for code in codes:
+        for code in json.loads(codes_json):
             observation_reasons[code] += count
     recorded = {
         "session": day.isoformat(),
