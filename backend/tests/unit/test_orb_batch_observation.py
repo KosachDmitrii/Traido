@@ -241,8 +241,10 @@ async def test_provider_outage_does_not_fan_out_to_every_symbol():
 @pytest.mark.asyncio
 async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
     from datetime import UTC, datetime
+    from decimal import Decimal
 
     from core.activity import BOARD
+    from core.schemas import Snapshot
     from database.models.desk import OrderIntentRow
     from database.session import session_factory
     from strategy.orb import runtime
@@ -259,7 +261,18 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
 
     Clock.current = now
     monkeypatch.setattr(runtime, "datetime", Clock)
-    feed = SimpleNamespace(get_bars_batch=AsyncMock(side_effect=RuntimeError("offline")))
+    feed = SimpleNamespace(
+        get_bars_batch=AsyncMock(side_effect=RuntimeError("offline")),
+        get_snapshots=AsyncMock(
+            return_value={
+                plan.symbol: Snapshot(
+                    symbol=plan.symbol,
+                    day_high=Decimal("103.25"),
+                    day_low=Decimal("98.75"),
+                )
+            }
+        ),
+    )
     broker = SimpleNamespace(place_order=AsyncMock())
     ctx = SimpleNamespace(market_data=feed, broker=broker)
     create_session(
@@ -316,3 +329,6 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
     monkeypatch.setattr(retest_data, "_failures", {})
     assert await runtime.observe(ctx) == {"wait_for_entry": 1}
     assert evaluate.await_count == 1
+    state = read_session(plan.session)["states"][plan.symbol]
+    assert state["day_high"] == "103.25"
+    assert state["day_low"] == "98.75"

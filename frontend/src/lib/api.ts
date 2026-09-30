@@ -980,7 +980,7 @@ export type OrbPlan = {
 };
 export type OrbBar = { ts: string; open: string; high: string; low: string; close: string; volume: string };
 export type OrbState = { state: string; reasons: string[]; bid?: string | null; ask?: string | null;
-  opportunity_id?: string; observed_at?: string; quote_at?: string; last_bar?: OrbBar;
+  day_high?: string | null; day_low?: string | null; opportunity_id?: string; observed_at?: string; quote_at?: string; last_bar?: OrbBar;
   last_bar_closes_at?: string; next_bar_closes_at?: string; processing_lag_seconds?: number };
 export type OrbExecution = { stage: string; opportunity_id: string; last_outcome?: string | null;
   last_error?: string | null; retry_at?: string | null; attempts: number };

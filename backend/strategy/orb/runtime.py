@@ -444,7 +444,18 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             watched_quote = await quoter(symbol) if quoter and snapshots is None else None
             if snapshots is not None:
                 snap = snapshots.get(symbol)
-                revised_state.update(bid=None, ask=None, quote_at=None)
+                revised_state.update(
+                    bid=None,
+                    ask=None,
+                    quote_at=None,
+                    day_high=None,
+                    day_low=None,
+                )
+                if snap:
+                    revised_state.update(
+                        day_high=str(snap.day_high) if snap.day_high is not None else None,
+                        day_low=str(snap.day_low) if snap.day_low is not None else None,
+                    )
                 if snap and snap.bid is not None and snap.ask is not None and snap.quote_ts:
                     revised_state.update(
                         bid=str(snap.bid), ask=str(snap.ask), quote_at=snap.quote_ts.isoformat()
@@ -519,6 +530,8 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
     quote = await quoter(symbol) if quoter else None
     now = datetime.now(UTC)
     trigger = evaluate_trigger(plan, quote, now=now)
+    snapshots = getattr(ctx, "observation_snapshots", None)
+    snapshot = snapshots.get(symbol) if snapshots is not None else None
     state: dict[str, Any] = {
         "state": trigger.state,
         "reasons": trigger.reasons,
@@ -526,6 +539,8 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         "bid": str(quote.bid) if quote else None,
         "ask": str(quote.ask) if quote else None,
         "quote_at": quote.ts.isoformat() if quote else None,
+        "day_high": str(snapshot.day_high) if snapshot and snapshot.day_high is not None else None,
+        "day_low": str(snapshot.day_low) if snapshot and snapshot.day_low is not None else None,
     }
     if plan.evidence.get("retest") and (
         prior.get("state") != trigger.state or prior.get("reasons") != trigger.reasons
@@ -956,14 +971,21 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
                 "bid": None,
                 "ask": None,
                 "quote_at": None,
+                "day_high": None,
+                "day_low": None,
             }
             if rows:
                 state.update(_bar_observation(max(rows, key=lambda bar: bar.ts), observed_at=now))
             snap = getattr(ctx, "observation_snapshots", {}).get(plan.symbol)
-            if snap and snap.bid is not None and snap.ask is not None and snap.quote_ts:
+            if snap:
                 state.update(
-                    bid=str(snap.bid), ask=str(snap.ask), quote_at=snap.quote_ts.isoformat()
+                    day_high=str(snap.day_high) if snap.day_high is not None else None,
+                    day_low=str(snap.day_low) if snap.day_low is not None else None,
                 )
+                if snap.bid is not None and snap.ask is not None and snap.quote_ts:
+                    state.update(
+                        bid=str(snap.bid), ask=str(snap.ask), quote_at=snap.quote_ts.isoformat()
+                    )
             passive[plan.symbol] = state
             counts[
                 {

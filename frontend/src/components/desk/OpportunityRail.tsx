@@ -80,6 +80,9 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
         {(plan.name || opp?.candidate.name) && <p className={styles.companyName}>{plan.name || opp?.candidate.name}</p>}
         <dl className={styles.prices}>
           <div><dt>Ask</dt><dd><CurrentPrice value={ask} /></dd></div>
+          <div><dt>Максимум дня</dt><dd>{px(state?.day_high)}</dd></div>
+          <div><dt>Минимум дня</dt><dd>{px(state?.day_low)}</dd></div>
+          <div><dt>Диапазон первых 5 минут</dt><dd>{`${px(plan.range_low)}–${px(plan.range_high)}`}</dd></div>
           <div><dt>{ready ? "Зона покупки" : "Уровень ORB"}</dt><dd>{ready && isRetest ? `${px(plan.trigger)}–${px(plan.max_entry)}` : px(plan.trigger)}</dd></div>
           {ready && <div><dt>{manualTarget ? "Уровень риска" : "Стоп"}</dt><dd>{px(plan.stop)}</dd></div>}
           {ready && isRetest && <div><dt>Цель</dt><dd>{px(retest?.target)}</dd></div>}
