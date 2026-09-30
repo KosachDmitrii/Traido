@@ -45,10 +45,16 @@ def rebuild(
     )
     if initial.plan is None:
         return OrbDecision(state="NO_TRADE", reasons=["ORB_RETEST_INVALIDATED"])
-    reentry = base.evidence.get("reentry")
+    # Selection provenance must survive every geometry replay. In particular,
+    # losing instrument classification makes ETF sector/event checks treat the
+    # selected instrument as an ordinary company downstream.
+    provenance = {
+        key: deepcopy(value)
+        for key, value in base.evidence.items()
+        if key not in {"daily", "opening", "parameters", "atr_method", "retest"}
+    }
     base = initial.plan
-    if reentry:
-        base = base.model_copy(update={"evidence": {**base.evidence, "reentry": deepcopy(reentry)}})
+    base = base.model_copy(update={"evidence": {**base.evidence, **provenance}})
 
     def result(
         state: Literal["WAIT", "BUY_ALLOWED", "NO_TRADE", "DATA_BLOCKED"],

@@ -211,6 +211,26 @@ def test_skip_barrier_cannot_reuse_an_old_confirmation():
     assert "retest" not in result.plan.evidence
 
 
+def test_replay_preserves_instrument_and_policy_provenance_without_old_geometry():
+    base, rows, now = scenario()
+    instrument = {"asset_class": "etf", "provider": "alpaca", "as_of": now.isoformat()}
+    change = {"revision": "paper-retest-1", "old_version": "orb@1.5.0"}
+    base = base.model_copy(
+        update={
+            "evidence": {**base.evidence, "instrument": instrument, "entry_policy_change": change}
+        }
+    )
+    confirmed = rebuild(base, rows, now=now).plan
+    assert confirmed.evidence["instrument"] == instrument
+    assert confirmed.evidence["entry_policy_change"] == change
+    reset = rebuild(confirmed, rows, now=now, after=now + timedelta(seconds=60)).plan
+    assert "retest" not in reset.evidence
+    assert reset.evidence["instrument"] == instrument
+    assert reset.evidence["entry_policy_change"] == change
+    reset.evidence["instrument"]["asset_class"] = "equity"
+    assert base.evidence["instrument"]["asset_class"] == "etf"
+
+
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "100", None])
 def test_malformed_target_blocks_before_execution(value):
     p, _, now = ready_plan()

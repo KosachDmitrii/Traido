@@ -72,7 +72,9 @@ def replay_plan(plan: OrbPlan, bars: list[Bar], *, as_of: datetime) -> dict[str,
     }
 
 
-def session_replay(day: date, *, as_of: datetime | None = None) -> dict[str, Any]:
+def session_replay(
+    day: date, *, as_of: datetime | None = None, replay_bars: bool = True
+) -> dict[str, Any]:
     """Inspect one saved selection and real M5 evidence; never fetch or write."""
     as_of = as_of or datetime.now(UTC)
     with session_factory()() as db:
@@ -84,10 +86,23 @@ def session_replay(day: date, *, as_of: datetime | None = None) -> dict[str, Any
         from sqlalchemy import func
 
         observations = db.execute(
-            select(OrbDecisionEventRow.to_state, func.count())
+            select(OrbDecisionEventRow.to_state, OrbDecisionEventRow.reason_codes, func.count())
             .where(OrbDecisionEventRow.session == day.isoformat())
-            .group_by(OrbDecisionEventRow.to_state)
+            .group_by(OrbDecisionEventRow.to_state, OrbDecisionEventRow.reason_codes)
         ).all()
+    observation_states: Counter[str] = Counter()
+    observation_reasons: Counter[str] = Counter()
+    for state, codes, count in observations:
+        observation_states[state] += count
+        for code in codes:
+            observation_reasons[code] += count
+    recorded = {
+        "session": day.isoformat(),
+        "recorded_observation_states": dict(observation_states),
+        "recorded_observation_reasons": dict(observation_reasons),
+    }
+    if not replay_bars:
+        return {**recorded, "status": "recorded_observations"}
     plans = [OrbPlan.model_validate(raw) for raw in payload.get("plans", {}).values()]
     histories: dict[str, list[Bar]] = {}
     groups: dict[tuple[str, datetime], list[OrbPlan]] = {}
@@ -104,7 +119,7 @@ def session_replay(day: date, *, as_of: datetime | None = None) -> dict[str, Any
     for result in results:
         reasons.update(result["reason_evaluations"])
     return {
-        "session": day.isoformat(),
+        **recorded,
         "status": "replayed",
         "scope": "saved_selected_plans_only",
         "quote_admission_replayed": False,
@@ -116,7 +131,6 @@ def session_replay(day: date, *, as_of: datetime | None = None) -> dict[str, Any
         "plans_with_missing_intervals": sum(bool(r["missing_intervals"]) for r in results),
         "confirmed_setups": sum(len(r["signals"]) for r in results),
         "symbols_with_confirmed_setups": sum(bool(r["signals"]) for r in results),
-        "recorded_observation_states": dict(observations),
         "reason_evaluations": dict(reasons),
         "symbols": results,
     }

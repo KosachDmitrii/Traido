@@ -29,11 +29,11 @@ MAX_BATCH = 10
 
 
 @router.get("/diagnostics/orb-replay")
-async def orb_replay(session: date = Query()) -> dict:
+async def orb_replay(session: date = Query(), replay_bars: bool = Query(default=True)) -> dict:
     """Replay one saved session without vendor reads, state changes or orders."""
     from strategy.orb.replay import session_replay
 
-    return await asyncio.to_thread(session_replay, session)
+    return await asyncio.to_thread(session_replay, session, replay_bars=replay_bars)
 
 
 @router.get("/diagnostics/f3")
