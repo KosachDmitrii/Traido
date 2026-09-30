@@ -9,6 +9,7 @@ expensive, and the answer does not change minute to minute.
 from __future__ import annotations
 
 import asyncio
+from datetime import date
 
 from fastapi import APIRouter, HTTPException, Path, Query
 
@@ -25,6 +26,14 @@ from trading.historical_mfe import ensure_seeded_from_aftermath, sync_from_paper
 router = APIRouter(prefix="/api/v1", tags=["evaluation"])
 
 MAX_BATCH = 10
+
+
+@router.get("/diagnostics/orb-replay")
+async def orb_replay(session: date = Query()) -> dict:
+    """Replay one saved session without vendor reads, state changes or orders."""
+    from strategy.orb.replay import session_replay
+
+    return await asyncio.to_thread(session_replay, session)
 
 
 @router.get("/diagnostics/f3")
