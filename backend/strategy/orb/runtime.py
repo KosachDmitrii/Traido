@@ -39,6 +39,7 @@ from strategy.orb.store import create_session, read_session, update_state, updat
 from trading.scan_context import ScanContext, open_scan_context
 from trading.session_hours import us_equity_rth_open
 from universe.models import UniverseTier
+from universe.provider import ALPACA_CLASSIFICATION_REVISION
 from universe.service import UniverseService
 
 _discovery_lock = asyncio.Lock()
@@ -134,7 +135,11 @@ async def discover(
                 missing = {
                     symbol
                     for symbol, plan in existing.get("plans", {}).items()
-                    if not plan.get("evidence", {}).get("instrument")
+                    if (
+                        not plan.get("evidence", {}).get("instrument")
+                        or existing.get("instrument_classification_revision")
+                        != ALPACA_CLASSIFICATION_REVISION
+                    )
                     and not existing.get("states", {}).get(symbol, {}).get("opportunity_id")
                 }
                 if missing:
@@ -146,6 +151,7 @@ async def discover(
                             "asset_class": instrument.asset_class.value,
                             "provider": instrument.provider,
                             "as_of": instrument.as_of.isoformat() if instrument.as_of else None,
+                            "classification_evidence": dict(instrument.metadata),
                         }
                         for instrument in snapshot.eligible
                         if instrument.key in missing
@@ -274,6 +280,7 @@ async def discover(
                         "asset_class": instrument.asset_class.value,
                         "provider": instrument.provider,
                         "as_of": instrument.as_of.isoformat() if instrument.as_of else None,
+                        "classification_evidence": dict(instrument.metadata),
                     },
                 }
                 plans.append(decision.plan.model_copy(update={"evidence": evidence}))
@@ -307,6 +314,7 @@ async def discover(
             "rejection_counts": dict(Counter(r for rs in rejected.values() for r in rs)),
             "outranked": [],
             "selection_scope": "all_qualified",
+            "instrument_classification_revision": ALPACA_CLASSIFICATION_REVISION,
         }
         payload = await asyncio.to_thread(create_session, day, payload, expand=existing is not None)
         STATUS.update(payload)

@@ -27,3 +27,29 @@ def test_restore_uses_provider_facts_and_never_rewrites_claimed_plans():
         assert repaired["plans"][plan.symbol][key] == raw[key]
     repeated = restore_unclaimed_instruments(plan.session, {plan.symbol: fact})
     assert len(repeated["instrument_provenance_repairs"]) == 1
+
+
+def test_correct_misclassified_etf_without_replacing_stock_with_unverified_fact():
+    plan, _, _ = scenario()
+    raw = plan.model_dump(mode="json")
+    raw["evidence"]["instrument"] = {"asset_class": "stock", "provider": "alpaca"}
+    create_session(plan.session, {"plans": {plan.symbol: raw}})
+    facts = {plan.symbol: {"asset_class": "etf", "provider": "alpaca"}}
+    repaired = restore_unclaimed_instruments(plan.session, facts)
+    assert repaired["plans"][plan.symbol]["evidence"]["instrument"]["asset_class"] == "etf"
+    assert repaired["instrument_classification_revision"] == "alpaca-name-etf@1"
+
+
+def test_alpaca_etf_names_without_an_etf_attribute():
+    from universe.models import AssetClass
+    from universe.provider import _instrument_from_alpaca
+
+    for name, expected in [
+        ("iShares National Muni Bond ETF", AssetClass.ETF),
+        ("State Street SPDR S&P 500 ETF Trust", AssetClass.ETF),
+        ("ETF Capital Management Inc", AssetClass.STOCK),
+        ("Some Investment Trust", AssetClass.STOCK),
+        ("Some Exchange Traded Note ETN", AssetClass.STOCK),
+    ]:
+        instrument = _instrument_from_alpaca({"symbol": "TEST", "class": "us_equity", "name": name})
+        assert instrument.asset_class is expected

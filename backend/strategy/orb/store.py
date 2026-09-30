@@ -10,6 +10,7 @@ from sqlalchemy.exc import IntegrityError
 from core.schemas import Quote
 from database.models.orb import OrbDecisionEventRow, OrbSessionRow
 from database.session import session_factory
+from universe.provider import ALPACA_CLASSIFICATION_REVISION
 
 
 def read_session(day: str) -> dict[str, Any] | None:
@@ -64,8 +65,15 @@ def restore_unclaimed_instruments(
         repairs = []
         for symbol, plan in payload.get("plans", {}).items():
             evidence = plan.setdefault("evidence", {})
+            current = evidence.get("instrument") or {}
+            incoming = instruments.get(symbol) or {}
+            corrected_etf = (
+                current.get("provider") == incoming.get("provider") == "alpaca"
+                and current.get("asset_class") == "stock"
+                and incoming.get("asset_class") == "etf"
+            )
             if (
-                evidence.get("instrument")
+                (current and not corrected_etf)
                 or payload.get("states", {}).get(symbol, {}).get("opportunity_id")
                 or symbol not in instruments
             ):
@@ -74,6 +82,11 @@ def restore_unclaimed_instruments(
             repairs.append({"symbol": symbol, **deepcopy(instruments[symbol])})
         if repairs:
             payload.setdefault("instrument_provenance_repairs", []).extend(repairs)
+        if (
+            repairs
+            or payload.get("instrument_classification_revision") != ALPACA_CLASSIFICATION_REVISION
+        ):
+            payload["instrument_classification_revision"] = ALPACA_CLASSIFICATION_REVISION
             row.payload = payload
             db.commit()
         return payload

@@ -9,6 +9,7 @@ desk ran before, Alpaca's asset feed, and a static one for tests.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any, Protocol, runtime_checkable
@@ -19,6 +20,8 @@ from core.config import Settings, get_settings
 from core.universe import ETF_SECTOR, default_universe
 from core.vendor_http import get_with_retry
 from universe.models import AssetClass, Instrument, UniverseTier
+
+ALPACA_CLASSIFICATION_REVISION = "alpaca-name-etf@1"
 
 
 @runtime_checkable
@@ -119,9 +122,15 @@ def _instrument_from_alpaca(raw: dict[str, Any]) -> Instrument | None:
     exchange = str(raw.get("exchange") or "").strip().upper()
     asset_class = _ALPACA_CLASS.get(str(raw.get("class") or ""), AssetClass.OTHER)
 
-    # Alpaca does not label ETFs as a class; it flags them in `attributes`.
+    # us_equity includes stocks and ETFs. Alpaca's documented attributes do
+    # not guarantee an ETF flag. An explicit ETF/ETF Trust suffix in its asset
+    # name is classification evidence; generic 'fund'/'trust' or issuer names
+    # alone are not enough. Retain compatibility with explicit ETF attributes.
     attributes = raw.get("attributes") or []
-    if asset_class is AssetClass.STOCK and "etf" in {str(a).lower() for a in attributes}:
+    named_etf = re.search(r"\bETF(?:\s+TRUST)?$", str(raw.get("name") or "").strip(), re.IGNORECASE)
+    if asset_class is AssetClass.STOCK and (
+        "etf" in {str(a).lower() for a in attributes} or named_etf is not None
+    ):
         asset_class = AssetClass.ETF
 
     return Instrument(
@@ -137,6 +146,13 @@ def _instrument_from_alpaca(raw: dict[str, Any]) -> Instrument | None:
         last_price=None,  # the asset feed carries no price
         provider="alpaca",
         as_of=datetime.now(UTC),
+        metadata={
+            "asset_name": str(raw.get("name") or ""),
+            "classification_revision": ALPACA_CLASSIFICATION_REVISION,
+            "classification_basis": (
+                "explicit_etf_name" if named_etf is not None else "asset_class_and_attributes"
+            ),
+        },
     )
 
 
