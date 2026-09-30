@@ -30,6 +30,8 @@ test("cards contain only genuine potential entries", () => {
   assert.equal(isPotentialOrbState("WAIT", [], true), true);
   assert.equal(isPotentialOrbState("WAIT", [], false, "CHECKING"), true);
   assert.equal(isPotentialOrbState("WAIT", [], false, "EXPIRED"), false);
+  assert.equal(isPotentialOrbState("BLOCKED", ["SECTOR_METADATA_MISSING"]), true);
+  assert.equal(orbSignalStatus("BLOCKED", ["SECTOR_METADATA_MISSING"]), "Вход заблокирован");
 });
 test("observation time uses ET and does not fabricate missing timestamps", () => {
   assert.equal(observationTime("2026-09-11T13:43:12Z"), "09:43:12");

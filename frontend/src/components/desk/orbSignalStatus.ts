@@ -20,6 +20,9 @@ export function isPotentialOrbState(
   executionStage?: string,
 ): boolean {
   if (state === "DATA_BLOCKED") return false;
+  // A confirmed entry refused by final admission must remain visible with
+  // its blocking reason. This is display membership, never buy permission.
+  if (state === "BLOCKED") return true;
   if (hasOpportunity) return true;
   if (executionStage && !terminalExecutionStages.has(executionStage)) return true;
   return reasons.some(reason => potentialReasons.has(reason));

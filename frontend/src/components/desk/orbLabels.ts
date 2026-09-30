@@ -1,4 +1,11 @@
 const reasons: Record<string,string> = {
+  MARKET_GATE_REJECTED:"Проверка рынка или сектора не разрешила покупку.",
+  REGIME_TIMESTAMP_MISSING:"Нет подтверждённого времени оценки рынка. Покупка заблокирована.",
+  FRED_OBSERVATION_STALE:"Макроэкономические данные FRED устарели. Ждём актуальных данных.",
+  FRED_NOT_CONFIGURED:"Источник макроэкономических данных FRED не настроен.",
+  FRED_UNAVAILABLE:"Не удалось получить обязательные макроэкономические данные FRED.",
+  SECTOR_METADATA_MISSING:"Не удалось определить сектор инструмента по данным провайдера.",
+  SECTOR_ASSESSMENT_MISSING:"Нет достоверной оценки сектора. Покупка заблокирована.",
   ORB_DATA_PROVIDER_UNAVAILABLE:"Alpaca временно не возвращает данные. Повторяем проверку; покупка недоступна.",
   ORB_CLOSED_WAITING_NEW_SIGNAL:"Предыдущая сделка закрыта. Ждём нового роста, возврата и подтверждения.",
   ORB_RETEST_WAIT_BREAKOUT:"Ждём закрытия растущей пятиминутной свечи выше максимума первых 5 минут + $0.01.",
@@ -47,7 +54,7 @@ const reasons: Record<string,string> = {
   WEEKLY_PNL_UNAVAILABLE:"Недоступен результат периода риска счёта.",
   PORTFOLIO_DRAWDOWN_UNAVAILABLE:"Недоступна просадка счёта.",
 };
-export const orbReason = (reason: string) => reasons[reason] ?? reason;
+export const orbReason = (reason: string) => reason.split(",").map(code=>reasons[code] ?? code).join(" · ");
 export const orbState = (state?:string) => ({EXECUTED:"Исполнено",SKIPPED:"Пропущено",EXPIRED:"Истёк",DISCARDED:"Снят",APPROVING:"Проверяем исполнение",APPROVED:"Одобрено",WAIT:"Ждём цену входа",BUY_ALLOWED:"Проверка входа",BLOCKED:"Вход заблокирован",DATA_BLOCKED:"Нет данных",NO_TRADE:"Нет входа"}[state ?? ""] ?? "План");
 export const px = (value: unknown) => value == null || !Number.isFinite(Number(value)) ? "—" : Number(value).toFixed(2);
 export const etTime = (value:string) => new Date(value).toLocaleTimeString("ru-RU",{timeZone:"America/New_York",hour:"2-digit",minute:"2-digit"});

@@ -87,7 +87,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
           {ready && <div><dt>{manualTarget ? "Уровень риска" : "Стоп"}</dt><dd>{px(plan.stop)}</dd></div>}
           {ready && isRetest && <div><dt>Цель</dt><dd>{px(retest?.target)}</dd></div>}
         </dl>
-        {!ready && <p className={styles.brief}>{reasons.map(orbReason).join(" · ")}</p>}
+        {(!ready || state?.state === "BLOCKED" || state?.state === "DATA_BLOCKED") && <p className={styles.brief}>{reasons.map(orbReason).join(" · ")}</p>}
         {observedTime && <small className={styles.checkedAt}>Проверено {observedTime} ET</small>}
         {automatic && <div className={styles.autoStatus} data-tone={auto.tone} role="status" aria-live="polite">
           <div className={styles.autoTitle}>{auto.loading && <LoadingDots ariaLabel="Обработка покупки" />}<strong>{auto.title}</strong></div>
