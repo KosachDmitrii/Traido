@@ -592,6 +592,7 @@ Regression: AXP screenshot 318.55/320.98 measures 75.99 bps regardless of last p
 | Skip or known unsubmitted discard | Persist a 60-second reset barrier; require a later full pattern and fresh admission/new opportunity ID |
 | Geometry replacement races approval | Shared row locks/CAS; only unsubmitted awaiting/skipped/discarded claims may be replaced; APPROVING, submitted, executed and UNKNOWN preserved |
 | Retest replay replaces derived entry geometry | Preserve immutable instrument classification, policy migration and reentry provenance; discard old retest geometry. ETF classification must reach sector and event checks |
+| An older unclaimed saved plan has already lost instrument classification | Recover identity from the actual eligible Alpaca universe under the session row lock; record repairs, preserve geometry and all published/approving/executed/unknown claims, and require ordinary admission |
 | Target reached on fresh bid for a v2 long position | Existing close owner requests exit, audits trigger, cancels/verifies stop and rereads holdings; no competing target SELL |
 | At least 30 minutes since opening and fresh bid no higher than actual average entry | Same close owner requests ORB_TIME_NO_PROGRESS |
 | Target/time quote unavailable | No inferred price exit; broker stop remains and scheduled session exit is still attempted independently of quote |

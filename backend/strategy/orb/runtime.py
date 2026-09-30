@@ -131,6 +131,29 @@ async def discover(
                 ) or existing
                 STATUS.update(existing)
             if existing.get("selection_scope") == "all_qualified":
+                missing = {
+                    symbol
+                    for symbol, plan in existing.get("plans", {}).items()
+                    if not plan.get("evidence", {}).get("instrument")
+                    and not existing.get("states", {}).get(symbol, {}).get("opportunity_id")
+                }
+                if missing:
+                    # Older replays dropped instrument identity. Recover it
+                    # from the actual provider universe, never guess from price.
+                    snapshot = await universe.get_scan_universe(tier=UniverseTier.BROAD, max_size=0)
+                    metadata = {
+                        instrument.key: {
+                            "asset_class": instrument.asset_class.value,
+                            "provider": instrument.provider,
+                            "as_of": instrument.as_of.isoformat() if instrument.as_of else None,
+                        }
+                        for instrument in snapshot.eligible
+                        if instrument.key in missing
+                    }
+                    from strategy.orb.store import restore_unclaimed_instruments
+
+                    existing = await asyncio.to_thread(restore_unclaimed_instruments, day, metadata)
+                    STATUS.update(existing)
                 _restore_session_board(existing)
                 return existing
         STATUS.clear()

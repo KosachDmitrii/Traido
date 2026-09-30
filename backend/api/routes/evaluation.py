@@ -36,6 +36,23 @@ async def orb_replay(session: date = Query(), replay_bars: bool = Query(default=
     return await asyncio.to_thread(session_replay, session, replay_bars=replay_bars)
 
 
+@router.get("/diagnostics/orb-context")
+async def orb_context() -> dict:
+    """Probe current mandatory macro facts without any entry or broker path."""
+    from datetime import UTC, datetime
+
+    from agents.market.agent import assess_market
+    from trading.market_gate import evaluate_market_gate
+
+    now = datetime.now(UTC)
+    market = await assess_market(get_settings().fred_api_key, now=now)
+    gate = evaluate_market_gate(market, now=now, require_sector=False)
+    return {
+        "market": market.model_dump(mode="json"),
+        "gate": gate.model_dump(mode="json"),
+    }
+
+
 @router.get("/diagnostics/f3")
 async def diagnostics_f3() -> dict:
     """F3 measurement surface: signal / wait / target / forward Paper progress.

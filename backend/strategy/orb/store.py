@@ -48,6 +48,37 @@ def create_session(day: str, payload: dict[str, Any], *, expand: bool = False) -
         return deepcopy(payload)
 
 
+def restore_unclaimed_instruments(
+    day: str, instruments: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    """Restore missing selection metadata from actual universe facts under CAS lock.
+
+    Published/approving/executed/unknown claims are untouched. No geometry or
+    admission is granted: an updated plan must pass the normal pipeline again.
+    """
+    with session_factory()() as db:
+        row = db.scalar(select(OrbSessionRow).where(OrbSessionRow.session == day).with_for_update())
+        if row is None:
+            raise ValueError("ORB_SESSION_NOT_FOUND")
+        payload = deepcopy(row.payload)
+        repairs = []
+        for symbol, plan in payload.get("plans", {}).items():
+            evidence = plan.setdefault("evidence", {})
+            if (
+                evidence.get("instrument")
+                or payload.get("states", {}).get(symbol, {}).get("opportunity_id")
+                or symbol not in instruments
+            ):
+                continue
+            evidence["instrument"] = deepcopy(instruments[symbol])
+            repairs.append({"symbol": symbol, **deepcopy(instruments[symbol])})
+        if repairs:
+            payload.setdefault("instrument_provenance_repairs", []).extend(repairs)
+            row.payload = payload
+            db.commit()
+        return payload
+
+
 def _timestamp(value: Any, *, fallback: datetime | None = None) -> datetime | None:
     if isinstance(value, datetime):
         return value
