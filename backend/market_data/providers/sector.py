@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 
+from core.concurrency import RateLimiter
 from core.enums import SectorCheck
 from core.universe import ETF_SECTOR, UNKNOWN_SECTOR, Universe, default_universe
 from core.vendor_http import describe_http_error, get_with_retry
@@ -28,17 +29,57 @@ CACHE_TTL = timedelta(days=7)
 FAILURE_TTL = timedelta(minutes=2)
 REQUEST_TIMEOUT = 8.0
 logger = logging.getLogger(__name__)
+CLASSIFICATION_REVISION = "sector_resolver@3"
 
 # profile2 returns an industry, which need not be one of the eleven sector names.
-# Exact healthcare industry names below follow the GICS Health Care definitions:
-# https://www.spglobal.com/spdji/en/landing/topic/gics/
+# Exact industry names follow the GICS sector/industry structure:
+# https://www.msci.com/indexes/documents/methodology/0_MSCI_Global_Industry_Classification_Standard_GICS_Methodology_20240801.pdf
+# Finnhub is NOT GICS: coarse/conflicting labels (Electrical Equipment, Retail,
+# REITs, Conglomerates) remain unknown unless a verified symbol override exists.
 # Ambiguous/unknown labels remain unclassified; never use substring matching.
 INDUSTRY_TO_SECTOR: dict[str, str] = {
     "technology": "technology",
+    "information technology": "technology",
+    "software": "technology",
+    "it services": "technology",
+    "software & it services": "technology",
+    "communications equipment": "technology",
+    "technology hardware, storage & peripherals": "technology",
+    "electronic equipment, instruments & components": "technology",
+    "semiconductors & semiconductor equipment": "technology",
+    "semiconductors": "technology",
     "communication services": "communication",
+    "diversified telecommunication services": "communication",
+    "wireless telecommunication services": "communication",
+    "media": "communication",
+    "entertainment": "communication",
+    "interactive media & services": "communication",
     "consumer cyclical": "consumer_discretionary",
+    "consumer discretionary": "consumer_discretionary",
+    "automobile components": "consumer_discretionary",
+    "automobiles": "consumer_discretionary",
+    "household durables": "consumer_discretionary",
+    "leisure products": "consumer_discretionary",
+    "textiles, apparel & luxury goods": "consumer_discretionary",
+    "hotels, restaurants & leisure": "consumer_discretionary",
+    "specialty retail": "consumer_discretionary",
+    "broadline retail": "consumer_discretionary",
     "consumer defensive": "consumer_staples",
+    "consumer staples": "consumer_staples",
+    "consumer staples distribution & retail": "consumer_staples",
+    "food products": "consumer_staples",
+    "beverages": "consumer_staples",
+    "tobacco": "consumer_staples",
+    "household products": "consumer_staples",
+    "personal care products": "consumer_staples",
     "financial services": "financials",
+    "financials": "financials",
+    "banks": "financials",
+    "banking": "financials",
+    "capital markets": "financials",
+    "consumer finance": "financials",
+    "insurance": "financials",
+    "mortgage real estate investment trusts (reits)": "financials",
     "healthcare": "healthcare",
     "health care": "healthcare",
     "biotechnology": "healthcare",
@@ -48,10 +89,44 @@ INDUSTRY_TO_SECTOR: dict[str, str] = {
     "health care technology": "healthcare",
     "life sciences tools & services": "healthcare",
     "energy": "energy",
+    "energy equipment & services": "energy",
+    "oil, gas & consumable fuels": "energy",
     "industrials": "industrials",
+    "aerospace & defense": "industrials",
+    "building products": "industrials",
+    "construction & engineering": "industrials",
+    "industrial conglomerates": "industrials",
+    "machinery": "industrials",
+    "commercial services & supplies": "industrials",
+    "professional services": "industrials",
+    "air freight & logistics": "industrials",
+    "passenger airlines": "industrials",
+    "marine transportation": "industrials",
+    "ground transportation": "industrials",
+    "transportation infrastructure": "industrials",
     "basic materials": "materials",
+    "materials": "materials",
+    "chemicals": "materials",
+    "construction materials": "materials",
+    "containers & packaging": "materials",
+    "metals & mining": "materials",
+    "paper & forest products": "materials",
     "utilities": "utilities",
+    "electric utilities": "utilities",
+    "gas utilities": "utilities",
+    "multi-utilities": "utilities",
+    "water utilities": "utilities",
+    "independent power and renewable electricity producers": "utilities",
     "real estate": "real_estate",
+    "equity real estate investment trusts (reits)": "real_estate",
+    "real estate management & development": "real_estate",
+    "industrial reits": "real_estate",
+    "hotel & resort reits": "real_estate",
+    "office reits": "real_estate",
+    "health care reits": "real_estate",
+    "residential reits": "real_estate",
+    "retail reits": "real_estate",
+    "specialized reits": "real_estate",
 }
 
 # Our eleven groups plus the ETF bucket from the curated file.
@@ -65,6 +140,7 @@ class SectorInfo:
     status: SectorCheck = SectorCheck.NOT_CHECKED
     source: str = ""
     note: str = ""
+    industry: str | None = None
 
     @property
     def available(self) -> bool:
@@ -109,12 +185,14 @@ def parse_profile_payload(symbol: str, payload: object) -> SectorInfo:
             status=SectorCheck.UNCLASSIFIED,
             source="finnhub",
             note=f"Finnhub industry unmapped: {label}",
+            industry=industry,
         )
     return SectorInfo(
         symbol=symbol,
         sector=sector,
         status=SectorCheck.CHECKED,
         source="finnhub",
+        industry=industry,
     )
 
 
@@ -129,14 +207,19 @@ class SectorResolver:
         ttl: timedelta = CACHE_TTL,
         failure_ttl: timedelta = FAILURE_TTL,
         transport: httpx.AsyncBaseTransport | None = None,
+        persistent: bool = False,
     ) -> None:
         self._api_key = api_key
         self._universe = universe if universe is not None else default_universe()
         self._ttl = ttl
         self._failure_ttl = failure_ttl
         self._transport = transport
+        self._persistent = persistent
         self._cache: dict[str, _CacheEntry] = {}
-        self._lock = asyncio.Lock()
+        self._locks: dict[str, asyncio.Lock] = {}
+        # At most 20 profile attempts/minute, including retries. Leave room
+        # in the free vendor account for foreground news and earnings reads.
+        self._limiter = RateLimiter(1 / 3, burst=1)
         self._said_unconfigured = False
 
     @property
@@ -159,7 +242,7 @@ class SectorResolver:
         if entry is None:
             return None
         ttl = self._ttl if entry.info.available else self._failure_ttl
-        if now - entry.fetched_at > ttl:
+        if not timedelta(0) <= now - entry.fetched_at <= ttl:
             return None
         return entry.info
 
@@ -171,7 +254,11 @@ class SectorResolver:
         asset_class: str | None = None,
     ) -> SectorInfo:
         symbol = symbol.upper()
-        now = now or datetime.now(UTC)
+        # A caller may pass the earlier quote-evaluation time. Classification
+        # fetched after that instant is not "from the future" at lookup time.
+        # Production freshness uses the actual lookup clock; mock transports
+        # may supply a deterministic clock for TTL/restart regression tests.
+        now = (now or datetime.now(UTC)) if self._transport is not None else datetime.now(UTC)
 
         # Alpaca identifies ETFs in its reference feed. Funds do not have a
         # corporate industry for Finnhub to classify, so retain that explicit
@@ -202,15 +289,41 @@ class SectorResolver:
                 note="Finnhub key not configured — sector unclassified" if first else "",
             )
 
-        async with self._lock:
+        async with self._locks.setdefault(symbol, asyncio.Lock()):
             curated = self._from_universe(symbol)
             if curated is not None:
                 return curated
             cached = self._cached(symbol, now)
             if cached is not None:
                 return cached
+            if self._persistent:
+                from market_data.providers import sector_store
+
+                raw = await asyncio.to_thread(sector_store.read, symbol)
+                entry = self._restore(symbol, raw)
+                if entry is not None:
+                    self._cache[symbol] = entry
+                    cached = self._cached(symbol, now)
+                    if cached is not None:
+                        return cached
             info = await self._fetch(symbol)
-            self._cache[symbol] = _CacheEntry(info=info, fetched_at=now)
+            # Production uses completion time, not an earlier request start.
+            fetched_at = datetime.now(UTC) if self._transport is None else now
+            if self._persistent:
+                await asyncio.to_thread(
+                    sector_store.write,
+                    symbol,
+                    {
+                        "version": CLASSIFICATION_REVISION,
+                        "fetched_at": fetched_at.isoformat(),
+                        "sector": info.sector,
+                        "status": info.status.value,
+                        "source": info.source,
+                        "note": info.note,
+                        "industry": info.industry,
+                    },
+                )
+            self._cache[symbol] = _CacheEntry(info=info, fetched_at=fetched_at)
             if not info.available:
                 logger.warning(
                     "Sector classification unavailable: symbol=%s status=%s source=%s detail=%s",
@@ -219,7 +332,47 @@ class SectorResolver:
                     info.source,
                     info.note,
                 )
+            else:
+                logger.info(
+                    "Sector classification resolved: symbol=%s sector=%s industry=%s version=%s",
+                    symbol,
+                    info.sector,
+                    info.industry,
+                    CLASSIFICATION_REVISION,
+                )
             return info
+
+    @staticmethod
+    def _restore(symbol: str, raw: object) -> _CacheEntry | None:
+        if not isinstance(raw, dict) or raw.get("version") != CLASSIFICATION_REVISION:
+            return None
+        try:
+            fetched_at = datetime.fromisoformat(raw["fetched_at"])
+            status = SectorCheck(raw["status"])
+            sector = raw.get("sector")
+            if fetched_at.tzinfo is None or raw.get("source") != "finnhub":
+                return None
+            if status is SectorCheck.CHECKED and (
+                not isinstance(raw.get("industry"), str)
+                or map_finnhub_industry(raw["industry"]) != sector
+                or sector not in KNOWN_SECTORS
+            ):
+                return None
+            if status is not SectorCheck.CHECKED and sector is not None:
+                return None
+            return _CacheEntry(
+                info=SectorInfo(
+                    symbol=symbol,
+                    sector=sector,
+                    status=status,
+                    source="finnhub",
+                    note=raw.get("note", ""),
+                    industry=raw.get("industry"),
+                ),
+                fetched_at=fetched_at,
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
 
     async def _fetch(self, symbol: str) -> SectorInfo:
         params = {"symbol": symbol}
@@ -229,7 +382,11 @@ class SectorResolver:
                 timeout=REQUEST_TIMEOUT, transport=self._transport
             ) as client:
                 response = await get_with_retry(
-                    client, FINNHUB_PROFILE_URL, params=params, headers=headers
+                    client,
+                    FINNHUB_PROFILE_URL,
+                    params=params,
+                    headers=headers,
+                    before_attempt=self._limiter.acquire,
                 )
                 payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:
@@ -249,5 +406,5 @@ def get_sector_resolver(api_key: str | None) -> SectorResolver:
     """Process-wide resolver so the multi-day cache is shared across cycles."""
     global _RESOLVER
     if _RESOLVER is None or _RESOLVER._api_key != api_key:
-        _RESOLVER = SectorResolver(api_key)
+        _RESOLVER = SectorResolver(api_key, persistent=True)
     return _RESOLVER

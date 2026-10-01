@@ -28,6 +28,36 @@ router = APIRouter(prefix="/api/v1", tags=["evaluation"])
 MAX_BATCH = 10
 
 
+@router.get("/diagnostics/sectors")
+async def sector_metadata_diagnostics() -> dict:
+    """Saved metadata coverage and unresolved vendor labels; no live reads/orders."""
+    from collections import Counter
+    from datetime import UTC, datetime, timedelta
+
+    from market_data.providers import sector_store
+    from market_data.providers.sector import CACHE_TTL, FAILURE_TTL, SectorResolver
+    from market_data.sector_preflight import pending_count
+
+    now = datetime.now(UTC)
+    rows = await asyncio.to_thread(sector_store.observations)
+    counts: Counter[str] = Counter()
+    unresolved = []
+    for symbol, raw in rows.items():
+        entry = SectorResolver._restore(symbol, raw)
+        ttl = CACHE_TTL if entry and entry.info.available else FAILURE_TTL
+        fresh = entry is not None and timedelta(0) <= now - entry.fetched_at <= ttl
+        state = "ready" if fresh and entry.info.available else "stale" if not fresh else "blocked"
+        counts[state] += 1
+        if state != "ready":
+            unresolved.append({"symbol": symbol, "state": state, **raw})
+    return {
+        "counts": dict(counts),
+        "pending": pending_count(),
+        "unresolved": unresolved,
+        "curated_symbols": len(default_universe().symbols),
+    }
+
+
 @router.get("/diagnostics/orb-replay")
 async def orb_replay(session: date = Query(), replay_bars: bool = Query(default=True)) -> dict:
     """Replay one saved session without vendor reads, state changes or orders."""

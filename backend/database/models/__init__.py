@@ -16,6 +16,7 @@ from database.models.market_bars import MarketBarRow
 from database.models.orb import OrbDecisionEventRow, OrbSessionRow
 from database.models.positions import OpenPositionRow
 from database.models.risk_period import RiskPeriodRow
+from database.models.sector import SectorClassificationRow
 from database.models.strategy import StrategyEvaluationRunRow, StrategyVersionRow
 
 __all__ = [
@@ -35,6 +36,7 @@ __all__ = [
     "OrbSessionRow",
     "OrderIntentRow",
     "RiskPeriodRow",
+    "SectorClassificationRow",
     "ShadowOutcomeRow",
     "StrategyEvaluationRunRow",
     "StrategyVersionRow",

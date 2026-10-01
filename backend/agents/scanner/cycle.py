@@ -79,6 +79,7 @@ async def run_cycle(
     context: ScanContext | None = None,
     on_progress: Callable[[ScanFunnel], None] | None = None,
 ) -> CycleResult:
+    from market_data.sector_preflight import offer
     from strategy.orb.intraday import refresh
     from strategy.orb.runtime import discover, observe, retire_pending_legacy
 
@@ -93,14 +94,18 @@ async def run_cycle(
     if context is None:
         async with open_scan_context(settings or get_settings()) as ctx:
             data = await discover(ctx, universe_service)
+            offer(data)
             statuses = await observe(context=ctx) if data.get("status") == "ready" else {}
             if data.get("status") == "ready":
                 data = (await refresh(ctx, universe_service)) or data
+                offer(data)
     else:
         data = await discover(context, universe_service)
+        offer(data)
         statuses = await observe(context=context) if data.get("status") == "ready" else {}
         if data.get("status") == "ready":
             data = (await refresh(context, universe_service)) or data
+            offer(data)
     counts = data.get("counts", {})
     f = result.funnel
     f.universe_total = counts.get("universe", 0)

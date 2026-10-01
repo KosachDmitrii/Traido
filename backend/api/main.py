@@ -117,6 +117,9 @@ async def lifespan(_app: FastAPI):
     )
     _warn_if_entries_are_blocked_by_config()
     DESK_BUS.reopen()
+    from market_data import sector_preflight
+
+    sector_preflight.start()
     start_scanner()
     # Broker truth is re-read on a timer rather than when a browser asks for it.
     # Whether the desk knows what it is holding must not depend on whether
@@ -135,6 +138,7 @@ async def lifespan(_app: FastAPI):
     alpaca_stream.start()
     yield
     await alpaca_stream.stop()
+    await sector_preflight.stop()
     await stop_log_retention(retention_stop, retention_task)
     # Before the scanner, so open SSE streams stop waiting on a server that is
     # already on its way out.
