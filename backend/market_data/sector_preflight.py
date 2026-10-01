@@ -9,6 +9,7 @@ from typing import Any
 from core.config import get_settings
 from core.universe import UNKNOWN_SECTOR, default_universe
 from market_data.providers.sector import get_sector_resolver
+from universe.exposure_policy import geared_exposure
 
 logger = logging.getLogger(__name__)
 MAX_PENDING = 5000
@@ -29,7 +30,11 @@ def offer(data: dict[str, Any]) -> None:
         raw = plans.get(symbol) or pool.get(symbol) or {}
         evidence = raw.get("evidence") or {}
         instrument = evidence.get("instrument") or raw.get("instrument") or {}
-        if instrument.get("asset_class") == "etf" or universe.sector_of(symbol) != UNKNOWN_SECTOR:
+        if (
+            instrument.get("asset_class") == "etf"
+            or geared_exposure(instrument.get("classification_evidence") or {})
+            or universe.sector_of(symbol) != UNKNOWN_SECTOR
+        ):
             _pending.pop(symbol, None)
             continue
         if resolver._cached(symbol, datetime.now(UTC)) is not None:

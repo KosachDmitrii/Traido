@@ -38,6 +38,10 @@ def resolver(payload, *, calls=None):
         ("Oil, Gas & Consumable Fuels", "energy"),
         ("Metals & Mining", "materials"),
         ("Aerospace & Defense", "industrials"),
+        ("Airlines", "industrials"),
+        ("Road & Rail", "industrials"),
+        ("Construction", "industrials"),
+        ("Packaging", "materials"),
         ("Specialty Retail", "consumer_discretionary"),
         ("Food Products", "consumer_staples"),
         ("Life Sciences Tools & Services", "healthcare"),
@@ -110,6 +114,25 @@ async def test_failure_ttl_survives_restart_and_recovers():
     recovered = await restarted.resolve("TESTCHIP", now=NOW + FAILURE_TTL + timedelta(seconds=1))
     assert recovered.available
     assert calls == ["TESTCHIP"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prior_success", [False, True])
+async def test_v3_upgrade_reuses_only_success_that_reproduces_under_current_map(prior_success):
+    original = resolver({"finnhubIndustry": "Technology" if prior_success else "Airlines"})
+    await original.resolve("TESTCHIP", now=NOW)
+    raw = sector_store.read("TESTCHIP")
+    raw["version"] = "sector_resolver@3"
+    if not prior_success:
+        raw.update(status=SectorCheck.UNCLASSIFIED.value, sector=None)
+    sector_store.write("TESTCHIP", raw)
+    calls = []
+    current = await resolver({"finnhubIndustry": "Airlines"}, calls=calls).resolve(
+        "TESTCHIP", now=NOW
+    )
+    assert current.available
+    assert current.sector == ("technology" if prior_success else "industrials")
+    assert calls == ([] if prior_success else ["TESTCHIP"])
 
 
 @pytest.mark.asyncio

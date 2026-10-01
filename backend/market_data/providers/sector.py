@@ -29,7 +29,7 @@ CACHE_TTL = timedelta(days=7)
 FAILURE_TTL = timedelta(minutes=2)
 REQUEST_TIMEOUT = 8.0
 logger = logging.getLogger(__name__)
-CLASSIFICATION_REVISION = "sector_resolver@3"
+CLASSIFICATION_REVISION = "sector_resolver@4"
 
 # profile2 returns an industry, which need not be one of the eleven sector names.
 # Exact industry names follow the GICS sector/industry structure:
@@ -95,20 +95,24 @@ INDUSTRY_TO_SECTOR: dict[str, str] = {
     "aerospace & defense": "industrials",
     "building products": "industrials",
     "construction & engineering": "industrials",
+    "construction": "industrials",
     "industrial conglomerates": "industrials",
     "machinery": "industrials",
     "commercial services & supplies": "industrials",
     "professional services": "industrials",
     "air freight & logistics": "industrials",
     "passenger airlines": "industrials",
+    "airlines": "industrials",
     "marine transportation": "industrials",
     "ground transportation": "industrials",
+    "road & rail": "industrials",
     "transportation infrastructure": "industrials",
     "basic materials": "materials",
     "materials": "materials",
     "chemicals": "materials",
     "construction materials": "materials",
     "containers & packaging": "materials",
+    "packaging": "materials",
     "metals & mining": "materials",
     "paper & forest products": "materials",
     "utilities": "utilities",
@@ -344,11 +348,19 @@ class SectorResolver:
 
     @staticmethod
     def _restore(symbol: str, raw: object) -> _CacheEntry | None:
-        if not isinstance(raw, dict) or raw.get("version") != CLASSIFICATION_REVISION:
+        if not isinstance(raw, dict) or raw.get("version") not in {
+            CLASSIFICATION_REVISION,
+            "sector_resolver@3",
+        }:
             return None
         try:
             fetched_at = datetime.fromisoformat(raw["fetched_at"])
             status = SectorCheck(raw["status"])
+            # Preserve already-warmed v3 success only if its original industry
+            # reproduces the same sector under v4 below. Older failures must be
+            # retried, since the new aliases may resolve them now.
+            if raw["version"] != CLASSIFICATION_REVISION and status is not SectorCheck.CHECKED:
+                return None
             sector = raw.get("sector")
             if fetched_at.tzinfo is None or raw.get("source") != "finnhub":
                 return None
