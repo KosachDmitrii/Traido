@@ -104,7 +104,7 @@ class RetestMarket(LiquidMarketData):
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("capital_path_ready")
 @pytest.mark.parametrize(
-    "failure", [None, "expensive", "missing_bar", "changed_confirmation", "stale_quote"]
+    "failure", [None, "expensive", "missing_bar", "changed_confirmation", "stale_quote", "geared"]
 )
 @pytest.mark.parametrize("manual_target", [False, True])
 @pytest.mark.parametrize("version", [None, "orb@2.3.0"])
@@ -117,6 +117,20 @@ async def test_retest_passes_real_execution_or_has_no_broker_effect(
         get_settings(), "paper_exit_policy", "manual_target" if manual_target else "protected"
     )
     plan, rows = current_plan(version)
+    if failure == "geared":
+        from copy import deepcopy
+
+        evidence = deepcopy(plan.evidence)
+        evidence["instrument"] = {
+            "classification_evidence": {"asset_name": "Direxion Daily Small Cap Bear 3X ETF"}
+        }
+        plan = plan.model_copy(update={"evidence": evidence})
+        with session_factory()() as db:
+            row = db.get(OrbSessionRow, plan.session)
+            payload = deepcopy(row.payload)
+            payload["plans"][plan.symbol] = plan.model_dump(mode="json")
+            row.payload = payload
+            db.commit()
     candidate = TradeCandidate(
         symbol=plan.symbol,
         action="buy",

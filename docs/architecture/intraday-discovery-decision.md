@@ -72,6 +72,23 @@ entry execution failure. The FRED context agent runs only after an entry trigger
 
 ## Validation and remaining evidence
 
+The first deployed rolling pass inspected 1,378 unselected names and added 146
+plans (including MSFT, ABNB and AXP). It also exposed a pre-existing eligibility
+gap: reference names explicitly describing geared/inverse objectives were not
+excluded. Long shares bought with cash can still be shares of a leveraged fund.
+An additional central reference-name check now rejects explicit numeric daily
+multipliers, inverse/leveraged labels and documented ProShares geared families
+at universe eligibility and again at final admission for already saved plans.
+Generic short-duration bond names are not treated as inverse funds. This is a
+rejection rule, not certification of unnamed funds as unleveraged.
+
+Sources: [ProShares geared ETF directory](https://www.proshares.com/our-etfs/find-leveraged-and-inverse-etfs),
+[Direxion TMF/TMV](https://www.direxion.com/product/daily-20-year-treasury-bull-bear-3x-etfs),
+[Direxion TNA/TZA](https://www.direxion.com/product/daily-small-cap-bull-bear-3x-etfs).
+Existing positions/claims remain intact; the check refuses new entry admission.
+Two historical-window readers now overlap network latency while sharing the
+adapter's existing account quota. No request-limit bypass is introduced.
+
 Regression scenarios include valid rolling entries, same-clock volume,
 incomplete/wrong-clock history, red/low-volume/future ranges, stale quotes,
 altered confirmation, order-free negative admission, preserved existing claims,

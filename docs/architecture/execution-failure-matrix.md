@@ -34,6 +34,7 @@ are never replaced by a discovery refresh.
 
 | Failure | Local state | Action | Audit event | Trading blocked | Recovery |
 | --- | --- | --- | --- | --- | --- |
+| Explicit leveraged or inverse fund objective in captured provider reference name | Never created | Exclude from new discovery and refuse final admission of already saved plans | `INSTRUMENT_LEVERAGED_OR_INVERSE` and ORB admission stage log | New entry for that instrument | Select plain long instruments; no automatic exit of existing positions |
 | Timeout before acknowledgement | `SUBMITTING` → `UNKNOWN` | No retry. Card stays claimed. | `EntryStateUnknown` | Symbol blocked for new entries | Reconciliation locates the order by `client_order_id`, or it stays `UNKNOWN` |
 | Broker rejects | `SUBMITTING` → `REJECTED` | Card released to the queue | `OrderRejected`, `EntryOrderRejected` | No | Terminal. A later approval opens a new intent |
 | Timeout after acknowledgement, nothing filled | `SUBMITTED` → `CANCEL_PENDING` → `CANCELED` | Cancel, re-read, release card | `OrderCancelRequested`, `OrderCancelled` | No | Terminal |

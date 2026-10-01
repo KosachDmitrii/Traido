@@ -79,6 +79,11 @@ async def final_admission(
     if feed != "sip":
         raise PretradeRejection("DATA_BLOCKED", "ORB_UNSUPPORTED_FEED")
     plan = OrbPlan.model_validate(candidate.orb_plan)
+    from universe.exposure_policy import geared_exposure
+
+    identity = (plan.evidence.get("instrument") or {}).get("classification_evidence") or {}
+    if geared_exposure(identity):
+        raise PretradeRejection("INSTRUMENT_LEVERAGED_OR_INVERSE")
     if plan.source != f"alpaca:{feed}":
         raise PretradeRejection("DATA_BLOCKED", "ORB_DATA_FEED_MISMATCH")
     from core.schemas import Bar

@@ -1,4 +1,5 @@
 const reasons: Record<string,string> = {
+  INSTRUMENT_LEVERAGED_OR_INVERSE:"Инструмент с плечом или обратной доходностью не допускается этой стратегией.",
   MARKET_GATE_REJECTED:"Проверка рынка или сектора не разрешила покупку.",
   REGIME_TIMESTAMP_MISSING:"Нет подтверждённого времени оценки рынка. Покупка заблокирована.",
   FRED_OBSERVATION_STALE:"Макроэкономические данные FRED устарели. Ждём актуальных данных.",
@@ -49,8 +50,8 @@ const reasons: Record<string,string> = {
   ORB_DAILY_VOLUME_LOW:"Средний дневной объём меньше 1 млн акций.",
   ORB_ATR_LOW:"Дневной ATR не превышает $0.50.",
   ORB_PRICE_BELOW_MINIMUM:"Цена открытия не превышает $5.",
-  ORB_RELATIVE_VOLUME_LOW:"Объём первых пяти минут меньше среднего объёма того же окна за 14 сессий.",
-  ORB_OPENING_NOT_BULLISH:"Первая пятиминутная свеча не растущая; эта версия торгует только покупки.",
+  ORB_RELATIVE_VOLUME_LOW:"Объём выбранной пятиминутки меньше среднего объёма того же окна за 14 сессий.",
+  ORB_OPENING_NOT_BULLISH:"Выбранная пятиминутная свеча не растущая; эта версия торгует только покупки.",
   WEEKLY_PNL_UNAVAILABLE:"Недоступен результат периода риска счёта.",
   PORTFOLIO_DRAWDOWN_UNAVAILABLE:"Недоступна просадка счёта.",
 };

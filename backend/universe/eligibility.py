@@ -113,6 +113,10 @@ def check_instrument(
         reasons.append(EligibilityReason.CORPORATE_ACTION_BLOCK)
     if instrument.asset_class not in pol.allowed_asset_classes:
         reasons.append(EligibilityReason.UNSUPPORTED_ASSET)
+    from universe.exposure_policy import geared_exposure
+
+    if geared_exposure(instrument.metadata):
+        reasons.append(EligibilityReason.GEARED_EXPOSURE)
     if not instrument.active:
         reasons.append(EligibilityReason.INACTIVE)
     if pol.require_tradable and not instrument.tradable:

@@ -102,7 +102,16 @@ async def refresh(ctx: Any, universe: Any, *, now: datetime | None = None) -> di
                         },
                     }
                 saved = await asyncio.to_thread(merge_intraday_discovery, day, pool=pool)
-            symbols = [s for s in pool if s not in saved.get("plans", {})]
+            from universe.exposure_policy import geared_exposure
+
+            symbols = [
+                s
+                for s in pool
+                if s not in saved.get("plans", {})
+                and not geared_exposure(
+                    (pool[s].get("instrument") or {}).get("classification_evidence") or {}
+                )
+            ]
             diagnostics["checked"] = len(symbols)
             today = (
                 await feed.get_bars_batch(
@@ -128,14 +137,26 @@ async def refresh(ctx: Any, universe: Any, *, now: datetime | None = None) -> di
                 else:
                     candidates.append(symbol)
             windows: dict[str, list[Bar]] = {s: [] for s in candidates}
-            for d in _previous_sessions(now, 14) if candidates else []:
+            semaphore = asyncio.Semaphore(2)
+
+            async def historical_window(d):
                 t = datetime.combine(d, start.time(), ET)
-                response = await feed.get_bars_batch(
-                    candidates,
-                    t,
-                    t + timedelta(minutes=5) - timedelta(microseconds=1),
-                    Timeframe.M5,
-                )
+                async with semaphore:
+                    return await feed.get_bars_batch(
+                        candidates,
+                        t,
+                        t + timedelta(minutes=5) - timedelta(microseconds=1),
+                        Timeframe.M5,
+                    )
+
+            # Share the adapter's account quota, but overlap network latency.
+            # Two bounded readers leave entry/watch requests their normal path.
+            responses = (
+                await asyncio.gather(*(historical_window(d) for d in _previous_sessions(now, 14)))
+                if candidates
+                else []
+            )
+            for response in responses:
                 for symbol in candidates:
                     windows[symbol].extend(response.get(symbol, []))
             plans = {}
