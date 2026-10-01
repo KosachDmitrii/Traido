@@ -17,7 +17,8 @@ PULLBACK_VERSION = "orb@1.5.0"
 RETEST_VERSION = "orb@2.0.0"
 CONTEXT_VERSION = "orb@2.1.0"
 VERSION = "orb@2.2.0"
-RETEST_VERSIONS = frozenset({RETEST_VERSION, CONTEXT_VERSION, VERSION})
+INTRADAY_VERSION = "orb@2.3.0"
+RETEST_VERSIONS = frozenset({RETEST_VERSION, CONTEXT_VERSION, VERSION, INTRADAY_VERSION})
 SUPPORTED_VERSIONS = frozenset(
     {
         "orb@1.1.0",
@@ -201,6 +202,7 @@ def form_plan(
     if version not in SUPPORTED_VERSIONS:
         return blocked("ORB_INVALID_PROVENANCE")
     parameters = {
+        INTRADAY_VERSION: {**PARAMETERS, "range_policy": "completed_intraday_5m_same_clock_volume"},
         VERSION: PARAMETERS,
         CONTEXT_VERSION: PARAMETERS,
         RETEST_VERSION: RETEST_PARAMETERS,
@@ -216,6 +218,21 @@ def form_plan(
         return blocked("ORB_UNSUPPORTED_FEED")
     local = now.astimezone(ET)
     start = datetime.combine(local.date(), time(9, 30), ET)
+    if version == INTRADAY_VERSION:
+        # The last evidence row identifies the immutable range, not the clock
+        # at replay/approval. A later quote must never move the range forward.
+        if not opening_bars or opening_bars[-1].ts.tzinfo is None:
+            return blocked("ORB_OPENING_RANGE_MISSING")
+        start = opening_bars[-1].ts.astimezone(ET)
+        if (
+            start.date() != local.date()
+            or start.time() < time(9, 30)
+            or start.minute % 5
+            or start.second
+            or start.microsecond
+            or start.time() >= session_close(local.date())
+        ):
+            return blocked("ORB_INVALID_RANGE_TIME")
     end = start + timedelta(minutes=5)
     exit_at = datetime.combine(local.date(), session_close(local.date()), ET) - timedelta(
         seconds=60
@@ -233,7 +250,9 @@ def form_plan(
             if b.symbol.upper() != symbol.upper() or not _valid_bar(b):
                 raise ValueError("ORB_INVALID_BAR")
             ts = b.ts.astimezone(ET)
-            if opening and (ts.time() != time(9, 30) or b.timeframe.value != "5m"):
+            if version == INTRADAY_VERSION and b.source != "alpaca":
+                raise ValueError("ORB_INVALID_PROVENANCE")
+            if opening and (ts.time() != start.time() or b.timeframe.value != "5m"):
                 continue
             if not opening and b.timeframe.value != "1d":
                 raise ValueError("ORB_DAILY_TIMEFRAME_INVALID")

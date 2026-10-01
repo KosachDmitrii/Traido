@@ -11,7 +11,15 @@ from typing import Literal
 
 from core.enums import Timeframe
 from core.schemas import Bar, Quote
-from strategy.orb import PARAMETERS, RETEST_VERSIONS, VERSION, OrbDecision, OrbPlan, _valid_bar
+from strategy.orb import (
+    INTRADAY_VERSION,
+    PARAMETERS,
+    RETEST_VERSIONS,
+    VERSION,
+    OrbDecision,
+    OrbPlan,
+    _valid_bar,
+)
 
 CENT = Decimal("0.01")
 
@@ -148,7 +156,7 @@ def rebuild(
         previous_day_high: Decimal | None = None
         previous_day_high_state: str | None = None
         previous_day_high_cleared = False
-        if base.version == VERSION:
+        if base.version in {VERSION, INTRADAY_VERSION}:
             previous_day_high = Decimal(str(base.evidence["daily"][-1]["high"]))
             previous_day_high_cleared = b.close > previous_day_high
             if previous_day_high <= floor:
@@ -189,7 +197,7 @@ def rebuild(
             "time_exit_minutes": PARAMETERS["time_exit_minutes"],
             "cost_allowance_bps": PARAMETERS["cost_allowance_bps"],
         }
-        if base.version == VERSION:
+        if base.version in {VERSION, INTRADAY_VERSION}:
             if previous_day_high is None or previous_day_high_state is None:
                 return result("DATA_BLOCKED", "ORB_RETEST_DATA_INVALID")
             confirmation_range = b.high - b.low

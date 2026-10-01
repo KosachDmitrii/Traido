@@ -21,7 +21,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
   const lightAvailable = desk?.light_available === true;
   const automatic = desk?.auto_trigger?.enabled === true;
   const manualTarget = desk?.position_exit_policy === "manual_target";
-  const orbVersions = ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", "orb@1.5.0", "orb@2.0.0", "orb@2.1.0", "orb@2.2.0"];
+  const orbVersions = ["orb@1.1.0", "orb@1.2.0", "orb@1.3.0", "orb@1.4.0", "orb@1.5.0", "orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"];
   const planPriority = (symbol: string) => {
     const opp = buys.find(o => o.candidate.symbol === symbol && orbVersions.includes(o.candidate.strategy_version ?? ""));
     if (!opp) return 2;
@@ -63,7 +63,7 @@ export function OpportunityRail({ desk, onFlash, onRefresh, layout = "rail" }: P
     {plans.map(plan => {
       const state = desk?.orb?.states?.[plan.symbol];
       const retest = plan.evidence?.retest;
-      const isRetest = ["orb@2.0.0", "orb@2.1.0", "orb@2.2.0"].includes(plan.version ?? "");
+      const isRetest = ["orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"].includes(plan.version ?? "");
       const ready = !isRetest || retest?.phase === "ready";
       const opp = buys.find(o => o.candidate.symbol === plan.symbol && orbVersions.includes(o.candidate.strategy_version ?? ""));
       const maxQty = Math.max(0, Math.floor(Number(opp?.proposed_qty ?? opp?.risk?.sized_qty ?? 0)));

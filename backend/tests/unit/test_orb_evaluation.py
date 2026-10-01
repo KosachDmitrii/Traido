@@ -23,6 +23,8 @@ def test_orb_results_are_isolated(tmp_path):
             (0, VERSION, None),
             (999, "old@1", None),
             (999, VERSION, uuid4()),
+            (7, "orb@2.3.0", None),
+            (999, "orb@2.3.0", uuid4()),
         ]:
             db.add(
                 TradeJournalRow(
@@ -44,3 +46,6 @@ def test_orb_results_are_isolated(tmp_path):
     assert report["win_rate"] == 1 / 3
     assert report["profit_factor"] == 2
     assert abs(float(report["expectancy"]) - 5 / 3) < 0.001
+    intraday = paper_evaluation(engine=engine, version="orb@2.3.0")
+    assert intraday["trade_count"] == 1
+    assert float(intraday["pnl"]) == 7

@@ -29,8 +29,26 @@ from trading.exits import MemoryExitStore
 from trading.opportunities import MemoryOpportunityStore
 
 
-def current_plan():
+def current_plan(version=None):
     base, pattern, _ = scenario(RTH_INSTANT)
+    from core.schemas import Bar
+    from strategy.orb import INTRADAY_VERSION, form_plan
+
+    if version == INTRADAY_VERSION:
+        base = form_plan(
+            base.symbol,
+            [Bar.model_validate(b) for b in base.evidence["daily"]],
+            [
+                Bar.model_validate(b).model_copy(
+                    update={"ts": Bar.model_validate(b).ts + timedelta(minutes=70)}
+                )
+                for b in base.evidence["opening"]
+            ],
+            now=RTH_INSTANT,
+            feed="sip",
+            version=version,
+        ).plan
+        assert base is not None
     prefix = [
         pattern[0].model_copy(
             update={
@@ -43,7 +61,9 @@ def current_plan():
         )
         for i in range(14)
     ]
-    rows = prefix + [b.model_copy(update={"ts": b.ts + timedelta(minutes=70)}) for b in pattern]
+    rows = ([] if version == INTRADAY_VERSION else prefix) + [
+        b.model_copy(update={"ts": b.ts + timedelta(minutes=70)}) for b in pattern
+    ]
     plan = rebuild(base, rows, now=RTH_INSTANT).plan
     assert plan.evidence.get("retest")
     with session_factory()() as db:
@@ -68,6 +88,14 @@ class RetestMarket(LiquidMarketData):
         self.plan, self.rows = plan, rows
 
     async def get_bars(self, symbol, timeframe, start, end):
+        if (
+            self.plan.version == "orb@2.3.0"
+            and timeframe == Timeframe.M5
+            and start == self.plan.range_start
+        ):
+            from core.schemas import Bar
+
+            return [Bar.model_validate(self.plan.evidence["opening"][-1])]
         if timeframe == Timeframe.M5 and start >= self.plan.range_end:
             return [b for b in self.rows if start <= b.ts <= end]
         return await super().get_bars(symbol, timeframe, start, end)
@@ -79,15 +107,16 @@ class RetestMarket(LiquidMarketData):
     "failure", [None, "expensive", "missing_bar", "changed_confirmation", "stale_quote"]
 )
 @pytest.mark.parametrize("manual_target", [False, True])
+@pytest.mark.parametrize("version", [None, "orb@2.3.0"])
 async def test_retest_passes_real_execution_or_has_no_broker_effect(
-    failure, manual_target, monkeypatch
+    failure, manual_target, version, monkeypatch
 ):
     from core.config import get_settings
 
     monkeypatch.setattr(
         get_settings(), "paper_exit_policy", "manual_target" if manual_target else "protected"
     )
-    plan, rows = current_plan()
+    plan, rows = current_plan(version)
     candidate = TradeCandidate(
         symbol=plan.symbol,
         action="buy",
@@ -113,7 +142,7 @@ async def test_retest_passes_real_execution_or_has_no_broker_effect(
     if failure == "expensive":
         market.price = 101.5
     if failure == "missing_bar":
-        market.rows = rows[:5] + rows[6:]
+        market.rows = rows[1:]
     if failure == "changed_confirmation":
         market.rows = rows[:-1] + [rows[-1].model_copy(update={"close": D("101.11")})]
     if failure == "stale_quote":

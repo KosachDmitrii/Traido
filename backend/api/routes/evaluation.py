@@ -68,8 +68,10 @@ async def diagnostics_f3() -> dict:
 
 @router.get("/evaluation/orb-paper")
 async def orb_paper_evaluation() -> dict:
-    """Actual journal outcomes for the active ORB version only."""
-    return paper_evaluation()
+    """Separate actual journal outcomes for opening and intraday Paper policies."""
+    from strategy.orb import INTRADAY_VERSION
+
+    return {**paper_evaluation(), "intraday": paper_evaluation(version=INTRADAY_VERSION)}
 
 
 @router.get("/evaluation/{symbol}")
@@ -183,6 +185,9 @@ async def orb_symbol(symbol: str = Path(pattern=r"^[A-Za-z][A-Za-z0-9.\-]{0,15}$
         "state": state,
         "history": list_decisions(str(market_date()), symbol, limit=100),
         "rejections": reasons,
+        "intraday_rejections": (snapshot.get("intraday_discovery") or {})
+        .get("rejections", {})
+        .get(symbol, []),
         "outranked": outranked,
         "session_reason": snapshot.get("reason"),
         "quote": quote.model_dump(mode="json") if quote else None,

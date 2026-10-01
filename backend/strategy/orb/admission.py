@@ -40,7 +40,7 @@ def evaluate_sealed(inp: AdmissionInput) -> TradeAdmissionResult:
             "ORB_PRICE_WITHIN_LIMIT"
             if inp.strategy_version == "orb@1.5.0"
             else "ORB_RETEST_CONFIRMED"
-            if inp.strategy_version in {"orb@2.0.0", "orb@2.1.0", "orb@2.2.0"}
+            if inp.strategy_version in {"orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"}
             else "ORB_BREAKOUT_CONFIRMED"
         ],
         admission_version=inp.strategy_version,
@@ -105,9 +105,9 @@ async def final_admission(
         raise PretradeRejection("ORB_INVALIDATED", ",".join(rebuilt.reasons))
     fresh = rebuilt.plan
     assessed_bars = opening
-    from strategy.orb import VERSION
+    from strategy.orb import INTRADAY_VERSION, VERSION
 
-    if plan.version == VERSION:
+    if plan.version in {VERSION, INTRADAY_VERSION}:
         from strategy.orb.retest import rebuild
         from strategy.orb.retest_data import coverage_end, read_bars
 

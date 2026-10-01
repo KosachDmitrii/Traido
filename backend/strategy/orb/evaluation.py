@@ -7,7 +7,11 @@ from database.session import session_factory
 from strategy.orb import VERSION
 
 
-def paper_evaluation(*, engine=None) -> dict:
+def paper_evaluation(*, engine=None, version=VERSION) -> dict:
+    from strategy.orb import INTRADAY_VERSION
+
+    if version not in {VERSION, INTRADAY_VERSION}:
+        raise ValueError("ORB_EVALUATION_VERSION_UNSUPPORTED")
     with session_factory(engine)() as db:
         row = (
             db.query(
@@ -21,7 +25,7 @@ def paper_evaluation(*, engine=None) -> dict:
                 func.max(TradeJournalRow.closed_at),
             )
             .filter(
-                TradeJournalRow.strategy_version == VERSION,
+                TradeJournalRow.strategy_version == version,
                 TradeJournalRow.backtest_run_id.is_(None),
                 TradeJournalRow.pnl.is_not(None),
             )
@@ -29,7 +33,7 @@ def paper_evaluation(*, engine=None) -> dict:
         )
         count, wins, losses, pnl, gross_profit, gross_loss, first, last = row
         return {
-            "strategy_version": VERSION,
+            "strategy_version": version,
             "trade_count": count,
             "wins": int(wins or 0),
             "losses": int(losses or 0),

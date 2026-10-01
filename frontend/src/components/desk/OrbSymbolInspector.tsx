@@ -47,16 +47,16 @@ export function OrbSymbolInspector() {
         : retest?.previous_day_high_state === "above_observed_target"
           ? (ru ? "выше наблюдаемой цели" : "above observed target")
           : "—";
-  const ready = !["orb@2.0.0", "orb@2.1.0", "orb@2.2.0"].includes(plan?.version ?? "") || !!retest;
+  const ready = !["orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"].includes(plan?.version ?? "") || !!retest;
   const metrics = [
     ["Bid · USD", px(data?.quote?.bid)], ["Ask · USD", px(data?.quote?.ask)],
-    [ru ? "Диапазон открытия" : "Opening range", plan ? `${px(plan.range_low)}–${px(plan.range_high)}` : "—"],
+    [plan?.version === "orb@2.3.0" ? (ru ? "Внутридневной диапазон" : "Intraday range") : (ru ? "Диапазон открытия" : "Opening range"), plan ? `${px(plan.range_low)}–${px(plan.range_high)}` : "—"],
     [ru ? "Начало зоны покупки" : "Entry zone starts", ready ? px(plan?.trigger) : "—"],
     [ru ? "Стоп" : "Stop", ready ? px(plan?.stop) : "—"], [ru ? "Максимальная цена входа" : "Maximum entry", ready ? px(plan?.max_entry) : "—"],
     [ru ? "Относительный объём" : "Relative volume", plan ? `${px(plan.relative_volume)}×` : "—"],
     ["ATR14", px(plan?.daily_atr)],
-    ...(["orb@2.0.0", "orb@2.1.0", "orb@2.2.0"].includes(plan?.version ?? "") ? [[ru ? "Цель выхода" : "Exit target", px(retest?.target)]] : []),
-    ...(["orb@2.1.0", "orb@2.2.0"].includes(plan?.version ?? "") ? [
+    ...(["orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"].includes(plan?.version ?? "") ? [[ru ? "Цель выхода" : "Exit target", px(retest?.target)]] : []),
+    ...(["orb@2.1.0", "orb@2.2.0", "orb@2.3.0"].includes(plan?.version ?? "") ? [
       ["PDH", px(retest?.previous_day_high)],
       [ru ? "Роль PDH" : "PDH role", pdhState],
       [ru ? "Тело свечи" : "Candle body", percent(quality?.body_to_range)],
@@ -78,8 +78,10 @@ export function OrbSymbolInspector() {
       <div className={styles.sectionHead}><h2>{data.symbol}</h2><span>{data.state ? orbState(data.state.state) : data.outranked ? (ru ? "Не вошла в прежний ограниченный список" : "Outside the previous capped selection") : data.rejections.length ? (ru ? "Исключена из отбора" : "Excluded") : (ru ? "Решение ещё не получено" : "No decision reported")}</span></div>
       <div className={styles.symbolMetrics}>{metrics.map(([label,value])=><div key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
       <p className={styles.description}>Alpaca {data.quote?.feed?.toUpperCase() ?? "—"} · {ru ? "Котировка от" : "Quote timestamp"} {time(data.quote?.ts)}</p>
+      {data.state?.last_block && <p className={styles.notice}>{ru ? "Последний отказ после сигнала" : "Latest refusal after signal"}: {data.state.last_block.stage === "portfolio_risk" ? (ru ? "портфельный риск" : "portfolio risk") : (ru ? "финальный допуск" : "final admission")} · {time(data.state.last_block.at)} · {data.state.last_block.reasons.map(orbReason).join(" · ")}</p>}
       {data.quote_error && <p className={styles.notice}>{orbReason(data.quote_error)}</p>}
       {data.outranked && <p className={styles.notice}>{ru ? "Условия ORB пройдены, но другие акции получили более высокий относительный объём." : "ORB conditions passed, but other symbols ranked higher by relative volume."}</p>}
+      {!!data.intraday_rejections?.length && <p className={styles.description}>{ru ? "Последний внутридневной отбор:" : "Latest intraday selection:"} {data.intraday_rejections.map(orbReason).join(" · ")}</p>}
       {reasons.map(reason=><p className={styles.notice} key={reason}>{orbReason(reason)}</p>)}
       {!plan && !reasons.length && !data.outranked && <p className={styles.notice}>{data.session_reason ? orbReason(data.session_reason) : (ru ? "Сохранённого плана или причины исключения для этого тикера нет." : "No saved plan or exclusion reason for this symbol.")}</p>}
       {plan && <p className={styles.description}>{ru ? "Вход до" : "Entry deadline"} {time(retest?.valid_until ?? plan.entry_deadline)} · {ru ? "Выход до" : "Exit deadline"} {time(plan.exit_at)}</p>}

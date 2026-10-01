@@ -19,6 +19,59 @@ def read_session(day: str) -> dict[str, Any] | None:
         return deepcopy(row.payload) if row else None
 
 
+def merge_intraday_discovery(
+    day: str,
+    *,
+    pool: dict[str, Any] | None = None,
+    plans: dict[str, dict[str, Any]] | None = None,
+    diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Add independently admitted ranges; never replace a plan or its claim.
+
+    The lock is shared with publication and observation. A delayed discovery
+    cannot overwrite a newly published opportunity or a newer state projection.
+    """
+    with session_factory()() as db:
+        row = db.scalar(select(OrbSessionRow).where(OrbSessionRow.session == day).with_for_update())
+        if row is None:
+            raise ValueError("ORB_SESSION_NOT_FOUND")
+        payload = deepcopy(row.payload)
+        if pool is not None:
+            payload.setdefault("discovery_pool", deepcopy(pool))
+        added = []
+        for symbol, plan in (plans or {}).items():
+            if symbol in payload.get("plans", {}):
+                continue
+            from strategy.orb import INTRADAY_VERSION, OrbPlan
+
+            parsed = OrbPlan.model_validate(plan)
+            if (
+                parsed.session != day
+                or parsed.symbol != symbol
+                or parsed.version != INTRADAY_VERSION
+            ):
+                raise ValueError("ORB_INVALID_PROVENANCE")
+            payload.setdefault("plans", {})[symbol] = deepcopy(plan)
+            payload.setdefault("states", {})[symbol] = {
+                "state": "WAIT",
+                "reasons": ["ORB_RETEST_WAIT_BREAKOUT"],
+            }
+            payload.setdefault("rejections", {}).pop(symbol, None)
+            added.append(symbol)
+        if diagnostics is not None:
+            payload["intraday_discovery"] = {**deepcopy(diagnostics), "added": added}
+        payload.setdefault("counts", {})["selected"] = len(payload.get("plans", {}))
+        payload["counts"]["qualified"] = len(payload.get("plans", {}))
+        from collections import Counter
+
+        payload["rejection_counts"] = dict(
+            Counter(r for reasons in payload.get("rejections", {}).values() for r in reasons)
+        )
+        row.payload = payload
+        db.commit()
+        return deepcopy(payload)
+
+
 def create_session(day: str, payload: dict[str, Any], *, expand: bool = False) -> dict[str, Any]:
     with session_factory()() as db:
         row = db.scalar(select(OrbSessionRow).where(OrbSessionRow.session == day).with_for_update())

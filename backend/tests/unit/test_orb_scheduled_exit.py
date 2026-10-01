@@ -67,6 +67,7 @@ async def test_an_overdue_exit_is_retried_after_broker_failure(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("version", ["orb@2.2.0", "orb@2.3.0"])
 @pytest.mark.parametrize(
     "minutes,bid,stale,expected",
     [
@@ -79,7 +80,7 @@ async def test_an_overdue_exit_is_retried_after_broker_failure(monkeypatch):
     ],
 )
 async def test_retest_exit_target_time_and_quote_freshness(
-    monkeypatch, minutes, bid, stale, expected
+    monkeypatch, minutes, bid, stale, expected, version
 ):
     from decimal import Decimal as D
 
@@ -90,6 +91,7 @@ async def test_retest_exit_target_time_and_quote_freshness(
     from trading.ledger import LEDGER
 
     p, _, opened = ready_plan()
+    p = p.model_copy(update={"version": version})
     now = opened + timedelta(minutes=minutes)
     row = SimpleNamespace(
         symbol="AAPL",

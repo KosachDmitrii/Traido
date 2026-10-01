@@ -144,6 +144,7 @@ def assess_buy_viability(
         "orb@2.0.0",
         "orb@2.1.0",
         "orb@2.2.0",
+        "orb@2.3.0",
     }:
         from strategy.orb import OrbPlan, evaluate_trigger
 

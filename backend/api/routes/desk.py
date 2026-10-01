@@ -206,7 +206,10 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     from market_data.factory import resolve_alpaca_data_feed
 
     orb = {
-        **orb,
+        **{k: v for k, v in orb.items() if k != "discovery_pool"},
+        "intraday_discovery": {
+            k: v for k, v in (orb.get("intraday_discovery") or {}).items() if k != "rejections"
+        },
         "feed": resolve_alpaca_data_feed(settings),
         "plans": {
             s: {

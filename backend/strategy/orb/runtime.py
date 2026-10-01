@@ -25,6 +25,7 @@ from core.enums import (
 )
 from core.schemas import Bar, PipelineResult, TradeCandidate
 from strategy.orb import (
+    INTRADAY_VERSION,
     PARAMETERS,
     SUPPORTED_VERSIONS,
     VERSION,
@@ -315,6 +316,21 @@ async def discover(
             "outranked": [],
             "selection_scope": "all_qualified",
             "instrument_classification_revision": ALPACA_CLASSIFICATION_REVISION,
+            "discovery_pool": {
+                symbol: {
+                    "daily": [
+                        b.model_dump(mode="json")
+                        for b in daily.get(symbol, [])
+                        if b.ts.astimezone(ET).date() in days
+                    ],
+                    "instrument": {
+                        "asset_class": instruments[symbol].asset_class.value,
+                        "provider": instruments[symbol].provider,
+                        "classification_evidence": dict(instruments[symbol].metadata),
+                    },
+                }
+                for symbol in base
+            },
         }
         payload = await asyncio.to_thread(create_session, day, payload, expand=existing is not None)
         STATUS.update(payload)
@@ -353,7 +369,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             stored = refreshed
             plan = OrbPlan.model_validate(stored["plans"][symbol])
             prior = stored["states"][symbol]
-    if plan.version == VERSION:
+    if plan.version in {VERSION, INTRADAY_VERSION}:
         from uuid import UUID
 
         from strategy.orb.retest import rebuild
@@ -667,12 +683,24 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             sector_source_ts=sector.benchmark_last_bar_ts,
         )
     except PretradeRejection as exc:
+        logger.warning(
+            "ORB admission blocked: symbol=%s stage=final_admission reason=%s", symbol, exc
+        )
         BOARD.set_agent("checklist", status="error", detail=str(exc), symbol=symbol)
         await asyncio.to_thread(
             update_state,
             plan.session,
             symbol,
-            {**state, "state": "BLOCKED", "reasons": [str(exc)]},
+            {
+                **state,
+                "state": "BLOCKED",
+                "reasons": [str(exc)],
+                "last_block": {
+                    "stage": "final_admission",
+                    "reasons": [str(exc)],
+                    "at": now.isoformat(),
+                },
+            },
         )
         return result.model_copy(
             update={"candidate": candidate, "status": "data_blocked", "errors": [str(exc)]}
@@ -700,6 +728,9 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         }
     )
     if risk.verdict != RiskVerdict.PASS:
+        logger.warning(
+            "ORB admission blocked: symbol=%s stage=portfolio_risk reasons=%s", symbol, risk.reasons
+        )
         BOARD.set_agent(
             "risk",
             status="done",
@@ -711,7 +742,16 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             update_state,
             plan.session,
             symbol,
-            {**state, "state": "BLOCKED", "reasons": risk.reasons},
+            {
+                **state,
+                "state": "BLOCKED",
+                "reasons": risk.reasons,
+                "last_block": {
+                    "stage": "portfolio_risk",
+                    "reasons": risk.reasons,
+                    "at": now.isoformat(),
+                },
+            },
         )
         return result.model_copy(update={"status": "risk_rejected", "errors": risk.reasons})
     BOARD.set_agent("risk", status="done", detail="Risk passed", symbol=symbol, score=100)
@@ -720,6 +760,13 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
     from strategy.orb.publication import publish_orb
 
     opp = await asyncio.to_thread(publish_orb, result, final, ctx.settings.trading_mode)
+    logger.info(
+        "ORB admission passed: symbol=%s opportunity=%s qty=%s version=%s",
+        symbol,
+        opp.id,
+        risk.sized_qty,
+        plan.version,
+    )
     from core.audit import create_audit
     from trading.auto_trigger_policy import enqueue_auto_approve_opportunity
 

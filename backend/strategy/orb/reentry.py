@@ -15,7 +15,7 @@ from database.models.journal import TradeJournalRow
 from database.models.orb import OrbSessionRow
 from database.models.positions import OpenPositionRow
 from database.session import session_factory
-from strategy.orb import OrbPlan, form_plan
+from strategy.orb import INTRADAY_VERSION, VERSION, OrbPlan, form_plan
 
 POLICY = "closed-position-reentry@1"
 
@@ -84,6 +84,7 @@ async def rearm_closed_trade(day: str, symbol: str, broker: BrokerPort, *, now: 
         [Bar.model_validate(b) for b in plan.evidence["opening"]],
         now=now,
         feed=plan.source.removeprefix("alpaca:"),
+        version=INTRADAY_VERSION if plan.version == INTRADAY_VERSION else VERSION,
     )
     if rebuilt.plan is None:
         return False

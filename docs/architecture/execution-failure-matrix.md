@@ -24,6 +24,14 @@ reconciliation settles it.
 
 ## ENTRY
 
+Continuous Paper discovery is specified in [intraday-discovery-decision.md](intraday-discovery-decision.md).
+An intraday provider failure adds no new plans and records `data_blocked` on
+`intraday_discovery`; existing watch, positions, exits and reconciliation continue.
+New rolling ranges are WAIT until their own breakout/retest/confirmation passes
+the complete normal admission and execution path. Missing same-clock historical
+windows never become zero-volume bars. Existing plans and publication claims
+are never replaced by a discovery refresh.
+
 | Failure | Local state | Action | Audit event | Trading blocked | Recovery |
 | --- | --- | --- | --- | --- | --- |
 | Timeout before acknowledgement | `SUBMITTING` → `UNKNOWN` | No retry. Card stays claimed. | `EntryStateUnknown` | Symbol blocked for new entries | Reconciliation locates the order by `client_order_id`, or it stays `UNKNOWN` |

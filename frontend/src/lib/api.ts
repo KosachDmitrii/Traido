@@ -981,12 +981,14 @@ export type OrbPlan = {
 export type OrbBar = { ts: string; open: string; high: string; low: string; close: string; volume: string };
 export type OrbState = { state: string; reasons: string[]; bid?: string | null; ask?: string | null;
   day_high?: string | null; day_low?: string | null; opportunity_id?: string; observed_at?: string; quote_at?: string; last_bar?: OrbBar;
-  last_bar_closes_at?: string; next_bar_closes_at?: string; processing_lag_seconds?: number };
+  last_bar_closes_at?: string; next_bar_closes_at?: string; processing_lag_seconds?: number;
+  last_block?: {stage: string; reasons: string[]; at: string} };
 export type OrbExecution = { stage: string; opportunity_id: string; last_outcome?: string | null;
   last_error?: string | null; retry_at?: string | null; attempts: number };
 export type OrbSession = { execution?: Record<string, OrbExecution>; status: string; feed?: string; reason?: string | null; session?: string;
   plans?: Record<string, OrbPlan>; states?: Record<string, OrbState>;
-  counts?: Record<string, number>; rejection_counts?: Record<string, number> };
+  counts?: Record<string, number>; rejection_counts?: Record<string, number>;
+  intraday_discovery?: { status?: string; reason?: string; range_start?: string; range_end?: string; evaluated_at?: string; checked?: number; added?: string[]; rejection_counts?: Record<string, number> } };
 
 
 export type JournalTrade = NonNullable<ReviewPayload["recent"]>[number] & {
@@ -1004,6 +1006,7 @@ export async function fetchJournalPage(page: number, pageSize: number, signal?: 
 
 
 export type OrbEvaluation = {
+  intraday?: OrbEvaluation;
   strategy_version: string; trade_count: number; wins: number; losses: number; breakeven: number;
   pnl: string | null; win_rate: number | null; expectancy: string | null; profit_factor: number | null;
   first_closed_at: string | null; last_closed_at: string | null;
@@ -1017,7 +1020,7 @@ export async function fetchOrbEvaluation(signal?: AbortSignal): Promise<OrbEvalu
 
 export type OrbSymbolView = {
   symbol: string; session: string | null; plan: OrbPlan | null; state: OrbState | null;
-  rejections: string[]; outranked: boolean; session_reason: string | null; quote_error: string | null;
+  rejections: string[]; intraday_rejections?: string[]; outranked: boolean; session_reason: string | null; quote_error: string | null;
   quote: { bid: string; ask: string; ts: string; feed: string | null; source: string } | null;
   history: Array<{ id: string; from_state: string | null; to_state: string; reason_codes: string[];
     observed_at: string; source_bar_at: string | null; payload: { state: OrbState } }>;
