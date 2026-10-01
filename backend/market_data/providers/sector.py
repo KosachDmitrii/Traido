@@ -11,6 +11,7 @@ guessed sector. Inventing a bucket is how a name used to skip its real cap.
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -26,9 +27,12 @@ FINNHUB_PROFILE_URL = "https://finnhub.io/api/v1/stock/profile2"
 CACHE_TTL = timedelta(days=7)
 FAILURE_TTL = timedelta(minutes=2)
 REQUEST_TIMEOUT = 8.0
+logger = logging.getLogger(__name__)
 
-# Finnhub's `finnhubIndustry` is its own taxonomy, roughly GICS top-level.
-# Anything not listed here stays unclassified: silence beats a wrong bucket.
+# profile2 returns an industry, which need not be one of the eleven sector names.
+# Exact healthcare industry names below follow the GICS Health Care definitions:
+# https://www.spglobal.com/spdji/en/landing/topic/gics/
+# Ambiguous/unknown labels remain unclassified; never use substring matching.
 INDUSTRY_TO_SECTOR: dict[str, str] = {
     "technology": "technology",
     "communication services": "communication",
@@ -36,6 +40,13 @@ INDUSTRY_TO_SECTOR: dict[str, str] = {
     "consumer defensive": "consumer_staples",
     "financial services": "financials",
     "healthcare": "healthcare",
+    "health care": "healthcare",
+    "biotechnology": "healthcare",
+    "pharmaceuticals": "healthcare",
+    "health care equipment & supplies": "healthcare",
+    "health care providers & services": "healthcare",
+    "health care technology": "healthcare",
+    "life sciences tools & services": "healthcare",
     "energy": "energy",
     "industrials": "industrials",
     "basic materials": "materials",
@@ -200,6 +211,14 @@ class SectorResolver:
                 return cached
             info = await self._fetch(symbol)
             self._cache[symbol] = _CacheEntry(info=info, fetched_at=now)
+            if not info.available:
+                logger.warning(
+                    "Sector classification unavailable: symbol=%s status=%s source=%s detail=%s",
+                    symbol,
+                    info.status.value,
+                    info.source,
+                    info.note,
+                )
             return info
 
     async def _fetch(self, symbol: str) -> SectorInfo:

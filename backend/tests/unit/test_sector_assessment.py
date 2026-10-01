@@ -95,6 +95,33 @@ async def test_curated_etf_uses_itself_as_regime_benchmark() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("missing_bars", [False, True])
+async def test_gmab_verified_sector_still_requires_real_benchmark_bars(missing_bars) -> None:
+    classification = await resolve_symbol_classification("GMAB", finnhub_api_key=None)
+    assert classification.sector == "healthcare"
+    assert classification.benchmark == "XLV"
+    assert classification.classification_provider == "universe"
+
+    class _MarketData:
+        async def get_bars(self, symbol, timeframe, start, end):
+            assert symbol == "XLV"
+            assert timeframe is Timeframe.D1
+            return [] if missing_bars else _bars(symbol, BENCHMARK_MIN_BARS + 10, now=end)
+
+    assessed = await BenchmarkBarsSectorAssessment().assess(
+        "GMAB",
+        market_data=_MarketData(),
+        asset_class="stock",  # type: ignore[arg-type]
+    )
+    assert assessed.benchmark == "XLV"
+    if missing_bars:
+        assert assessed.tradable_long is None
+        assert "SECTOR_BENCHMARK_BARS_MISSING" in assessed.reason_codes
+    else:
+        assert assessed.data_status is DataHealthStatus.HEALTHY
+
+
+@pytest.mark.asyncio
 async def test_uvxy_uses_verified_etf_classification_when_asset_tag_is_missing() -> None:
     classification = await resolve_symbol_classification(
         "UVXY", finnhub_api_key=None, now=datetime.now(UTC), asset_class="stock"

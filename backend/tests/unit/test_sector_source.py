@@ -47,6 +47,60 @@ def test_an_unknown_industry_is_not_invented() -> None:
     assert map_finnhub_industry("Retail") is None
     assert map_finnhub_industry("") is None
     assert map_finnhub_industry(None) is None
+    assert map_finnhub_industry("Biotechnology / Materials") is None
+
+
+@pytest.mark.parametrize(
+    "industry",
+    [
+        "Health Care",
+        "Biotechnology",
+        "Pharmaceuticals",
+        "Health Care Equipment & Supplies",
+        "Health Care Providers & Services",
+        "Health Care Technology",
+        "Life Sciences Tools & Services",
+        "  BIOTECHNOLOGY  ",
+    ],
+)
+def test_healthcare_industry_names_are_not_confused_with_missing_sector(industry) -> None:
+    assert map_finnhub_industry(industry) == "healthcare"
+
+
+@pytest.mark.asyncio
+async def test_biotechnology_vendor_profile_resolves_outside_curated_universe() -> None:
+    resolver = SectorResolver(
+        _KEY,
+        universe=_universe(),
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"finnhubIndustry": "Biotechnology"})
+        ),
+    )
+    info = await resolver.resolve("TESTBIO", now=_NOW)
+    assert info.status is SectorCheck.CHECKED
+    assert info.sector == "healthcare"
+    assert info.source == "finnhub"
+
+
+@pytest.mark.asyncio
+async def test_unknown_industry_is_logged_once_per_fetch(caplog) -> None:
+    resolver = SectorResolver(
+        _KEY,
+        universe=_universe(),
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"finnhubIndustry": "Unmapped Industry"})
+        ),
+    )
+    with caplog.at_level("WARNING", logger="market_data.providers.sector"):
+        first = await resolver.resolve("ZZZZ", now=_NOW)
+        await resolver.resolve("ZZZZ", now=_NOW + timedelta(seconds=30))
+    assert first.status is SectorCheck.UNCLASSIFIED
+    assert first.sector is None
+    records = [r for r in caplog.records if "Sector classification unavailable" in r.message]
+    assert len(records) == 1
+    assert "ZZZZ" in records[0].message
+    assert "Unmapped Industry" in records[0].message
+    assert _KEY not in records[0].message
 
 
 def test_empty_profile_is_unclassified_not_unavailable() -> None:
