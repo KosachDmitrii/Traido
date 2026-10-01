@@ -96,24 +96,30 @@ async def test_curated_etf_uses_itself_as_regime_benchmark() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("missing_bars", [False, True])
-async def test_gmab_verified_sector_still_requires_real_benchmark_bars(missing_bars) -> None:
-    classification = await resolve_symbol_classification("GMAB", finnhub_api_key=None)
-    assert classification.sector == "healthcare"
-    assert classification.benchmark == "XLV"
+@pytest.mark.parametrize(
+    ("symbol", "sector", "benchmark"),
+    [("GMAB", "healthcare", "XLV"), ("COHR", "technology", "XLK")],
+)
+async def test_verified_sector_still_requires_real_benchmark_bars(
+    missing_bars, symbol, sector, benchmark
+) -> None:
+    classification = await resolve_symbol_classification(symbol, finnhub_api_key=None)
+    assert classification.sector == sector
+    assert classification.benchmark == benchmark
     assert classification.classification_provider == "universe"
 
     class _MarketData:
         async def get_bars(self, symbol, timeframe, start, end):
-            assert symbol == "XLV"
+            assert symbol == benchmark
             assert timeframe is Timeframe.D1
             return [] if missing_bars else _bars(symbol, BENCHMARK_MIN_BARS + 10, now=end)
 
     assessed = await BenchmarkBarsSectorAssessment().assess(
-        "GMAB",
+        symbol,
         market_data=_MarketData(),
         asset_class="stock",  # type: ignore[arg-type]
     )
-    assert assessed.benchmark == "XLV"
+    assert assessed.benchmark == benchmark
     if missing_bars:
         assert assessed.tradable_long is None
         assert "SECTOR_BENCHMARK_BARS_MISSING" in assessed.reason_codes

@@ -48,6 +48,20 @@ def test_an_unknown_industry_is_not_invented() -> None:
     assert map_finnhub_industry("") is None
     assert map_finnhub_industry(None) is None
     assert map_finnhub_industry("Biotechnology / Materials") is None
+    # COHR's vendor label cannot establish the sector of every company with it.
+    assert map_finnhub_industry("Electrical Equipment") is None
+
+
+@pytest.mark.asyncio
+async def test_cohr_verified_sector_precedes_conflicting_vendor_industry() -> None:
+    def unexpected_request(request):
+        pytest.fail("Curated COHR classification must not depend on Finnhub")
+
+    resolver = SectorResolver(_KEY, transport=httpx.MockTransport(unexpected_request))
+    info = await resolver.resolve("COHR", now=_NOW)
+    assert info.status is SectorCheck.CHECKED
+    assert info.sector == "technology"
+    assert info.source == "universe"
 
 
 @pytest.mark.parametrize(

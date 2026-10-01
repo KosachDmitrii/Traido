@@ -604,6 +604,8 @@ Regression: AXP screenshot 318.55/320.98 measures 75.99 bps regardless of last p
 
 ### Sector classification evidence (2026-10-01)
 
+COHR is catalogued as technology based on [S&P DJI's March 6, 2026 index announcement](https://press.spglobal.com/2026-03-06-Vertiv-Holdings,-Lumentum-Holdings,-Coherent,-and-EchoStar-Set-to-Join-S-P-500-Others-to-Join-S-P-100,-S-P-MidCap-400,-and-S-P-SmallCap-600), which explicitly lists COHR's GICS sector as Information Technology. Its canonical benchmark is XLK. At 15:47:45 UTC on October 1, the entry trigger passed; final admission rejected it at 15:47:54 because Finnhub returned the unmapped industry `Electrical Equipment`. The shared curated classification now precedes that vendor label in both sector assessment and portfolio risk. No global mapping of that label to technology is introduced. Missing/stale benchmark data and all other admission gates still block entry; this repair does not restore expired signals or prove a fill.
+
 GMAB is catalogued as healthcare based on [Genmab's company description](https://ir.genmab.com/news-releases/news-release-details/major-shareholder-announcement-59): medical biotechnology and antibody medicines. Its regime benchmark is the existing canonical healthcare ETF, XLV; classification alone does not grant tradability.
 
 `sector_resolver@2` accepts exact healthcare industry names following the [GICS Health Care definitions](https://www.spglobal.com/spdji/en/landing/topic/gics/). Blank profiles, vendor failures and unknown or ambiguous industry labels remain blocked. The live GMAB profile body from the failed entry was not retained, so this change does not assert what exact label Finnhub returned for that attempt.

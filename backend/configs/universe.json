@@ -5,7 +5,7 @@
     "technology": [
       "AAPL", "MSFT", "NVDA", "AVGO", "AMD", "CRM", "ORCL", "ADBE", "CSCO",
       "ACN", "INTU", "TXN", "QCOM", "AMAT", "MU", "LRCX", "KLAC", "NOW",
-      "PANW", "ANET", "SNPS", "CDNS", "INTC", "IBM", "DELL", "MRVL", "SMCI"
+      "PANW", "ANET", "SNPS", "CDNS", "INTC", "IBM", "DELL", "MRVL", "SMCI", "COHR"
     ],
     "communication": [
       "GOOGL", "META", "NFLX", "DIS", "TMUS", "CMCSA", "VZ", "T", "EA", "WBD"
