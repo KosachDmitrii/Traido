@@ -324,6 +324,8 @@ export const en = {
   "desk.positions.stat.tgt": "Target",
   "desk.positions.noMark": "No price reported by the broker",
   "desk.positions.close": "Close",
+  "toast.sell.pending.title": "{symbol}: waiting for the sell to fill",
+  "toast.sell.pending.detail": "The order remains with the broker. The position closes after a confirmed fill; no duplicate sell is submitted.",
   "desk.positions.close.confirm": "Confirm?",
   "desk.positions.close.cancel": "Cancel",
   "desk.orders.sub": "Open orders · {broker}",

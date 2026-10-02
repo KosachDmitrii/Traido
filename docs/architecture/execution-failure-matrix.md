@@ -683,3 +683,15 @@ Default `protected` behavior below is unchanged. Enable only in Paper after depl
 History REST work is bounded to six groups/pass, five symbols/group, two concurrent
 requests, and 30-minute intervals. A failed group is retried as individual symbols.
 The market-data stream has no broker port and cannot submit orders. Feed never changes on failure.
+
+## Broker fill waiting for owner Paper exits
+
+For Paper `manual_target`, an acknowledged operator/target SELL has no local
+18-second fill deadline. The API returns `approving` promptly and the UI says
+that execution is pending. The broker order remains active; background
+reconciliation reads its status and absorbs each cumulative fill exactly once,
+including after a restart. Repeated close requests reuse the pending card and
+never submit a second SELL. Unreadable or mismatched broker truth becomes UNKNOWN.
+A verified terminal cancellation/rejection releases the card only after any
+partial fill is applied; a full fill marks it sold. Entry fill deadlines and
+other exit policies retain their existing behavior.

@@ -187,6 +187,8 @@ class OpportunityStorePort(Protocol):
 
 
 class ExitStorePort(Protocol):
+    def list_pending(self) -> list[ExitOpportunity]: ...
+
     def get(self, exit_id: UUID) -> ExitOpportunity | None: ...
 
     def upsert(self, proposal: ExitProposal) -> ExitOpportunity: ...
@@ -3013,6 +3015,16 @@ class ExecutionService:
                 confidence=1.0,
             )
         )
+        if item.status == EXIT_APPROVING:
+            live = self._live_exit_intent(symbol, item.proposal.position_id)
+            if live is not None:
+                if live.status is IntentStatus.UNKNOWN:
+                    raise RuntimeError("EXIT_STATE_UNKNOWN:existing_exit_unresolved")
+                return item
+            # Another caller can be between claiming the card and persisting
+            # its intent. Never release that claim merely because no intent is
+            # visible yet; terminal broker outcomes release it in reconciliation.
+            return item
         await self.audit.append(
             "PositionCloseRequested",
             "user",
@@ -3260,14 +3272,62 @@ class ExecutionService:
         is assumed and the symbol stays blocked.
         """
         oid = submitted.broker_order_id or ""
-        try:
-            filled = await wait_for_fill(self.broker, oid, timeout_sec=self.fill_timeout)
-        except RuntimeError as exc:
-            final = await self._read_after_cancel(intent, oid, reason=str(exc))
-            if final is None:
+        if manual_target_exits():
+            # A broker-acknowledged sale has no local fill deadline. Return a
+            # pending card promptly; durable reconciliation owns later fills.
+            try:
+                filled = await self.broker.get_order(oid)
+            except Exception as exc:
                 await self._audit_exit_unknown(intent, item.id, str(exc))
-                raise RuntimeError(f"EXIT_STATE_UNKNOWN:{exc}") from exc
-            filled = final
+                raise RuntimeError("EXIT_STATE_UNKNOWN:pending_exit_unreadable") from exc
+            if (
+                filled.broker_order_id != oid
+                or filled.symbol.upper() != intent.symbol.upper()
+                or filled.side is not OrderSide.SELL
+                or filled.qty != intent.requested_qty
+            ):
+                await self._audit_exit_unknown(intent, item.id, "pending_exit_identity_mismatch")
+                raise RuntimeError("EXIT_STATE_UNKNOWN:pending_exit_identity_mismatch")
+            if filled.status in {OrderStatus.ACCEPTED, OrderStatus.SUBMITTED, OrderStatus.PARTIAL}:
+                if (filled.filled_qty or Decimal(0)) > 0:
+                    self._apply_exit_to_ledger(
+                        intent,
+                        filled_qty=filled.filled_qty,
+                        exit_price=fill_price(filled),
+                        reasons=list(item.proposal.reasons),
+                    )
+                self._safe_transition(
+                    intent,
+                    intent_status_for(filled.status, filled.filled_qty),
+                    filled_qty=filled.filled_qty or Decimal(0),
+                    last_broker_state=filled.status.value,
+                )
+                await self.audit.append(
+                    "ExitAwaitingFill",
+                    "execution",
+                    {"symbol": intent.symbol, "order_id": oid, "exit_id": str(item.id)},
+                    entity_type="order_intent",
+                    entity_id=str(intent.id),
+                )
+                logger.info("Exit awaiting broker fill: symbol=%s order=%s", intent.symbol, oid)
+                return item
+            if filled.status not in {
+                OrderStatus.FILLED,
+                OrderStatus.CANCELED,
+                OrderStatus.REJECTED,
+                OrderStatus.EXPIRED,
+            }:
+                await self._audit_exit_unknown(intent, item.id, "pending_exit_status_unknown")
+                raise RuntimeError("EXIT_STATE_UNKNOWN:pending_exit_status_unknown")
+        else:
+            try:
+                filled = await wait_for_fill(self.broker, oid, timeout_sec=self.fill_timeout)
+            except RuntimeError as exc:
+                final = await self._read_after_cancel(intent, oid, reason=str(exc))
+                if final is None:
+                    await self._audit_exit_unknown(intent, item.id, str(exc))
+                    raise RuntimeError(f"EXIT_STATE_UNKNOWN:{exc}") from exc
+                filled = final
 
         fill_qty = filled.filled_qty or Decimal(0)
         if fill_qty <= 0:

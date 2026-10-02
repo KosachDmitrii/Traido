@@ -279,6 +279,13 @@ export function flashSkipOk(symbol: string): FlashMessage {
 }
 
 export function flashSellOk(symbol: string, status: string): FlashMessage {
+  if (status === "approving") {
+    return {
+      kind: "info",
+      title: t("toast.sell.pending.title", { symbol }),
+      detail: t("toast.sell.pending.detail"),
+    };
+  }
   if (status === "sold") {
     return {
       kind: "ok",

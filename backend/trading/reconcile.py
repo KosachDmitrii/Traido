@@ -18,7 +18,7 @@ from decimal import Decimal
 from typing import Any, Protocol
 
 from core.activity import BOARD
-from core.enums import IntentStatus, OpportunityStatus, OrderSide, OrderType
+from core.enums import IntentStatus, OpportunityStatus, OrderSide, OrderStatus, OrderType
 from core.ports import AuditPort, BrokerPort
 from core.schemas import ExternalPositionIncident, OrderRecord
 from trading.exit_policy import manual_target_exits
@@ -148,7 +148,13 @@ async def reconcile_positions(
     if audit:
         await audit.append("ReconciliationStarted", "reconcile", {})
 
-    await reconcile_order_intents(broker, intent_store, audit, report=report)
+    await reconcile_order_intents(
+        broker,
+        intent_store,
+        audit,
+        report=report,
+        exit_store=getattr(execution, "exit_store", None),
+    )
 
     broker_pos = await broker.list_positions()
     by_sym = {p.symbol.upper(): p for p in broker_pos}
@@ -293,6 +299,7 @@ async def reconcile_order_intents(
     audit: AuditPort | None = None,
     *,
     report: ReconciliationReport | None = None,
+    exit_store: Any = None,
 ) -> ReconciliationReport:
     """Settle every unresolved intent against what the broker says.
 
@@ -333,6 +340,7 @@ async def reconcile_order_intents(
             if intent.is_exit and target is IntentStatus.PARTIALLY_FILLED:
                 intents.update_fields(intent.id, filled_qty=found.filled_qty or intent.filled_qty)
                 await _absorb_exit_fill(intents, audit, intent, found, rep)
+            _finish_pending_exit_card(intents, intent, found, exit_store)
             continue
 
         try:
@@ -371,6 +379,7 @@ async def reconcile_order_intents(
             )
 
         if target not in {IntentStatus.PARTIALLY_FILLED, IntentStatus.FILLED}:
+            _finish_pending_exit_card(intents, intent, found, exit_store)
             continue
 
         if intent.is_exit:
@@ -378,12 +387,43 @@ async def reconcile_order_intents(
             # our exposure. The book has to absorb it before anything else can
             # reason about position size.
             await _absorb_exit_fill(intents, audit, intent, found, rep)
+            _finish_pending_exit_card(intents, intent, found, exit_store)
         else:
             # A fill without a protected position is still an open problem; the
             # protective sweep below decides what to do about it.
             rep.unresolved.append(f"intent:{intent.id}:fill_needs_protection")
 
     return rep
+
+
+def _finish_pending_exit_card(intents, intent, found, exit_store) -> None:
+    """Release a pending sale only after terminal broker truth and absorbed fills."""
+    if exit_store is None or not intent.is_exit or not manual_target_exits():
+        return
+    if found.status not in {
+        OrderStatus.FILLED,
+        OrderStatus.CANCELED,
+        OrderStatus.REJECTED,
+        OrderStatus.EXPIRED,
+    }:
+        return
+    current = intents.get(intent.id)
+    if current is None or current.applied_exit_qty < (found.filled_qty or Decimal(0)):
+        return
+    from trading.exits import EXIT_AWAITING, EXIT_SOLD
+
+    row = LEDGER.get(intent.position_id) if intent.position_id else None
+    if found.status is OrderStatus.FILLED and (row is None or row.status != "closed"):
+        return
+    status = EXIT_SOLD if row is not None and row.status == "closed" else EXIT_AWAITING
+    if current.status is IntentStatus.PARTIALLY_FILLED and found.status is not OrderStatus.FILLED:
+        intents.transition(intent.id, IntentStatus.CANCELED, last_broker_state=found.status.value)
+    for item in exit_store.list_pending():
+        if (
+            item.proposal.position_id == intent.position_id
+            and item.proposal.symbol == intent.symbol
+        ):
+            exit_store.update(item.model_copy(update={"status": status}))
 
 
 def _resolution_event(intent: OrderIntent, target: IntentStatus) -> str:

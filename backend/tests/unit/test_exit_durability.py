@@ -37,7 +37,7 @@ from core.schemas import (
 )
 from risk.kill_switch import set_kill_switch
 from trading.execution import ExecutionService
-from trading.exits import EXIT_AWAITING, EXIT_SOLD, MemoryExitStore
+from trading.exits import EXIT_APPROVING, EXIT_AWAITING, EXIT_SOLD, MemoryExitStore
 from trading.intents import MemoryOrderIntentStore
 from trading.ledger import PositionLedger
 from trading.opportunities import MemoryOpportunityStore
@@ -399,7 +399,9 @@ async def test_a_partial_exit_leaves_the_remainder_open(
     assert row is not None
     assert row.status == "open", "70 shares are still ours"
     assert Decimal(str(row.qty)) == Decimal(30 * 0 + 70)
-    assert result.status == EXIT_AWAITING, "the rest is still sellable"
+    assert result.status == (EXIT_APPROVING if manual_target else EXIT_AWAITING)
+    if manual_target:
+        assert "broker-1" not in broker.canceled, "the partial sale remains working"
     if manual_target:
         assert broker.stops == []
 
@@ -774,3 +776,139 @@ async def test_stop_fill_also_blocks_emergency_or_replacement_sell(ledger, path)
                 previous_stop_order_id="stop-1",
             )
     assert broker.orders == [] and broker.held == 0
+
+
+@pytest.mark.parametrize("fill_ratio", [Decimal(0), Decimal("0.3")])
+@pytest.mark.parametrize("durable", [False, True])
+async def test_owner_sale_has_no_fill_deadline_and_survives_restart(
+    ledger, monkeypatch, fill_ratio, durable
+):
+    import trading.execution
+    from core.config import get_settings
+    from trading.reconcile import reconcile_order_intents
+
+    monkeypatch.setattr(get_settings(), "paper_exit_policy", "manual_target")
+
+    async def forbidden_wait(*args, **kwargs):
+        raise AssertionError("owner exit must not enter the timed fill waiter")
+
+    monkeypatch.setattr(trading.execution, "wait_for_fill", forbidden_wait)
+    position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id=None)
+    broker = _ExitBroker(fill_ratio=fill_ratio)
+    from trading.exits import ExitStore
+    from trading.intents import OrderIntentStore
+
+    exits = ExitStore(ledger._engine) if durable else MemoryExitStore()
+    intents = OrderIntentStore(ledger._engine) if durable else MemoryOrderIntentStore()
+    audit = InMemoryAudit()
+    result = await _service(broker, exits, intents, audit).close_position("AAPL")
+    assert result.status == EXIT_APPROVING
+    assert broker.canceled == []
+    assert Decimal(str(ledger.get(position_id).qty)) == Decimal(100) * (1 - fill_ratio)
+    # A recreated service uses persisted state, not a local task or timer.
+    if durable:
+        exits = ExitStore(ledger._engine)
+        intents = OrderIntentStore(ledger._engine)
+    restarted = _service(broker, exits, intents, audit)
+    repeat = await restarted.close_position("AAPL")
+    assert repeat.id == result.id
+    assert len(broker.market_sells) == 1
+    intent = intents.list_by_key_prefix(f"exit:{position_id}:")[0]
+    oid = intent.broker_order_id
+    broker.records[oid] = broker.records[oid].model_copy(
+        update={
+            "status": OrderStatus.FILLED,
+            "filled_qty": Decimal(100),
+            "filled_avg_price": Decimal(110),
+        }
+    )
+    broker.held = Decimal(0)
+    await reconcile_order_intents(broker, intents, audit, exit_store=exits)
+    await reconcile_order_intents(broker, intents, audit, exit_store=exits)
+    assert ledger.get(position_id).status == "closed"
+    assert intents.get(intent.id).applied_exit_qty == Decimal(100)
+    assert exits.get(result.id).status == EXIT_SOLD
+    assert broker.canceled == []
+    assert len(broker.market_sells) == 1
+
+
+async def test_owner_terminal_partial_cancel_allows_only_remaining_sale(ledger, monkeypatch):
+    from core.config import get_settings
+    from trading.reconcile import reconcile_order_intents
+
+    monkeypatch.setattr(get_settings(), "paper_exit_policy", "manual_target")
+    position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id=None)
+    broker = _ExitBroker(fill_ratio=Decimal("0.3"))
+    exits, intents, audit = MemoryExitStore(), MemoryOrderIntentStore(), InMemoryAudit()
+    svc = _service(broker, exits, intents, audit)
+    item = await svc.close_position("AAPL")
+    intent = intents.list_by_key_prefix(f"exit:{position_id}:")[0]
+    oid = intent.broker_order_id
+    broker.records[oid] = broker.records[oid].model_copy(update={"status": OrderStatus.CANCELED})
+    await reconcile_order_intents(broker, intents, audit, exit_store=exits)
+    assert exits.get(item.id).status == EXIT_AWAITING
+    assert intents.get(intent.id).status is IntentStatus.CANCELED
+    broker.fill_ratio = Decimal(1)
+    result = await svc.close_position("AAPL")
+    assert result.status == EXIT_SOLD
+    assert broker.market_sells[-1].qty == Decimal(70)
+    assert broker.canceled == []
+
+
+async def test_owner_unreadable_sale_blocks_duplicate(ledger, monkeypatch):
+    from core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "paper_exit_policy", "manual_target")
+    _seed_position(ledger, qty=Decimal(100), stop_order_id=None)
+
+    class Unreadable(_ExitBroker):
+        async def get_order(self, oid):
+            raise BrokerUnreachable("unavailable")
+
+    broker = Unreadable(fill_ratio=Decimal(0))
+    exits, intents, audit = MemoryExitStore(), MemoryOrderIntentStore(), InMemoryAudit()
+    svc = _service(broker, exits, intents, audit)
+    with pytest.raises(RuntimeError, match="EXIT_STATE_UNKNOWN"):
+        await svc.close_position("AAPL")
+    with pytest.raises(RuntimeError, match="EXIT_STATE_UNKNOWN"):
+        await svc.close_position("AAPL")
+    assert len(broker.market_sells) == 1
+    assert broker.canceled == []
+
+
+async def test_owner_concurrent_close_keeps_claim_before_intent(ledger, monkeypatch):
+    import asyncio
+
+    from core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "paper_exit_policy", "manual_target")
+    _seed_position(ledger, qty=Decimal(100), stop_order_id=None)
+
+    class Paused(_ExitBroker):
+        async def list_positions(self):
+            await asyncio.sleep(0)
+            return await super().list_positions()
+
+    broker = Paused(fill_ratio=Decimal(0))
+    exits, intents, audit = MemoryExitStore(), MemoryOrderIntentStore(), InMemoryAudit()
+    svc = _service(broker, exits, intents, audit)
+    results = await asyncio.gather(svc.close_position("AAPL"), svc.close_position("AAPL"))
+    assert results[0].id == results[1].id
+    assert len(broker.market_sells) == 1
+    assert broker.canceled == []
+
+
+@pytest.mark.parametrize("durable", [False, True])
+async def test_pending_exit_card_precedes_legacy_awaiting_cards(ledger, durable, monkeypatch):
+    from core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "paper_exit_policy", "manual_target")
+    from trading.exits import ExitStore
+
+    position_id = _seed_position(ledger, qty=Decimal(100), stop_order_id=None)
+    store = ExitStore(ledger._engine) if durable else MemoryExitStore()
+    old = store.upsert(_proposal(position_id))
+    pending = old.model_copy(update={"id": uuid4(), "status": EXIT_APPROVING})
+    store.update(pending)
+    assert store.upsert(_proposal(position_id)).id == pending.id
+    assert store.get(pending.id).proposal == pending.proposal

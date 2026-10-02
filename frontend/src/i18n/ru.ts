@@ -328,6 +328,8 @@ export const ru: Record<MessageKey, string> = {
   "desk.positions.stat.tgt": "Цель",
   "desk.positions.noMark": "Брокер не прислал цену",
   "desk.positions.close": "Закрыть",
+  "toast.sell.pending.title": "{symbol}: ожидаем исполнения продажи",
+  "toast.sell.pending.detail": "Заявка остаётся у брокера. Позиция закроется после подтверждённого исполнения; повторная продажа не создаётся.",
   "desk.positions.close.confirm": "Точно?",
   "desk.positions.close.cancel": "Отмена",
   "desk.orders.sub": "Открытые ордера · {broker}",

@@ -13,6 +13,7 @@ from core.ports import BrokerPort, MarketDataPort
 from core.schemas import ExitProposal, StrictModel
 from database.models.desk import ExitOpportunityRow
 from database.session import session_factory
+from trading.exit_policy import manual_target_exits
 
 EXIT_AWAITING = "awaiting_confirmation"
 EXIT_APPROVING = "approving"
@@ -80,14 +81,21 @@ class ExitStore:
             rows = (
                 session.query(ExitOpportunityRow)
                 .filter(
-                    ExitOpportunityRow.status == EXIT_AWAITING,
+                    ExitOpportunityRow.status.in_(
+                        [EXIT_AWAITING, EXIT_APPROVING]
+                        if manual_target_exits()
+                        else [EXIT_AWAITING]
+                    ),
                     ExitOpportunityRow.symbol == proposal.symbol,
                     ExitOpportunityRow.position_id == proposal.position_id,
                 )
                 .all()
             )
             if rows:
-                item = _from_row(rows[0]).model_copy(update={"proposal": proposal})
+                item = _from_row(next((r for r in rows if r.status == EXIT_APPROVING), rows[0]))
+                if item.status == EXIT_APPROVING:
+                    return item
+                item = item.model_copy(update={"proposal": proposal})
                 _write_payload(session, item)
                 session.commit()
                 return item
@@ -130,6 +138,16 @@ class ExitStore:
             session.commit()
             return item
 
+    def list_pending(self) -> list[ExitOpportunity]:
+        SessionLocal = _session_factory(self._engine)
+        with SessionLocal() as session:
+            rows = (
+                session.query(ExitOpportunityRow)
+                .filter(ExitOpportunityRow.status == EXIT_APPROVING)
+                .all()
+            )
+            return [_from_row(r) for r in rows]
+
     def list_open(self) -> list[ExitOpportunity]:
         SessionLocal = _session_factory(self._engine)
         with SessionLocal() as session:
@@ -149,12 +167,17 @@ class MemoryExitStore:
 
     def upsert(self, proposal: ExitProposal) -> ExitOpportunity:
         with self._lock:
-            for item in self._items.values():
+            for item in sorted(self._items.values(), key=lambda i: i.status != EXIT_APPROVING):
                 if (
-                    item.status == EXIT_AWAITING
+                    (
+                        item.status == EXIT_AWAITING
+                        or (manual_target_exits() and item.status == EXIT_APPROVING)
+                    )
                     and item.proposal.symbol == proposal.symbol
                     and item.proposal.position_id == proposal.position_id
                 ):
+                    if item.status == EXIT_APPROVING:
+                        return item
                     item = item.model_copy(update={"proposal": proposal})
                     self._items[item.id] = item
                     return item
@@ -189,6 +212,10 @@ class MemoryExitStore:
             updated = item.model_copy(update={"status": to_status})
             self._items[exit_id] = updated
             return updated
+
+    def list_pending(self) -> list[ExitOpportunity]:
+        with self._lock:
+            return [i for i in self._items.values() if i.status == EXIT_APPROVING]
 
     def list_open(self) -> list[ExitOpportunity]:
         with self._lock:
