@@ -133,10 +133,17 @@ async def lifespan(_app: FastAPI):
     # a missed entry; converting them must still go through Risk + desk publish,
     # never the broker.
     start_entry_watch_loop()
+    from trading.auto_trigger_policy import (
+        start_auto_trigger_dispatcher,
+        stop_auto_trigger_dispatcher,
+    )
+
+    start_auto_trigger_dispatcher()
     from market_data import alpaca_stream
 
     alpaca_stream.start()
     yield
+    await stop_auto_trigger_dispatcher()
     await alpaca_stream.stop()
     await sector_preflight.stop()
     await stop_log_retention(retention_stop, retention_task)

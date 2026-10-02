@@ -114,3 +114,24 @@ async def test_future_observation_date_is_data_blocked(monkeypatch: pytest.Monke
     assert result.evaluated_at is None
     assert "FRED_OBSERVATION_DATE_INVALID" in result.reasons
     assert "DATA_BLOCKED" in result.reasons
+
+
+@pytest.mark.asyncio
+async def test_fred_series_reads_overlap_and_keep_provenance(monkeypatch):
+    import asyncio
+
+    entered = set()
+    both = asyncio.Event()
+    now = datetime(2026, 10, 2, 15, tzinfo=UTC)
+
+    async def latest(client, key, series, *, fetched_at):
+        entered.add(series)
+        if len(entered) == 2:
+            both.set()
+        await asyncio.wait_for(both.wait(), timeout=1)
+        return FredObservation(series, 4.1, now.date(), fetched_at)
+
+    monkeypatch.setattr("agents.market.agent._fred_latest", latest)
+    result = await assess_market("test-key", now=now)
+    assert entered == {"DGS10", "UNRATE"}
+    assert result.evaluated_at == now and result.fetched_at == now

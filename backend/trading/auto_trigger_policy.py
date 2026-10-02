@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,8 @@ _retry_attempts: dict[str, int] = {}
 _queue: asyncio.Queue[tuple[Any, Any, str]] | None = None
 _worker_task: asyncio.Task[None] | None = None
 _worker_loop: asyncio.AbstractEventLoop | None = None
+_dispatch_task: asyncio.Task[None] | None = None
+_DISPATCH_INTERVAL_SEC = 1.0
 
 _BACKOFF_STEPS = (5, 15, 45, 120, 300)
 _QUEUE_MAXSIZE = 100
@@ -478,6 +481,23 @@ async def maybe_auto_approve_opportunity(
         if not _due_for_retry(opp_id):
             return False
 
+        started = time.monotonic()
+        retry_at = getattr(opp, "auto_trigger_retry_at", None)
+        retry_lag_ms = (
+            max(
+                0.0,
+                (
+                    datetime.now(UTC)
+                    - (retry_at if retry_at.tzinfo else retry_at.replace(tzinfo=UTC))
+                ).total_seconds()
+                * 1000,
+            )
+            if isinstance(retry_at, datetime)
+            else 0.0
+        )
+        logger.info(
+            "auto trigger attempt started: symbol=%s retry_lag_ms=%.0f", symbol, retry_lag_ms
+        )
         from api.deps import build_execution_service
 
         service = build_execution_service()
@@ -493,10 +513,11 @@ async def maybe_auto_approve_opportunity(
             error = _error_text(exc)
             outcome = _classify_failure(exc)
             logger.warning(
-                "auto trigger: approve failed for %s outcome=%s (%s)",
+                "auto trigger: approve failed for %s outcome=%s (%s) elapsed_ms=%.0f",
                 symbol,
                 outcome,
                 error,
+                (time.monotonic() - started) * 1000,
             )
             if outcome in {"NO_TRADE", "TERMINAL_REJECT"}:
                 await _discard_card(
@@ -546,6 +567,54 @@ async def maybe_auto_approve_opportunity(
     finally:
         with _LOCK:
             _in_flight.discard(key)
+
+
+async def dispatch_due_buys(*, audit: Any) -> int:
+    """Recover due cards from durable storage independently of scanner passes."""
+    if _auto_trigger_blocked() or not await asyncio.to_thread(get_auto_trigger_enabled):
+        return 0
+    from trading.opportunities import OPPORTUNITIES
+
+    cards = await asyncio.to_thread(OPPORTUNITIES.list_open)
+    return sum(
+        enqueue_auto_approve_opportunity(card.id, audit=audit, symbol=card.candidate.symbol)
+        for card in cards
+    )
+
+
+async def _dispatch_loop() -> None:
+    from core.audit import create_audit
+
+    audit = create_audit()
+    logger.info("auto trigger dispatcher started: interval_sec=%s", _DISPATCH_INTERVAL_SEC)
+    while True:
+        try:
+            queued = await dispatch_due_buys(audit=audit)
+            if queued:
+                logger.info("auto trigger dispatcher queued: cards=%s", queued)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("auto trigger dispatcher failed; will retry")
+        await asyncio.sleep(_DISPATCH_INTERVAL_SEC)
+
+
+def start_auto_trigger_dispatcher() -> None:
+    global _dispatch_task
+    if _dispatch_task is None or _dispatch_task.done():
+        _dispatch_task = asyncio.create_task(_dispatch_loop())
+
+
+async def stop_auto_trigger_dispatcher() -> None:
+    global _dispatch_task, _worker_task, _worker_loop, _queue
+    tasks = [task for task in (_dispatch_task, _worker_task) if task is not None]
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    _dispatch_task = _worker_task = _worker_loop = _queue = None
+    with _LOCK:
+        _queued.clear()
 
 
 def _ensure_worker() -> asyncio.Queue[tuple[Any, Any, str]] | None:

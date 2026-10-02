@@ -452,3 +452,122 @@ def test_executed_status_wins_over_stale_worker_flags():
     atp._in_flight.add(str(opp.id))
     states = {result.symbol: {"opportunity_id": str(opp.id)}}
     assert atp.orb_execution_statuses(states)[result.symbol]["stage"] == "EXECUTED"
+
+
+@pytest.mark.parametrize(
+    "reason",
+    [
+        "ORB_STOP_BREACHED",
+        "ORB_RETEST_EXPIRED",
+        "ORB_RETEST_INVALIDATED",
+        "ORB_RETEST_REWARD_INSUFFICIENT",
+    ],
+)
+def test_invalidated_orb_signal_is_terminal(reason):
+    assert atp._classify_failure(RuntimeError(f"LIQUIDITY_GATE_REJECTED:{reason}")) == "NO_TRADE"
+    assert atp._classify_failure(RuntimeError(f"ENTRY_STATE_UNKNOWN:{reason}")) == "UNKNOWN"
+    assert (
+        atp._classify_failure(RuntimeError(f"LIQUIDITY_GATE_REJECTED:{reason},ORB_QUOTE_STALE"))
+        == "DATA_BLOCKED"
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_recovers_due_retry_while_observation_is_busy(monkeypatch):
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+
+    from core.audit import InMemoryAudit
+    from core.enums import OpportunityStatus
+
+    atp.set_auto_trigger_enabled(True, actor="test")
+    opp = MagicMock()
+    opp.id = uuid4()
+    opp.status = OpportunityStatus.AWAITING_CONFIRMATION
+    opp.candidate.symbol = "NBIS"
+    opp.decision_version = 0
+    opp.auto_trigger_retry_at = datetime.now(UTC) + timedelta(seconds=0.08)
+    store = MagicMock()
+    store.list_open.return_value = [opp]
+    store.get.return_value = opp
+    monkeypatch.setattr("trading.opportunities.OPPORTUNITIES", store)
+    monkeypatch.setattr(atp, "_DISPATCH_INTERVAL_SEC", 0.01)
+    audit = InMemoryAudit()
+    monkeypatch.setattr("core.audit.create_audit", lambda: audit)
+    started, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+    async def decide(*args, **kwargs):
+        assert datetime.now(UTC) >= opp.auto_trigger_retry_at
+        started.set()
+        await release.wait()
+        opp.status = OpportunityStatus.EXECUTED
+        finished.set()
+        return opp
+
+    service = MagicMock()
+    service.decide = AsyncMock(side_effect=decide)
+    monkeypatch.setattr("api.deps.build_execution_service", lambda: service)
+    observation_release = asyncio.Event()
+    observation = asyncio.create_task(observation_release.wait())
+    # Simulate a restart: only the store retains the retry deadline.
+    atp.reset_auto_trigger_cache()
+    atp.start_auto_trigger_dispatcher()
+    task = atp._dispatch_task
+    atp.start_auto_trigger_dispatcher()
+    assert atp._dispatch_task is task
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        assert not observation.done(), "retry must not wait for observation to finish"
+        for _ in range(3):
+            await atp.dispatch_due_buys(audit=audit)
+            assert not atp.enqueue_auto_approve_opportunity(opp.id, audit=audit, symbol="NBIS")
+        assert service.decide.await_count == 1
+        release.set()
+        await asyncio.wait_for(finished.wait(), timeout=2)
+        await atp._queue.join()
+        assert service.decide.await_count == 1
+    finally:
+        await atp.stop_auto_trigger_dispatcher()
+        observation.cancel()
+        await asyncio.gather(observation, return_exceptions=True)
+    assert atp._dispatch_task is None and atp._worker_task is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("live", [False, True])
+async def test_dispatcher_never_reads_cards_when_disabled_or_live(monkeypatch, live):
+    from unittest.mock import MagicMock
+
+    store = MagicMock()
+    monkeypatch.setattr("trading.opportunities.OPPORTUNITIES", store)
+    monkeypatch.setattr(atp, "_auto_trigger_blocked", lambda: live)
+    monkeypatch.setattr(atp, "get_auto_trigger_enabled", lambda: live)
+    assert await atp.dispatch_due_buys(audit=object()) == 0
+    store.list_open.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_breached_reference_stop_discards_without_retry(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    from uuid import uuid4
+
+    from core.audit import InMemoryAudit
+    from core.enums import OpportunityStatus
+
+    atp.set_auto_trigger_enabled(True, actor="test")
+    opp = MagicMock()
+    opp.id, opp.status, opp.decision_version = uuid4(), OpportunityStatus.AWAITING_CONFIRMATION, 0
+    store = MagicMock()
+    store.get.return_value = opp
+    service = MagicMock()
+    service.decide = AsyncMock(
+        side_effect=RuntimeError("LIQUIDITY_GATE_REJECTED:ORB_STOP_BREACHED")
+    )
+    monkeypatch.setattr("trading.opportunities.OPPORTUNITIES", store)
+    monkeypatch.setattr("api.deps.build_execution_service", lambda: service)
+    audit = InMemoryAudit()
+    assert not await atp.maybe_auto_approve_opportunity(opp.id, audit=audit, symbol="NBIS")
+    assert store.claim.call_args.kwargs["to_status"] is OpportunityStatus.DISCARDED
+    assert not any(e["event_type"] == "AutoTriggerApproveDeferred" for e in audit.events)

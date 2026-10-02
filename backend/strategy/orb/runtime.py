@@ -649,16 +649,18 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         pipeline_run_id=result.pipeline_run_id,
     )
     BOARD.set_agent("context", status="working", detail="Checking market regime", symbol=symbol)
-    market = await assess_market(ctx.settings.fred_api_key, now=now)
-    gate = evaluate_market_gate(market, now=now, require_sector=False)
     instrument_evidence = plan.evidence.get("instrument") or {}
     asset_class = instrument_evidence.get("asset_class")
-    sector = await get_sector_assessment_port().assess(
-        symbol,
-        market_data=ctx.market_data,
-        now=now,
-        asset_class=asset_class,
+    market, sector = await asyncio.gather(
+        assess_market(ctx.settings.fred_api_key, now=now),
+        get_sector_assessment_port().assess(
+            symbol,
+            market_data=ctx.market_data,
+            now=now,
+            asset_class=asset_class,
+        ),
     )
+    gate = evaluate_market_gate(market, now=now, require_sector=False)
     BOARD.set_agent(
         "context",
         status="done",

@@ -695,3 +695,19 @@ never submit a second SELL. Unreadable or mismatched broker truth becomes UNKNOW
 A verified terminal cancellation/rejection releases the card only after any
 partial fill is applied; a full fill marks it sold. Entry fill deadlines and
 other exit policies retain their existing behavior.
+
+## Independent auto-buy retry dispatch
+
+Paper auto-buy has a dedicated one-second dispatcher, started/stopped with API
+lifespan. It reloads awaiting cards and persisted retry deadlines independently
+of scanner/ORB observation; a WAIT price retry remains due in five seconds.
+Queue and in-flight guards deduplicate scanner, dispatcher and UI callers;
+all attempts still enter ExecutionService and its fresh quote, admission, risk,
+RTH and reconciliation gates. Disabled/Live modes enqueue nothing. Restart
+restores due retries from storage; UNKNOWN/APPROVING are never re-approved.
+
+A breached ORB reference stop, expired/invalidated signal or insufficient reward
+is NO_TRADE and discards the card instead of entering operational backoff.
+Independent read-only FRED series, market/sector checks and earnings/news/sector
+inputs may overlap; none is omitted or replaced by historical approval evidence.
+Attempt logs include retry lateness and approval duration to expose regressions.

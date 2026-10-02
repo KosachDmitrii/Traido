@@ -18,6 +18,7 @@ file, and an empty vendor answer is unclassified, never invented.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -99,34 +100,40 @@ async def build_risk_context(
             if pos_sector.note:
                 notes.append(pos_sector.note)
 
-    correlations = None
-    if open_symbols and market_data is None:
-        notes.append("correlation skipped: no market-data port")
-    elif open_symbols and market_data is not None:
-        correlations, corr_note = await _correlations(
-            [symbol, *open_symbols[:MAX_CORRELATION_SYMBOLS]],
-            market_data=market_data,
-            now=now,
-        )
-        if corr_note:
-            notes.append(corr_note)
+    async def read_correlations() -> tuple[CorrelationMatrix | None, str]:
+        if open_symbols and market_data is None:
+            return None, "correlation skipped: no market-data port"
+        if open_symbols and market_data is not None:
+            return await _correlations(
+                [symbol, *open_symbols[:MAX_CORRELATION_SYMBOLS]],
+                market_data=market_data,
+                now=now,
+            )
+        return None, ""
 
     calendar = get_earnings_calendar(finnhub_api_key)
-    earnings = await calendar.get(symbol, now=now)
+
+    async def read_news() -> tuple[NewsCheck, list[str]]:
+        if news is not None:
+            return news, []
+        assessment = await assess_news(symbol, finnhub_api_key)
+        reasons = assessment.reasons[:1] if assessment.status is not NewsCheck.CHECKED else []
+        return assessment.status, reasons
+
+    # Independent read-only facts; every status/provenance still enters risk.
+    earnings, candidate, news_result, correlation_result = await asyncio.gather(
+        calendar.get(symbol, now=now),
+        sectors.resolve(symbol, now=now, asset_class=asset_class),
+        read_news(),
+        read_correlations(),
+    )
+    correlations, correlation_note = correlation_result
+    if correlation_note:
+        notes.append(correlation_note)
+    news, news_notes = news_result
+    notes.extend(news_notes)
     if not earnings.available and earnings.note:
         notes.append(earnings.note)
-    # The status travels with the dates, so the engine can tell "no print
-    # scheduled" from "no calendar". Both arrive here as two None dates.
-
-    # Re-read at approval rather than carried from the scan, for the same
-    # reason the calendar is: a card can wait an hour, and the re-check has to
-    # be at least as strong as the one that drew it. A headline that broke in
-    # the meantime is exactly what this gate is for.
-    if news is None:
-        news_assessment = await assess_news(symbol, finnhub_api_key)
-        news = news_assessment.status
-        if news is not NewsCheck.CHECKED and news_assessment.reasons:
-            notes.append(news_assessment.reasons[0])
 
     unresolved = frozenset() if observation_only else _unresolved_symbols(notes)
     if any("unresolved intents unavailable" in n for n in notes):
@@ -137,7 +144,6 @@ async def build_risk_context(
     # Curated universe.json wins; Finnhub fills names outside the file. Either
     # way `"unknown"` never travels as a sector — that is what let a name skip
     # its real sector's cap.
-    candidate = await sectors.resolve(symbol, now=now, asset_class=asset_class)
     if candidate.note and candidate.status is not SectorCheck.CHECKED:
         notes.append(candidate.note)
 

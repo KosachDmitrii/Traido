@@ -482,14 +482,16 @@ class ExecutionService:
         from agents.market.agent import assess_market
         from trading.sector_assessment import get_sector_assessment_port
 
-        fresh_market = await assess_market(get_settings().fred_api_key, now=evaluated_at)
-        sector = await get_sector_assessment_port().assess(
-            priced.symbol,
-            market_data=self.market_data,
-            now=evaluated_at,
-            asset_class=(
-                ((priced.orb_plan or {}).get("evidence") or {}).get("instrument") or {}
-            ).get("asset_class"),
+        fresh_market, sector = await asyncio.gather(
+            assess_market(get_settings().fred_api_key, now=evaluated_at),
+            get_sector_assessment_port().assess(
+                priced.symbol,
+                market_data=self.market_data,
+                now=evaluated_at,
+                asset_class=(
+                    ((priced.orb_plan or {}).get("evidence") or {}).get("instrument") or {}
+                ).get("asset_class"),
+            ),
         )
         if sector.tradable_long is None or sector.data_status is not DataHealthStatus.HEALTHY:
             from core.metrics import METRICS

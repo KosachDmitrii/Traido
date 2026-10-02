@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
@@ -77,8 +78,17 @@ async def assess_market(
 
     try:
         async with httpx.AsyncClient(timeout=20.0, trust_env=False) as client:
-            dgs_raw = await _fred_latest(client, fred_api_key, "DGS10", fetched_at=evaluated_at)
-            unrate_raw = await _fred_latest(client, fred_api_key, "UNRATE", fetched_at=evaluated_at)
+            readings = await asyncio.gather(
+                _fred_latest(client, fred_api_key, "DGS10", fetched_at=evaluated_at),
+                _fred_latest(client, fred_api_key, "UNRATE", fetched_at=evaluated_at),
+                return_exceptions=True,
+            )
+            # Both reads own this client; finish them before closing it even
+            # when one fails. The original HTTP failure remains fail-closed.
+            for reading in readings:
+                if isinstance(reading, BaseException):
+                    raise reading
+            dgs_raw, unrate_raw = readings
     except httpx.HTTPError as exc:
         # Do not include str(exc): httpx errors contain the FRED URL and key.
         status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
