@@ -396,7 +396,12 @@ async def reconcile_order_intents(
     return rep
 
 
-def _finish_pending_exit_card(intents, intent, found, exit_store) -> None:
+def _finish_pending_exit_card(
+    intents: OrderIntentStorePort,
+    intent: OrderIntent,
+    found: OrderRecord,
+    exit_store: Any,
+) -> None:
     """Release a pending sale only after terminal broker truth and absorbed fills."""
     if exit_store is None or not intent.is_exit or not manual_target_exits():
         return

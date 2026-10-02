@@ -3292,7 +3292,7 @@ class ExecutionService:
                 if (filled.filled_qty or Decimal(0)) > 0:
                     self._apply_exit_to_ledger(
                         intent,
-                        filled_qty=filled.filled_qty,
+                        filled_qty=filled.filled_qty or Decimal(0),
                         exit_price=fill_price(filled),
                         reasons=list(item.proposal.reasons),
                     )
