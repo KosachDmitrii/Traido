@@ -28,5 +28,10 @@ def write(symbol: str, payload: dict[str, Any]) -> None:
 def observations() -> dict[str, dict[str, Any]]:
     with session_factory()() as db:
         return {
-            row.symbol: deepcopy(row.payload) for row in db.scalars(select(SectorClassificationRow))
+            row.symbol: deepcopy(row.payload)
+            for row in db.scalars(
+                select(SectorClassificationRow).where(
+                    SectorClassificationRow.symbol != "__NASDAQ_SECTOR_DIRECTORY__"
+                )
+            )
         }

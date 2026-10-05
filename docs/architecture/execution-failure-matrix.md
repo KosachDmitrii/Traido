@@ -711,3 +711,15 @@ is NO_TRADE and discards the card instead of entering operational backoff.
 Independent read-only FRED series, market/sector checks and earnings/news/sector
 inputs may overlap; none is omitted or replaced by historical approval evidence.
 Attempt logs include retry lateness and approval duration to expose regressions.
+
+### Company-level sector fallback
+
+| Metadata situation | Result before entry |
+|---|---|
+| Finnhub sector absent/ambiguous; fresh Nasdaq exact-symbol sector present | Use explicit Nasdaq sector and existing benchmark/risk checks |
+| Nasdaq outage, absent company, unknown sector or conflicting duplicate | Keep original missing/unavailable classification; no permissive sector |
+| Directory schema invalid/truncated | Reject catalogue; bounded retry and shared cooldown |
+| Persisted directory expired/future/naive/mismatched | Refetch; never reuse it to authorize an entry |
+| Restart with valid directory/symbol evidence | Restore original timestamp and source; no new vendor request |
+
+See [decision and provenance](sector-directory-fallback.md).

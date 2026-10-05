@@ -19,7 +19,7 @@ _task: asyncio.Task[None] | None = None
 
 def offer(data: dict[str, Any]) -> None:
     """Queue metadata early; never delay a scanner/entry pass or change a plan."""
-    if not get_settings().finnhub_api_key:
+    if not get_sector_resolver(get_settings().finnhub_api_key).configured:
         return
     plans = data.get("plans") or {}
     pool = data.get("discovery_pool") or {}

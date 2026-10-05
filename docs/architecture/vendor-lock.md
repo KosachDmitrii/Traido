@@ -4,7 +4,8 @@
 |---|---|
 | Execution, account, positions, fills | Alpaca Paper only |
 | OHLCV and quotes | Alpaca SIP in every environment |
-| News / earnings / sector | Finnhub |
+| News / earnings | Finnhub |
+| Sector metadata | Curated map, Finnhub; Nasdaq company-sector directory fallback |
 | Macro | FRED |
 | LLM | Anthropic Claude |
 | Notifications | Telegram |
@@ -19,3 +20,5 @@ credentials must retain SIP entitlement; the application does not downgrade feed
 Execution URL: `https://paper-api.alpaca.markets` (exact endpoint enforced).
 
 See [Alpaca-only decision and migration](alpaca-only.md).
+
+Sector fallback decision and cache invariants: [company-level directory](sector-directory-fallback.md).

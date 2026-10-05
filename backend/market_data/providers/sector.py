@@ -1,11 +1,11 @@
 """
-Sector classification (curated map + Finnhub profile2).
+Sector classification (curated map + Finnhub + company-level Nasdaq fallback).
 
 `configs/universe.json` is the operator's word and always wins. Names outside
 that file are asked of Finnhub `/stock/profile2`; the industry string is mapped
 onto the same eleven groups the file uses. An empty profile, an unmapped
-industry, a missing key, or a vendor outage is reported as such — never as a
-guessed sector. Inventing a bucket is how a name used to skip its real cap.
+industry, missing key or vendor outage uses an explicit company-sector directory
+fallback. If neither source resolves it, the sector remains missing, never guessed. Inventing a bucket is how a name used to skip its real cap.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from core.concurrency import RateLimiter
 from core.enums import SectorCheck
 from core.universe import ETF_SECTOR, UNKNOWN_SECTOR, Universe, default_universe
 from core.vendor_http import describe_http_error, get_with_retry
+from market_data.providers.nasdaq_sector import NasdaqSectorDirectory, map_sector
 
 FINNHUB_PROFILE_URL = "https://finnhub.io/api/v1/stock/profile2"
 # A sector rarely moves; days is the right unit. A failed read must not share
@@ -29,7 +30,7 @@ CACHE_TTL = timedelta(days=7)
 FAILURE_TTL = timedelta(minutes=2)
 REQUEST_TIMEOUT = 8.0
 logger = logging.getLogger(__name__)
-CLASSIFICATION_REVISION = "sector_resolver@4"
+CLASSIFICATION_REVISION = "sector_resolver@5"
 
 # profile2 returns an industry, which need not be one of the eleven sector names.
 # Exact industry names follow the GICS sector/industry structure:
@@ -145,6 +146,8 @@ class SectorInfo:
     source: str = ""
     note: str = ""
     industry: str | None = None
+    source_sector: str | None = None
+    source_ts: datetime | None = None
 
     @property
     def available(self) -> bool:
@@ -201,7 +204,7 @@ def parse_profile_payload(symbol: str, payload: object) -> SectorInfo:
 
 
 class SectorResolver:
-    """Curated map first, Finnhub for the rest. Safe to share across the process."""
+    """Curated map, exact Finnhub mapping, then company-level Nasdaq evidence."""
 
     def __init__(
         self,
@@ -212,6 +215,7 @@ class SectorResolver:
         failure_ttl: timedelta = FAILURE_TTL,
         transport: httpx.AsyncBaseTransport | None = None,
         persistent: bool = False,
+        directory: NasdaqSectorDirectory | None = None,
     ) -> None:
         self._api_key = api_key
         self._universe = universe if universe is not None else default_universe()
@@ -219,6 +223,7 @@ class SectorResolver:
         self._failure_ttl = failure_ttl
         self._transport = transport
         self._persistent = persistent
+        self._directory = directory
         self._cache: dict[str, _CacheEntry] = {}
         self._locks: dict[str, asyncio.Lock] = {}
         # At most 20 profile attempts/minute, including retries. Leave room
@@ -228,7 +233,7 @@ class SectorResolver:
 
     @property
     def configured(self) -> bool:
-        return bool(self._api_key)
+        return bool(self._api_key or self._directory)
 
     def _from_universe(self, symbol: str) -> SectorInfo | None:
         curated = self._universe.sector_of(symbol)
@@ -284,7 +289,7 @@ class SectorResolver:
         if cached is not None:
             return cached
 
-        if not self._api_key:
+        if not self.configured:
             first = not self._said_unconfigured
             self._said_unconfigured = True
             return SectorInfo(
@@ -310,9 +315,29 @@ class SectorResolver:
                     cached = self._cached(symbol, now)
                     if cached is not None:
                         return cached
-            info = await self._fetch(symbol)
+            info = (
+                await self._fetch(symbol)
+                if self._api_key
+                else SectorInfo(
+                    symbol=symbol,
+                    status=SectorCheck.NOT_CONFIGURED,
+                    note="Finnhub key not configured — sector unclassified",
+                )
+            )
+            if not info.available and self._directory is not None:
+                fallback = await self._directory.lookup(symbol, now=now)
+                if fallback is not None:
+                    info = SectorInfo(
+                        symbol=symbol,
+                        sector=fallback.sector,
+                        status=SectorCheck.CHECKED,
+                        source="nasdaq",
+                        industry=fallback.industry,
+                        source_sector=fallback.source_sector,
+                        source_ts=fallback.fetched_at,
+                    )
             # Production uses completion time, not an earlier request start.
-            fetched_at = datetime.now(UTC) if self._transport is None else now
+            fetched_at = info.source_ts or (datetime.now(UTC) if self._transport is None else now)
             if self._persistent:
                 await asyncio.to_thread(
                     sector_store.write,
@@ -325,6 +350,8 @@ class SectorResolver:
                         "source": info.source,
                         "note": info.note,
                         "industry": info.industry,
+                        "source_sector": info.source_sector,
+                        "symbol": symbol,
                     },
                 )
             self._cache[symbol] = _CacheEntry(info=info, fetched_at=fetched_at)
@@ -338,10 +365,11 @@ class SectorResolver:
                 )
             else:
                 logger.info(
-                    "Sector classification resolved: symbol=%s sector=%s industry=%s version=%s",
+                    "Sector classification resolved: symbol=%s sector=%s industry=%s source=%s version=%s",
                     symbol,
                     info.sector,
                     info.industry,
+                    info.source,
                     CLASSIFICATION_REVISION,
                 )
             return info
@@ -351,22 +379,29 @@ class SectorResolver:
         if not isinstance(raw, dict) or raw.get("version") not in {
             CLASSIFICATION_REVISION,
             "sector_resolver@3",
+            "sector_resolver@4",
         }:
             return None
         try:
             fetched_at = datetime.fromisoformat(raw["fetched_at"])
             status = SectorCheck(raw["status"])
-            # Preserve already-warmed v3 success only if its original industry
-            # reproduces the same sector under v4 below. Older failures must be
-            # retried, since the new aliases may resolve them now.
+            # Retain reproducible v3/v4 success with its original age. Older
+            # failures must retry through the new company-level fallback.
             if raw["version"] != CLASSIFICATION_REVISION and status is not SectorCheck.CHECKED:
                 return None
             sector = raw.get("sector")
-            if fetched_at.tzinfo is None or raw.get("source") != "finnhub":
+            source = raw.get("source")
+            if fetched_at.tzinfo is None or source not in {"finnhub", "nasdaq"}:
                 return None
             if status is SectorCheck.CHECKED and (
                 not isinstance(raw.get("industry"), str)
-                or map_finnhub_industry(raw["industry"]) != sector
+                or (
+                    map_finnhub_industry(raw["industry"])
+                    if source == "finnhub"
+                    else map_sector(raw.get("source_sector"))
+                )
+                != sector
+                or (source == "nasdaq" and raw.get("symbol") != symbol)
                 or sector not in KNOWN_SECTORS
             ):
                 return None
@@ -377,7 +412,9 @@ class SectorResolver:
                     symbol=symbol,
                     sector=sector,
                     status=status,
-                    source="finnhub",
+                    source=source,
+                    source_sector=raw.get("source_sector"),
+                    source_ts=fetched_at if source == "nasdaq" else None,
                     note=raw.get("note", ""),
                     industry=raw.get("industry"),
                 ),
@@ -418,5 +455,7 @@ def get_sector_resolver(api_key: str | None) -> SectorResolver:
     """Process-wide resolver so the multi-day cache is shared across cycles."""
     global _RESOLVER
     if _RESOLVER is None or _RESOLVER._api_key != api_key:
-        _RESOLVER = SectorResolver(api_key, persistent=True)
+        _RESOLVER = SectorResolver(
+            api_key, persistent=True, directory=NasdaqSectorDirectory(persistent=True)
+        )
     return _RESOLVER
