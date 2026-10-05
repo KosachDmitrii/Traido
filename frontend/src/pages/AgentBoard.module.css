@@ -35,3 +35,5 @@
   .updated { justify-content: end; }
 }
 .board :global(.sub) { color: var(--td-text-muted); font-size: 13px; line-height: 1.5; }
+
+.row[data-status="rejected"] .status { background: var(--td-warn-muted, #fff3d6); color: #8b6508; }

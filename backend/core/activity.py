@@ -43,7 +43,7 @@ def bind_activity_audit(audit: Any) -> None:
 class AgentState:
     id: str
     name: str
-    status: str = "idle"  # idle | working | done | error
+    status: str = "idle"  # idle | working | done | rejected | error
     detail: str = ""
     last_symbol: str | None = None
     score: int | float | None = None

@@ -1,3 +1,4 @@
+import { agentDetail } from "@/lib/agentDetail";
 import board from "./AgentBoard.module.css";
 import { useCallback, useId, useState } from "react";
 import { createPortal } from "react-dom";
@@ -141,6 +142,7 @@ const LANES: { id: string; labelKey: MessageKey; agentIds: string[] }[] = [
 function statusLabel(status: string, t: ReturnType<typeof useT>) {
   if (status === "working") return t("agents.status.working");
   if (status === "done") return t("agents.status.done");
+  if (status === "rejected") return t("agents.status.rejected");
   if (status === "error") return t("agents.status.error");
   return t("agents.status.idle");
 }
@@ -183,7 +185,7 @@ function AgentNode({
   };
   const Icon = meta.icon;
   const status = agentDisplayStatus(agent);
-  const detail = agent.detail || agent.last_symbol || t("agents.waiting");
+  const detail = agentDetail(agent, t);
   const fromNames = meta.feedsFrom.map((id) => byId[id]?.name || id);
   const toNames = meta.feedsTo.map((id) => byId[id]?.name || id);
 
@@ -327,7 +329,7 @@ export function AgentsPage() {
                   <span className={board.score}>{formatScore(a, t)}</span>
                   <span className={board.updated}><time title={formatExchangeDateTime(a.updated_at)}>{formatExchangeTime(a.updated_at)}</time><ChevronRight size={14} aria-hidden /></span>
                 </summary>
-                <div className={board.detail}><strong>{t("agents.board.lastResult")}</strong><p>{a.detail || t("agents.waiting")}</p></div>
+                <div className={board.detail}><strong>{t("agents.board.lastResult")}</strong><p>{agentDetail(a, t)}</p></div>
               </details>
             );
           })}

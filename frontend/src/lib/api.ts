@@ -31,6 +31,11 @@ export type AgentState = {
  * exists to prevent.
  */
 export function agentDisplayStatus(agent: AgentState): string {
+  // Older servers called a valid sector veto an error. Recognize only the
+  // explicit policy refusal; missing/stale data and service failures stay errors.
+  if (agent.status === "error" && /SECTOR_BLOCKED/.test(agent.detail)
+      && /SECTOR_REGIME:(bearish|risk_off|high_volatility)/i.test(agent.detail)
+      && !/MISSING|STALE|UNAVAILABLE|INVALID/i.test(agent.detail)) return "rejected";
   if (agent.status === "working") return "working";
   if (agent.status === "done" && agent.active === true) return "working";
   return agent.status || "idle";

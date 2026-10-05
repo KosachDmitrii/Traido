@@ -1,3 +1,4 @@
+import { agentDetail } from "@/lib/agentDetail";
 import { Link } from "react-router-dom";
 import { agentDisplayStatus, type AgentState, type DeskResponse } from "@/lib/api";
 import { WorkingAntsBorder } from "@/components/desk/WorkingAntsBorder";
@@ -10,6 +11,7 @@ function statusLabel(
 ): string {
   if (status === "working") return t("agents.status.working");
   if (status === "done") return t("agents.status.done");
+  if (status === "rejected") return t("agents.status.rejected");
   if (status === "error") return t("agents.status.error");
   return t("agents.status.idle");
 }
@@ -58,7 +60,7 @@ export function AgentsPanel({ desk }: { desk: DeskResponse | null }) {
                 <div className="meta">
                   <strong>{a.name}</strong>
                   <span>
-                    {statusLabel(status, t)} · {a.detail || a.last_symbol || "—"}
+                    {statusLabel(status, t)} · {agentDetail(a, t)}
                   </span>
                 </div>
                 <div className="score">{formatScore(a, t)}</div>

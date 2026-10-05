@@ -723,3 +723,12 @@ Attempt logs include retry lateness and approval duration to expose regressions.
 | Restart with valid directory/symbol evidence | Restore original timestamp and source; no new vendor request |
 
 See [decision and provenance](sector-directory-fallback.md).
+
+### Final-admission policy refusal display
+
+A reproducible NO_TRADE/TERMINAL_REJECT during ORB final admission uses the
+`rejected` checklist status and `no_trade` pipeline count. The persisted refusal,
+reason codes and broker exclusion remain intact. Missing/stale facts and service
+failures keep the error/data_blocked presentation. Both agent views display the
+symbol and localized sector regime reason; legacy explicit sector veto messages
+are presented consistently during staggered frontend/backend rollout.

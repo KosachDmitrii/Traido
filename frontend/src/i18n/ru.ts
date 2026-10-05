@@ -357,6 +357,11 @@ export const ru: Record<MessageKey, string> = {
 
   "agents.status.working": "Работает",
   "agents.status.done": "Готово",
+  "agents.status.rejected": "Покупка отклонена",
+  "agents.reason.sectorBearish": "Нисходящий режим сектора",
+  "agents.reason.sectorRiskOff": "Сектор в режиме снижения риска",
+  "agents.reason.sectorVolatile": "Высокая волатильность сектора",
+  "agents.reason.beforeRisk": "Покупка отклонена до проверки портфеля",
   "agents.status.error": "Ошибка",
   "agents.status.idle": "Простой",
   "agents.score.pass": "OK",

@@ -259,3 +259,60 @@ async def test_runtime_publishes_once_and_skip_needs_a_new_pattern(monkeypatch):
     assert not saved["plans"][plan.symbol]["evidence"].get("retest")
     assert OPPORTUNITIES.get(oid).status == OpportunityStatus.SKIPPED
     _cache.clear()
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("capital_path_ready")
+@pytest.mark.parametrize(
+    "reason,status,agent_status",
+    [
+        ("SECTOR_BLOCKED,SECTOR_REGIME:bearish", "no_trade", "rejected"),
+        ("SECTOR_ASSESSMENT_MISSING", "data_blocked", "error"),
+        ("SECTOR_BLOCKED,SECTOR_ASSESSMENT_MISSING", "data_blocked", "error"),
+    ],
+)
+async def test_final_policy_refusal_is_not_a_data_failure(
+    monkeypatch, reason, status, agent_status
+):
+    from datetime import datetime
+    from unittest.mock import AsyncMock
+
+    from core.activity import BOARD
+    from core.config import get_settings
+    from strategy.orb import runtime
+    from strategy.orb.retest_data import _cache
+    from strategy.orb.store import read_session
+    from trading.final_pretrade import PretradeRejection
+    from trading.scan_context import ScanContext
+
+    plan, rows = current_plan()
+
+    class Frozen(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return RTH_INSTANT.astimezone(tz) if tz else RTH_INSTANT.replace(tzinfo=None)
+
+    monkeypatch.setattr(runtime, "datetime", Frozen)
+    reject = AsyncMock(side_effect=PretradeRejection(reason))
+    monkeypatch.setattr("trading.final_admission.build_and_evaluate_final_admission", reject)
+    publish = AsyncMock()
+    monkeypatch.setattr("strategy.orb.publication.publish_orb", publish)
+    market = RetestMarket(plan, rows)
+    market._now = lambda: RTH_INSTANT
+    broker = MockPaperBroker()
+    _cache.clear()
+    result = await runtime.evaluate_symbol(
+        plan.symbol, ScanContext(settings=get_settings(), broker=broker, market_data=market)
+    )
+    assert result.status == status
+    assert result.opportunity is None
+    assert reject.await_count == 1
+    publish.assert_not_called()
+    assert broker.orders == []
+    checklist = next(a for a in BOARD.snapshot()["agents"] if a["id"] == "checklist")
+    assert checklist["status"] == agent_status
+    assert checklist["last_symbol"] == plan.symbol
+    saved = read_session(plan.session)
+    assert saved["states"][plan.symbol]["last_block"]["reasons"] == [reason]
+    assert "opportunity_id" not in saved["states"][plan.symbol]
+    _cache.clear()

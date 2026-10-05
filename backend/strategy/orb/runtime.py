@@ -688,7 +688,23 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         logger.warning(
             "ORB admission blocked: symbol=%s stage=final_admission reason=%s", symbol, exc
         )
-        BOARD.set_agent("checklist", status="error", detail=str(exc), symbol=symbol)
+        from trading.outcome_taxonomy import OutcomeClass, classify_exception_text
+
+        outcome = classify_exception_text(str(exc))
+        rejected = outcome in {OutcomeClass.NO_TRADE, OutcomeClass.TERMINAL_REJECT}
+        BOARD.set_agent(
+            "checklist",
+            status="rejected" if rejected else "error",
+            detail=str(exc),
+            symbol=symbol,
+        )
+        if rejected:
+            BOARD.set_agent(
+                "risk",
+                status="idle",
+                detail="Entry rejected before portfolio risk",
+                symbol=symbol,
+            )
         await asyncio.to_thread(
             update_state,
             plan.session,
@@ -705,7 +721,11 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             },
         )
         return result.model_copy(
-            update={"candidate": candidate, "status": "data_blocked", "errors": [str(exc)]}
+            update={
+                "candidate": candidate,
+                "status": "no_trade" if rejected else "data_blocked",
+                "errors": [str(exc)],
+            }
         )
     BOARD.set_agent("checklist", status="done", detail="Final admission passed", symbol=symbol)
     BOARD.set_agent("risk", status="working", detail="Evaluating portfolio risk", symbol=symbol)

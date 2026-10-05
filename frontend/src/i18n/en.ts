@@ -353,6 +353,11 @@ export const en = {
 
   "agents.status.working": "Working",
   "agents.status.done": "Done",
+  "agents.status.rejected": "Buy declined",
+  "agents.reason.sectorBearish": "Bearish sector regime",
+  "agents.reason.sectorRiskOff": "Sector is in risk-off mode",
+  "agents.reason.sectorVolatile": "High sector volatility",
+  "agents.reason.beforeRisk": "Entry declined before portfolio risk",
   "agents.status.error": "Error",
   "agents.status.idle": "Idle",
   "agents.score.pass": "OK",

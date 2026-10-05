@@ -3196,3 +3196,10 @@ h1, h2, h3, p {
   .topbar__left { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
   .mobile-nav__trigger { display: flex; }
 }
+
+/* A policy veto is a completed decision, distinct from a service error. */
+.agent .dot.rejected { background: var(--td-accent); }
+.ag-tip__badge--rejected, .ag-row__pill--rejected {
+  background: var(--td-warn-muted, #fff3d6);
+  color: #8b6508;
+}
