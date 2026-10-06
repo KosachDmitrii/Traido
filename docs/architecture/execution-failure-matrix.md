@@ -732,3 +732,18 @@ reason codes and broker exclusion remain intact. Missing/stale facts and service
 failures keep the error/data_blocked presentation. Both agent views display the
 symbol and localized sector regime reason; legacy explicit sector veto messages
 are presented consistently during staggered frontend/backend rollout.
+
+## Entry data recovery and polling
+
+- Approval reads independent risk context and liquidity bars concurrently, and loads
+  macro/sector context before requesting the executable quote. ORB admission uses
+  bid/ask directly and does not wait for the optional last-trade endpoint. Quote
+  freshness is still checked at approval and immediately before broker submission.
+- If approval finds incomplete saved M5 history, it requests the session from
+  the plan boundary with the existing 12-second read deadline. Failed or invalid
+  responses remain blocked; no missing candles are synthesized. Cached observer
+  reads still refuse gaps until provider coverage is established.
+- An unreachable read of an acknowledged order retries the same order ID within
+  the existing fill deadline; each read is bounded by its remaining time. No new
+  order is submitted. Deadline expiry still
+  invokes cancel/re-read settlement; unresolved broker truth remains UNKNOWN.

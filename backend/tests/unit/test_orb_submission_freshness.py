@@ -134,3 +134,76 @@ async def test_changed_quote_after_approval_checked_at_broker_boundary(mode):
         assert broker.orders == []
         assert intents.list_by_key_prefix("entry:")[0].status.value == "rejected"
     assert any(e["event_type"] == "EntrySubmissionPriceChecked" for e in audit.events)
+
+
+async def test_orb_approval_does_not_wait_for_optional_last_trade():
+    broker, store, opp = await _setup()
+    market = _Bars(volume=5_000_000)
+    calls = []
+
+    async def slow_last(symbol):
+        calls.append(symbol)
+        raise AssertionError("ORB must not request optional last trade")
+
+    market.get_last_price = slow_last
+    service = ExecutionService(
+        broker=broker,
+        store=store,
+        audit=InMemoryAudit(),
+        intents=MemoryOrderIntentStore(),
+        exit_store=MemoryExitStore(),
+        market_data=market,
+        clock=lambda: SESSION,
+    )
+    result = await service.decide(
+        opp.id,
+        UserDecision.APPROVE,
+        request_id=uuid4(),
+        expected_decision_version=opp.decision_version,
+    )
+    assert result.status.value == "executed"
+    assert calls == []
+    assert broker.orders
+
+
+async def test_independent_approval_context_reads_overlap():
+    import asyncio
+
+    broker, store, opp = await _setup()
+    service = ExecutionService(
+        broker=broker,
+        store=store,
+        audit=InMemoryAudit(),
+        intents=MemoryOrderIntentStore(),
+        exit_store=MemoryExitStore(),
+        market_data=_Bars(volume=5_000_000),
+        clock=lambda: SESSION,
+    )
+    gates_started = asyncio.Event()
+    context_started = asyncio.Event()
+    original_context = service._risk_context
+    original_gates = service._pre_trade_gates
+
+    async def context(candidate):
+        context_started.set()
+        await gates_started.wait()
+        return await original_context(candidate)
+
+    async def gates(opportunity):
+        gates_started.set()
+        await context_started.wait()
+        return await original_gates(opportunity)
+
+    service._risk_context = context
+    service._pre_trade_gates = gates
+    result = await asyncio.wait_for(
+        service.decide(
+            opp.id,
+            UserDecision.APPROVE,
+            request_id=uuid4(),
+            expected_decision_version=opp.decision_version,
+        ),
+        timeout=2,
+    )
+    assert result.status.value == "executed"
+    assert broker.orders
