@@ -19,6 +19,7 @@ COPY broker ./broker
 COPY core ./core
 COPY database ./database
 COPY market_data ./market_data
+COPY monitoring ./monitoring
 COPY notifications ./notifications
 COPY quant ./quant
 COPY risk ./risk

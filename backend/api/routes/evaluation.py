@@ -28,6 +28,15 @@ router = APIRouter(prefix="/api/v1", tags=["evaluation"])
 MAX_BATCH = 10
 
 
+@router.get("/diagnostics/forward-monitoring")
+async def forward_monitoring() -> dict:
+    """Saved observer report only. Never runs reconciliation or trading."""
+    from monitoring.loop import status
+    from monitoring.service import saved_report
+
+    return {**await asyncio.to_thread(saved_report), "observer": status()}
+
+
 @router.get("/diagnostics/sectors")
 async def sector_metadata_diagnostics() -> dict:
     """Saved metadata coverage and unresolved vendor labels; no live reads/orders."""

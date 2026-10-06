@@ -13,6 +13,7 @@ from database.models.desk import (
 )
 from database.models.journal import BacktestRunRow, TradeJournalRow
 from database.models.market_bars import MarketBarRow
+from database.models.monitoring import MonitoringReportRow, MonitoringSampleRow
 from database.models.orb import OrbDecisionEventRow, OrbSessionRow
 from database.models.positions import OpenPositionRow
 from database.models.risk_period import RiskPeriodRow
@@ -30,6 +31,8 @@ __all__ = [
     "ExitOpportunityRow",
     "ExternalPositionIncidentRow",
     "MarketBarRow",
+    "MonitoringReportRow",
+    "MonitoringSampleRow",
     "OpenPositionRow",
     "OpportunityRow",
     "OrbDecisionEventRow",

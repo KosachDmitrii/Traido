@@ -1047,3 +1047,27 @@ export async function fetchStrategyPassport(signal?: AbortSignal): Promise<Strat
   if (!response.ok) throw new Error("strategy_passport_unavailable");
   return response.json();
 }
+
+export type ForwardMonitoring = {
+  available: boolean;
+  stale: boolean;
+  observer: { running: boolean; last_error: string | null; last_success_at: string | null };
+  generated_at?: string;
+  complete_sessions?: number;
+  cohort_started_at?: string | null;
+  technical_status?: string;
+  budget_status?: string;
+  strategy_status?: string;
+  budget_checks?: Record<string, number>;
+  sampled_account_drawdown_pct?: number | null;
+  account?: { equity: string; day_pnl: string } | null;
+  open_positions?: Array<{ symbol: string; qty: string; strategy_version: string }>;
+  strategies?: Array<{ strategy_version: string; closed_trades: number; gross_closed_pnl: string; expectancy_before_costs: string | null }>;
+  daily?: Array<{ session: string; complete: boolean; technical_status: string; closed_trades: number; unverified_trades: number; gross_closed_pnl: string; proposals: number; entry_intents: number }>;
+  funnel?: Array<{ stage: string; outcome: string; reason: string; count: number }>;
+};
+export async function fetchForwardMonitoring(signal?: AbortSignal): Promise<ForwardMonitoring> {
+  const res = await fetch(apiUrl("/api/v1/diagnostics/forward-monitoring"), { headers: apiHeaders(), signal });
+  if (!res.ok) throw new Error("forward_monitoring_unavailable");
+  return res.json();
+}

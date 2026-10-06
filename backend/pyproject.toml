@@ -42,6 +42,7 @@ packages = [
   "core",
   "database",
   "market_data",
+  "monitoring",
   "notifications",
   "quant",
   "risk",

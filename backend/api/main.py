@@ -142,7 +142,11 @@ async def lifespan(_app: FastAPI):
     from market_data import alpaca_stream
 
     alpaca_stream.start()
+    from monitoring import loop as monitoring_loop
+
+    monitoring_loop.start()
     yield
+    await monitoring_loop.stop()
     await stop_auto_trigger_dispatcher()
     await alpaca_stream.stop()
     await sector_preflight.stop()

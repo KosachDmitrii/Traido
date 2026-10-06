@@ -747,3 +747,12 @@ are presented consistently during staggered frontend/backend rollout.
   the existing fill deadline; each read is bounded by its remaining time. No new
   order is submitted. Deadline expiry still
   invokes cancel/re-read settlement; unresolved broker truth remains UNKNOWN.
+
+## Independent forward observer
+
+| Condition | Observation behaviour | Trading behaviour |
+|---|---|---|
+| Observer DB read/write fails | Record exception class, retry next minute; stale report is visible | Existing execution/reconciliation continues unchanged |
+| Missing fees, cash-flow or valuation evidence | Net profitability remains `insufficient_data` | No trading gate, sizing or exit is changed |
+| Missing RTH samples / changed policy | Mark coverage incomplete / start a new forward cohort | No trading state is modified |
+| Observer shutdown during a tick | Drain its database work, then stop | Never submit, cancel or close an order |
