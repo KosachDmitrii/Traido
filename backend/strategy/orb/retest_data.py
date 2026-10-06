@@ -272,12 +272,6 @@ async def read_bars(
         await asyncio.to_thread(save_bars, plan.source, plan.symbol, result)
         _coverage[key] = end
         return result
-    if (
-        not covered
-        and first_gap(plan, rows, end) < end
-        and end - plan.range_end > timedelta(minutes=30)
-    ):
-        raise ValueError("ORB_RETEST_HISTORY_GAP")
     start = (
         max(plan.range_end, end - timedelta(minutes=10))
         if covered or (rows and first_gap(plan, rows, end) == end)
@@ -291,10 +285,11 @@ async def read_bars(
         if end > start
         else []
     )
-    if any(not start <= b.ts < end for b in fresh):
+    if any(not start <= b.ts < end for b in fresh) or len({b.ts for b in fresh}) != len(fresh):
         raise ValueError("ORB_RETEST_DATA_INVALID")
     await asyncio.to_thread(save_bars, plan.source, plan.symbol, fresh)
     _coverage[key] = end
+    _failures.pop(key, None)
     # Missing rows in a fresh response cannot be replaced by stale cached rows.
     return [b for b in rows if b.ts < start] + fresh
 

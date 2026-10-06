@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from decimal import Decimal
 
+from broker.interface import BrokerUnreachable
 from core.enums import OrderStatus
 from core.ports import BrokerPort
 from core.schemas import OrderRecord
@@ -24,7 +25,15 @@ async def wait_for_fill(
     deadline = asyncio.get_event_loop().time() + timeout_sec
     last: OrderRecord | None = None
     while asyncio.get_event_loop().time() < deadline:
-        last = await broker.get_order(broker_order_id)
+        try:
+            last = await asyncio.wait_for(
+                broker.get_order(broker_order_id),
+                timeout=max(0.0, deadline - asyncio.get_event_loop().time()),
+            )
+        except (BrokerUnreachable, TimeoutError):
+            # Retry only the read of this acknowledged order. Never resubmit.
+            await asyncio.sleep(min(poll_sec, max(0.0, deadline - asyncio.get_event_loop().time())))
+            continue
         if last.status in TERMINAL_OK:
             if last.filled_avg_price is None or last.filled_avg_price <= 0:
                 # Some brokers omit avg on instant fill — fall back to limit/stop
@@ -41,7 +50,7 @@ async def wait_for_fill(
             return last
         if last.status in TERMINAL_BAD:
             raise RuntimeError(f"ORDER_{last.status.value.upper()}:{broker_order_id}")
-        await asyncio.sleep(poll_sec)
+        await asyncio.sleep(min(poll_sec, max(0.0, deadline - asyncio.get_event_loop().time())))
     raise RuntimeError(f"FILL_TIMEOUT:{broker_order_id}")
 
 
