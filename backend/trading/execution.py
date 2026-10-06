@@ -431,9 +431,9 @@ class ExecutionService:
             )
             raise DataBlockedError("PORTFOLIO_STATE_UNAVAILABLE") from exc
         portfolio = portfolio.model_copy(update={"kill_switch": is_kill_switch_on()})
-        (context, context_notes), (gate, bars) = await asyncio.gather(
-            self._risk_context(opp.candidate), self._pre_trade_gates(opp)
-        )
+        context, context_notes = await self._risk_context(opp.candidate)
+
+        gate, bars = await self._pre_trade_gates(opp)
         if gate is not None:
             await self.audit.append(
                 "RTHGateRejected" if gate.gate == "rth" else "LiquidityGateRejected",
@@ -443,49 +443,12 @@ class ExecutionService:
             )
             raise RuntimeError(f"{gate.gate.upper()}_GATE_REJECTED:{','.join(gate.reasons)}")
 
-        if self.market_data is None:
-            raise RuntimeError("LIQUIDITY_GATE_REJECTED:MARKET_DATA_NOT_CONFIGURED")
-
-        context_at = self._clock()
-        from agents.market.agent import assess_market
-        from trading.sector_assessment import get_sector_assessment_port
-
-        fresh_market, sector = await asyncio.gather(
-            assess_market(get_settings().fred_api_key, now=context_at),
-            get_sector_assessment_port().assess(
-                opp.candidate.symbol,
-                market_data=self.market_data,
-                now=context_at,
-                asset_class=(
-                    ((opp.candidate.orb_plan or {}).get("evidence") or {}).get("instrument") or {}
-                ).get("asset_class"),
-            ),
-        )
-        if sector.tradable_long is None or sector.data_status is not DataHealthStatus.HEALTHY:
-            from core.metrics import METRICS
-            from trading.approval_errors import DataBlockedError
-
-            METRICS.counter(
-                "sector_data_blocked",
-                help_text="APPROVE blocked: sector assessment missing or stale",
-            )
-            raise DataBlockedError(",".join(sector.reason_codes) or "SECTOR_ASSESSMENT_MISSING")
-        if sector.tradable_long is False:
-            from core.metrics import METRICS
-            from trading.approval_errors import NoTradeError
-
-            METRICS.counter(
-                "sector_blocked",
-                help_text="APPROVE blocked: sector benchmark regime not tradable",
-            )
-            raise NoTradeError(",".join(sector.reason_codes) or "SECTOR_BLOCKED")
-
         # Only now is there a price. The card's `entry` is the strategy's
         # pullback level and sits at or below the last close, so as a limit it
         # rests below the market and the fill window closes on it untouched.
         # Pricing the order against the live offer is what makes an approval an
         # entry rather than an eighteen-second wait.
-        quote, spread, tape_last = await self._top_of_book(opp.candidate.symbol, include_last=False)
+        quote, spread, tape_last = await self._top_of_book(opp.candidate.symbol)
         priced, pricing = self._priced_for_execution(opp.candidate, quote, spread)
         if priced is None:
             await self.audit.append(
@@ -512,7 +475,42 @@ class ExecutionService:
             )
             raise RuntimeError("BUY_REJECTED_STALE_DATA:QUOTE_REQUIRED")
 
+        if self.market_data is None:
+            raise RuntimeError("LIQUIDITY_GATE_REJECTED:MARKET_DATA_NOT_CONFIGURED")
+
         evaluated_at = self._clock()
+        from agents.market.agent import assess_market
+        from trading.sector_assessment import get_sector_assessment_port
+
+        fresh_market, sector = await asyncio.gather(
+            assess_market(get_settings().fred_api_key, now=evaluated_at),
+            get_sector_assessment_port().assess(
+                priced.symbol,
+                market_data=self.market_data,
+                now=evaluated_at,
+                asset_class=(
+                    ((priced.orb_plan or {}).get("evidence") or {}).get("instrument") or {}
+                ).get("asset_class"),
+            ),
+        )
+        if sector.tradable_long is None or sector.data_status is not DataHealthStatus.HEALTHY:
+            from core.metrics import METRICS
+            from trading.approval_errors import DataBlockedError
+
+            METRICS.counter(
+                "sector_data_blocked",
+                help_text="APPROVE blocked: sector assessment missing or stale",
+            )
+            raise DataBlockedError(",".join(sector.reason_codes) or "SECTOR_ASSESSMENT_MISSING")
+        if sector.tradable_long is False:
+            from core.metrics import METRICS
+            from trading.approval_errors import NoTradeError
+
+            METRICS.counter(
+                "sector_blocked",
+                help_text="APPROVE blocked: sector benchmark regime not tradable",
+            )
+            raise NoTradeError(",".join(sector.reason_codes) or "SECTOR_BLOCKED")
         try:
             final_eval = await build_and_evaluate_final_admission(
                 priced,
@@ -726,7 +724,7 @@ class ExecutionService:
         }:
             from strategy.orb import OrbPlan, evaluate_trigger
 
-            quote, spread, tape_last = await self._top_of_book(priced.symbol, include_last=False)
+            quote, spread, tape_last = await self._top_of_book(priced.symbol)
             evaluated_at = self._clock()
             decision_now = evaluate_trigger(
                 OrbPlan.model_validate(priced.orb_plan),
@@ -1299,9 +1297,7 @@ class ExecutionService:
         )
         return repriced, GateResult(gate="liquidity", passed=True, reasons=(), measured=measured)
 
-    async def _top_of_book(
-        self, symbol: str, *, include_last: bool = True
-    ) -> tuple[Quote | None, SpreadReading, float | None]:
+    async def _top_of_book(self, symbol: str) -> tuple[Quote | None, SpreadReading, float | None]:
         """One read of the book, used to price the order and to judge the spread.
 
         Read twice, the order could be priced off one snapshot and cleared by a
@@ -1316,7 +1312,7 @@ class ExecutionService:
             return None, SPREAD_UNAVAILABLE, None
         last_price: float | None = None
         get_last = getattr(self.quotes, "get_last_price", None)
-        if include_last and get_last is not None:
+        if get_last is not None:
             try:
                 last_price = float(await get_last(symbol))
             except Exception:  # noqa: BLE001 — optional last-trade feed must not block spread
@@ -1642,9 +1638,7 @@ class ExecutionService:
                 ):
                     raise ValueError("ORB_GEOMETRY_CHANGED")
                 # Approval is historical evidence, not the latest executable quote.
-                fresh_quote, fresh_spread, _ = await self._top_of_book(
-                    intent.symbol, include_last=False
-                )
+                fresh_quote, fresh_spread, _ = await self._top_of_book(intent.symbol)
                 fresh_check = evaluate_trigger(
                     plan, fresh_quote, now=self._clock(), limit_price=intent.limit_price
                 )

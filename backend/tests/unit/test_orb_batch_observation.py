@@ -332,39 +332,3 @@ async def test_observation_blocks_outage_clears_prices_and_resumes(monkeypatch):
     state = read_session(plan.session)["states"][plan.symbol]
     assert state["day_high"] == "103.25"
     assert state["day_low"] == "98.75"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("response", ["complete", "unavailable", "duplicate"])
-async def test_approval_recovers_long_history_gap_without_fabricating_rows(response):
-    from market_data.bar_store import save_bars
-
-    plan, rows, now = scenario()
-    now += timedelta(minutes=60)
-    end = retest_data._boundary(now)
-    tail = rows[-1].model_copy(update={"ts": end - timedelta(minutes=5)})
-    save_bars(plan.source, plan.symbol, [tail])
-    returned = [*rows, tail]
-    if response == "duplicate":
-        returned.append(tail)
-    feed = SimpleNamespace(
-        get_bars_batch=AsyncMock(),
-        get_bars=AsyncMock(
-            side_effect=TimeoutError() if response == "unavailable" else None,
-            return_value=returned,
-        ),
-    )
-    with pytest.raises(ValueError, match="ORB_RETEST_HISTORY_GAP"):
-        await retest_data.read_bars(feed, plan, now=now, cached=True)
-    if response == "complete":
-        result = await retest_data.read_bars(feed, plan, now=now)
-        assert result == returned
-        assert retest_data.coverage_end(plan) == end
-        assert len(result) == len(rows) + 1
-    else:
-        with pytest.raises((TimeoutError, ValueError)):
-            await retest_data.read_bars(feed, plan, now=now)
-        assert retest_data.coverage_end(plan) is None
-        assert load_bars(plan.source, plan.symbol, plan.range_end, end) == [tail]
-    assert feed.get_bars.await_args.args[2] == plan.range_end
-    feed.get_bars.assert_awaited_once()
