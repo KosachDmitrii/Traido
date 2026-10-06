@@ -31,7 +31,8 @@ risk-engine defaults, parameters, exit policy, broker environment and feed defin
 a contiguous forward cohort. Changes restart cohort counting. Versions are
 reported separately. Backtests, legacy strategy trades, unknown P&L, missing
 entry timestamps and entries before the observed cohort are excluded from
-cohort performance. Historical daily results are a separate view and are not
+cohort performance. Historical daily journal results include all Paper strategy versions; a day without
+trades and complete observation has no asserted zero P&L. They are a separate view and are not
 proof of the new cohort. Funnel counters include repeat evaluations, not unique
 signals. Proposal/intent status counts count durable rows instead.
 

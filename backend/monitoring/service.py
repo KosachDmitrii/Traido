@@ -246,7 +246,6 @@ def build_report(*, engine: Engine | None = None, now: datetime | None = None) -
             db.query(TradeJournalRow)
             .filter(
                 TradeJournalRow.backtest_run_id.is_(None),
-                TradeJournalRow.strategy_version.in_([VERSION, INTRADAY_VERSION]),
                 TradeJournalRow.closed_at >= start,
                 TradeJournalRow.closed_at <= now,
             )
@@ -327,7 +326,9 @@ def build_report(*, engine: Engine | None = None, now: datetime | None = None) -
                         sum((r.pnl for r in day_trades if r.pnl is not None), Decimal(0))
                     )
                     if day_trades
-                    else "0",
+                    else "0"
+                    if coverage["complete"]
+                    else None,
                     "entry_intents": len(day_entries),
                     "proposals": len(day_proposals),
                     "proposal_statuses": dict(Counter(r.status for r in day_proposals)),

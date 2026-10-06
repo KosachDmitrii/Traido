@@ -1063,7 +1063,7 @@ export type ForwardMonitoring = {
   account?: { equity: string; day_pnl: string } | null;
   open_positions?: Array<{ symbol: string; qty: string; strategy_version: string }>;
   strategies?: Array<{ strategy_version: string; closed_trades: number; gross_closed_pnl: string; expectancy_before_costs: string | null }>;
-  daily?: Array<{ session: string; complete: boolean; technical_status: string; closed_trades: number; unverified_trades: number; gross_closed_pnl: string; proposals: number; entry_intents: number }>;
+  daily?: Array<{ session: string; complete: boolean; technical_status: string; closed_trades: number; unverified_trades: number; gross_closed_pnl: string | null; proposals: number; entry_intents: number }>;
   funnel?: Array<{ stage: string; outcome: string; reason: string; count: number }>;
 };
 export async function fetchForwardMonitoring(signal?: AbortSignal): Promise<ForwardMonitoring> {

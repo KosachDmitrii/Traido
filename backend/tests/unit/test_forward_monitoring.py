@@ -289,3 +289,36 @@ async def test_shutdown_drains_inflight_tick(monkeypatch):
     with pytest.raises(asyncio.CancelledError):
         await task
     assert finished.is_set()
+
+
+def test_daily_history_keeps_legacy_losses_and_unknown_days(engine):
+    start = datetime(2026, 10, 5, 9, 30, tzinfo=ET)
+    h, _ = service.policy_identity()
+    with session_factory(engine)() as db:
+        db.add(
+            MonitoringSampleRow(
+                minute=start,
+                session="2026-10-05",
+                policy_hash=h,
+                payload={"problems": [], "account": None},
+            )
+        )
+        for version, pnl in [("legacy@1", -20), (VERSION, 3)]:
+            db.add(
+                TradeJournalRow(
+                    symbol="TEST",
+                    entry=20,
+                    exit=21,
+                    qty=1,
+                    pnl=pnl,
+                    strategy_version=version,
+                    opened_at=start,
+                    closed_at=start + timedelta(hours=1),
+                )
+            )
+        db.commit()
+    report = build_report(engine=engine, now=NOW)
+    day = report["daily"][-2]
+    assert day["closed_trades"] == 2 and day["gross_closed_pnl"] == "-17.0000"
+    assert report["strategies"][0]["gross_closed_pnl"] == "3.0000"
+    assert report["daily"][-1]["gross_closed_pnl"] is None
