@@ -6,6 +6,7 @@ relative volume. It seeds a NEW breakout/retest, never an immediate BUY.
 
 import asyncio
 import logging
+import time as monotonic_clock
 from collections import Counter
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
@@ -24,30 +25,60 @@ from universe.models import UniverseTier
 
 logger = logging.getLogger(__name__)
 _lock = asyncio.Lock()
+_task: asyncio.Task[None] | None = None
+_heartbeat: float | None = None
+
+
+def pending_windows(saved: dict[str, Any], latest: datetime) -> list[datetime]:
+    """Current window first, then one oldest gap; bounded to this RTH session."""
+    completed = set(saved.get("intraday_completed_ranges", []))
+    previous = saved.get("intraday_discovery") or {}
+    if previous.get("status") == "ready":
+        completed.add(previous["range_end"])
+    end = datetime.combine(latest.date(), time(9, 40), ET)
+    pending = []
+    while end <= latest and end.time() < session_close(latest.date()):
+        if end.isoformat() not in completed:
+            pending.append(end)
+        end += timedelta(minutes=5)
+    if latest in pending:
+        pending.remove(latest)
+        pending.insert(0, latest)
+    return pending
 
 
 async def refresh(ctx: Any, universe: Any, *, now: datetime | None = None) -> dict[str, Any] | None:
-    now = now or datetime.now(UTC)
-    if get_settings().broker_env is not BrokerEnvironment.PAPER or not us_equity_rth_open(now):
+    fixed_now = now
+    if get_settings().broker_env is not BrokerEnvironment.PAPER or not us_equity_rth_open(
+        now or datetime.now(UTC)
+    ):
         return None
-    local = now.astimezone(ET)
-    end = local.replace(minute=local.minute - local.minute % 5, second=0, microsecond=0)
-    start = end - timedelta(minutes=5)
-    # Keep the opening strategy and leave time for breakout/retest/confirmation.
-    if start.time() <= time(9, 30) or end.time() >= session_close(local.date()):
-        return None
-    day = str(local.date())
     async with _lock:
+        # Re-read the clock after a competing refresh, rather than scanning a
+        # stale "latest" window captured before waiting for the lock.
+        now = fixed_now or datetime.now(UTC)
+        if not us_equity_rth_open(now):
+            return None
+        local = now.astimezone(ET)
+        end = local.replace(minute=local.minute - local.minute % 5, second=0, microsecond=0)
+        start = end - timedelta(minutes=5)
+        # Keep the opening strategy and leave time for breakout/retest/confirmation.
+        if start.time() <= time(9, 30) or end.time() >= session_close(local.date()):
+            return None
+        day = str(local.date())
         saved = await asyncio.to_thread(read_session, day)
         if saved is None or saved.get("status") != "ready":
             return None
         previous = saved.get("intraday_discovery") or {}
-        if previous.get("range_end") == end.isoformat():
-            if previous.get("status") == "ready":
-                return saved
+        if previous.get("status") == "data_blocked":
             attempted = datetime.fromisoformat(previous["evaluated_at"])
             if now < attempted + timedelta(seconds=30):
                 return saved
+        pending = pending_windows(saved, end)
+        if not pending:
+            return saved
+        end = pending[0]
+        start = end - timedelta(minutes=5)
         diagnostics: dict[str, Any] = {
             "version": INTRADAY_VERSION,
             "range_start": start.isoformat(),
@@ -55,7 +86,10 @@ async def refresh(ctx: Any, universe: Any, *, now: datetime | None = None) -> di
             "evaluated_at": now.isoformat(),
             "status": "loading",
             "rejections": {},
+            "pending_windows": len(pending),
+            "window_lag_seconds": (local - end).total_seconds(),
         }
+        started = monotonic_clock.monotonic()
         try:
             feed = ctx.market_data
             if getattr(feed, "_feed", None) != "sip" or not callable(
@@ -113,10 +147,27 @@ async def refresh(ctx: Any, universe: Any, *, now: datetime | None = None) -> di
                 )
             ]
             diagnostics["checked"] = len(symbols)
+
+            async def load_window(wanted, window_start, window_end):
+                # Bound each batch, not the whole universe. A market-wide
+                # deadline would reject healthy large scans on account pacing.
+                rows = {}
+                for offset in range(0, len(wanted), 100):
+                    rows.update(
+                        await asyncio.wait_for(
+                            feed.get_bars_batch(
+                                wanted[offset : offset + 100],
+                                window_start,
+                                window_end,
+                                Timeframe.M5,
+                            ),
+                            timeout=60,
+                        )
+                    )
+                return rows
+
             today = (
-                await feed.get_bars_batch(
-                    symbols, start, end - timedelta(microseconds=1), Timeframe.M5
-                )
+                await load_window(symbols, start, end - timedelta(microseconds=1))
                 if symbols
                 else {}
             )
@@ -142,20 +193,28 @@ async def refresh(ctx: Any, universe: Any, *, now: datetime | None = None) -> di
             async def historical_window(d):
                 t = datetime.combine(d, start.time(), ET)
                 async with semaphore:
-                    return await feed.get_bars_batch(
+                    return await load_window(
                         candidates,
                         t,
                         t + timedelta(minutes=5) - timedelta(microseconds=1),
-                        Timeframe.M5,
                     )
 
             # Share the adapter's account quota, but overlap network latency.
             # Two bounded readers leave entry/watch requests their normal path.
-            responses = (
-                await asyncio.gather(*(historical_window(d) for d in _previous_sessions(now, 14)))
+            tasks = [
+                asyncio.create_task(historical_window(d))
+                for d in _previous_sessions(now, 14)
                 if candidates
-                else []
-            )
+            ]
+            try:
+                responses = await asyncio.gather(*tasks)
+            finally:
+                # gather propagates the first failure without cancelling its
+                # siblings. Drain them before releasing the discovery lock.
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
             for response in responses:
                 for symbol in candidates:
                     windows[symbol].extend(response.get(symbol, []))
@@ -177,6 +236,7 @@ async def refresh(ctx: Any, universe: Any, *, now: datetime | None = None) -> di
                 plans[symbol] = plan
             diagnostics.update(
                 status="ready",
+                elapsed_seconds=round(monotonic_clock.monotonic() - started, 3),
                 rejections=rejected,
                 rejection_counts=dict(Counter(r for rs in rejected.values() for r in rs)),
             )
@@ -184,12 +244,16 @@ async def refresh(ctx: Any, universe: Any, *, now: datetime | None = None) -> di
                 merge_intraday_discovery, day, plans=plans, diagnostics=diagnostics
             )
             logger.info(
-                "ORB intraday discovery: session=%s range=%s checked=%s added=%s reasons=%s",
+                "ORB intraday discovery: session=%s range=%s checked=%s added=%s reasons=%s "
+                "elapsed_seconds=%s window_lag_seconds=%s pending_windows=%s",
                 day,
                 start.isoformat(),
                 len(symbols),
                 result["intraday_discovery"]["added"],
                 diagnostics["rejection_counts"],
+                diagnostics["elapsed_seconds"],
+                diagnostics["window_lag_seconds"],
+                diagnostics["pending_windows"] - 1,
             )
             from core.desk_bus import DESK_BUS
 
@@ -201,3 +265,55 @@ async def refresh(ctx: Any, universe: Any, *, now: datetime | None = None) -> di
                 "ORB intraday discovery blocked: session=%s reason=%s", day, diagnostics["reason"]
             )
             return await asyncio.to_thread(merge_intraday_discovery, day, diagnostics=diagnostics)
+
+
+async def discovery_loop() -> None:
+    """An observation backlog cannot stop new M5 discovery. One reader only."""
+    from agents.scanner.agent import load_watchlist, universe_service
+    from market_data.sector_preflight import offer
+    from risk.kill_switch import is_kill_switch_on
+    from trading.scan_context import open_scan_context
+
+    global _heartbeat
+    while True:
+        _heartbeat = monotonic_clock.monotonic()
+        try:
+            if (
+                get_settings().broker_env is BrokerEnvironment.PAPER
+                and us_equity_rth_open(datetime.now(UTC))
+                and load_watchlist().get("enabled", True)
+                and not is_kill_switch_on()
+                and not _lock.locked()
+            ):
+                async with open_scan_context(get_settings()) as ctx:
+                    data = await refresh(ctx, universe_service())
+                    if data:
+                        offer(data)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # retry reads, never submit an order
+            logger.exception("ORB discovery loop failed; retrying")
+        _heartbeat = monotonic_clock.monotonic()
+        await asyncio.sleep(30)
+
+
+def start_discovery_loop() -> None:
+    global _task
+    if _task is None or _task.done():
+        _task = asyncio.create_task(discovery_loop(), name="orb-intraday-discovery")
+
+
+def stop_discovery_loop() -> None:
+    global _task, _heartbeat
+    if _task is not None:
+        _task.cancel()
+    _task = None
+    _heartbeat = None
+
+
+def discovery_health() -> tuple[bool, str]:
+    if _task is not None and _task.done():
+        return False, "intraday discovery task stopped"
+    if _heartbeat is not None and monotonic_clock.monotonic() - _heartbeat > 300:
+        return False, "intraday discovery has not progressed for over 300s"
+    return True, "intraday discovery is progressing"

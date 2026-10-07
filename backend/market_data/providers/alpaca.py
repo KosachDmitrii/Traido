@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
@@ -166,12 +167,19 @@ async def _paced_get(
         if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
             await quota.note_throttled(exc.response.headers, attempt=attempt)
 
+    async def _acquire() -> None:
+        started = time.monotonic()
+        await quota.acquire()
+        from core.metrics import METRICS
+
+        METRICS.observe("traido_market_data_quota_wait_seconds", time.monotonic() - started)
+
     return await get_with_retry(
         client,
         url,
         params=params,
         headers=headers,
-        before_attempt=quota.acquire,
+        before_attempt=_acquire,
         after_response=_after,
         on_retryable=_on_retryable,
     )
@@ -494,7 +502,9 @@ class AlpacaMarketData:
         """
         symbol = symbol.upper()
         url = f"{self._base}/v2/stocks/{symbol}/quotes/latest"
+        started = time.monotonic()
         payload = await self._get_json(url)
+        elapsed = time.monotonic() - started
 
         raw = payload.get("quote") or {}
         bid, ask = raw.get("bp"), raw.get("ap")
@@ -503,6 +513,23 @@ class AlpacaMarketData:
         ts = _ts(raw.get("t"))
         if ts is None:
             return None
+        received_at = datetime.now(UTC)
+        age = (received_at - ts).total_seconds()
+        from core.metrics import METRICS
+
+        METRICS.observe("traido_quote_request_seconds", elapsed)
+        METRICS.observe("traido_quote_age_seconds", max(0.0, age))
+        if age > 5 or age < -1 or elapsed > 5:
+            logging.getLogger(__name__).info(
+                "Alpaca quote timing: symbol=%s feed=%s source_at=%s received_at=%s "
+                "request_seconds=%.3f age_seconds=%.3f",
+                symbol,
+                self._feed,
+                ts.isoformat(),
+                received_at.isoformat(),
+                elapsed,
+                age,
+            )
         return Quote(
             symbol=symbol,
             bid=Decimal(str(bid)),

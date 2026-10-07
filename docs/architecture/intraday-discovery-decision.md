@@ -4,6 +4,37 @@ The owner requested a review of every entry stage and continuous discovery,
 after two weeks without a reported purchase. This decision extends an existing
 Paper strategy; it does not authorize Live, increase risk limits or bypass gates.
 
+## Search timeliness — owner decision, 2026-10-07
+
+An Oct 6 audit found a roughly one-hour gap between completed discovery passes
+while M5 loading continued. The full observation pass was awaited before rolling
+discovery. The owner authorized repairing search latency and measuring freshness.
+
+- A scanner-owned, single-process discovery loop reads independently every 30
+  seconds during Paper RTH while scanning is enabled and the kill switch is off.
+  The ordinary scanner also refreshes before awaiting full observation. Both
+  paths share one discovery lock and the existing Alpaca account quota.
+- Each pass handles one window: the newest completed M5 window first, then the
+  oldest pending window. Successful ends are committed atomically with added
+  plans in the existing session JSON. Failure does not advance completion;
+  restart reloads progress. Catch-up ends at the actual session close, including
+  early closes. Previously claimed symbols and geometry are never replaced.
+- Catch-up creates a WAIT plan, never a historical permission to buy. Current
+  bar replay, quote freshness, expiry and every existing admission gate remain.
+- M5 reads have a 60-second deadline per 100-symbol batch; no whole-universe
+  short deadline rejects healthy paced scans. Two historical readers remain;
+  failure/cancellation drains sibling reads before releasing the lock.
+- Full observation has its own configured scanner-cycle timeout, so shielding
+  callers cannot leave an unbounded shared task. Scanner health degrades after
+  progress is older than max(300 seconds, twice the configured scan interval).
+  Discovery health separately reports a stopped task or 300-second heartbeat gap.
+- Logs expose observation stage duration, discovery duration, window lag and
+  backlog; quote logs expose source/receipt/evaluation timestamps and age.
+  Metrics measure quote request latency and account-quota wait separately.
+
+These bounds diagnose and recover operational delays; they do not prove a
+five-second quote age can always be met or that a trade opportunity was lost.
+
 ## Confirmed problems
 
 `runtime.discover` returns the persisted `all_qualified` selection all day.

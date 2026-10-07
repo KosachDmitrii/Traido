@@ -618,6 +618,15 @@ def scanner_health() -> tuple[bool, str]:
         return False, "scanner is starting"
     if STATUS.error and STATUS.error not in {"disabled_or_kill_switch", "superseded"}:
         return False, "last scanner cycle failed"
+    interval = max(30.0, float(load_watchlist().get("scan_interval_seconds") or 90))
+    allowed_age = max(300.0, interval * 2)
+    if time.monotonic() - _supervisor_heartbeat > allowed_age:
+        return False, f"scanner has not progressed for over {allowed_age:.0f}s"
+    from strategy.orb.intraday import discovery_health
+
+    healthy, detail = discovery_health()
+    if not healthy:
+        return healthy, detail
     return True, "scanner task is running"
 
 
@@ -703,6 +712,9 @@ def start_scanner() -> None:
     if _task and not _task.done():
         return
     _task = asyncio.create_task(scanner_loop(), name="traido-scanner")
+    from strategy.orb.intraday import start_discovery_loop
+
+    start_discovery_loop()
 
 
 def stop_scanner() -> None:
@@ -710,3 +722,6 @@ def stop_scanner() -> None:
     if _task and not _task.done():
         _task.cancel()
     _task = None
+    from strategy.orb.intraday import stop_discovery_loop
+
+    stop_discovery_loop()

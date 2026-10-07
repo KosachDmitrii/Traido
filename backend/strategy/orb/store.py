@@ -59,7 +59,16 @@ def merge_intraday_discovery(
             payload.setdefault("rejections", {}).pop(symbol, None)
             added.append(symbol)
         if diagnostics is not None:
+            previous = payload.get("intraday_discovery") or {}
+            completed = set(payload.get("intraday_completed_ranges", []))
+            if previous.get("status") == "ready":
+                completed.add(previous["range_end"])
             payload["intraday_discovery"] = {**deepcopy(diagnostics), "added": added}
+            if diagnostics.get("status") == "ready":
+                # Completion is committed with the plans, so restart cannot
+                # lose an unprocessed window or replay a completed one.
+                completed.add(diagnostics["range_end"])
+            payload["intraday_completed_ranges"] = sorted(completed)
         payload.setdefault("counts", {})["selected"] = len(payload.get("plans", {}))
         payload["counts"]["qualified"] = len(payload.get("plans", {}))
         from collections import Counter

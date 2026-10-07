@@ -595,7 +595,8 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         retest = plan.evidence["retest"]
         logger.info(
             "ORB entry trigger: symbol=%s state=%s reasons=%s bid=%s ask=%s "
-            "trigger=%s max_entry=%s stop=%s target=%s valid_until=%s",
+            "trigger=%s max_entry=%s stop=%s target=%s valid_until=%s "
+            "quote_at=%s evaluated_at=%s quote_age_seconds=%s",
             symbol,
             trigger.state,
             trigger.reasons,
@@ -606,6 +607,9 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             plan.stop,
             retest.get("target"),
             retest.get("valid_until"),
+            state["quote_at"],
+            now.isoformat(),
+            round((now - quote.ts).total_seconds(), 3) if quote and quote.ts.tzinfo else None,
         )
     await asyncio.to_thread(update_state, plan.session, symbol, state)
     if trigger.state != "BUY_ALLOWED" or quote is None:
@@ -806,13 +810,27 @@ async def observe(context: ScanContext | None = None) -> dict[str, int]:
 
     task = _observation_task
     if task is None or task.done():
-        task = asyncio.create_task(_observe_once(context), name="orb-observation")
+        task = asyncio.create_task(_bounded_observe(context), name="orb-observation")
+        task.add_done_callback(_observation_finished)
         _observation_task = task
     try:
         return await asyncio.shield(task)
     finally:
         if _observation_task is task and task.done():
             _observation_task = None
+
+
+async def _bounded_observe(context: ScanContext | None) -> dict[str, int]:
+    # A caller timeout cannot cancel a shielded pass. Bound the shared task
+    # itself, so subsequent cycles cannot join it forever after that timeout.
+    async with asyncio.timeout(get_settings().scanner_cycle_timeout_seconds):
+        return await _observe_once(context)
+
+
+def _observation_finished(task: asyncio.Task[dict[str, int]]) -> None:
+    if not task.cancelled() and (error := task.exception()) is not None:
+        # Retrieve exceptions even if a cancelled caller no longer awaits us.
+        logger.warning("ORB observation pass failed: %s", type(error).__name__)
 
 
 async def observe_priority(context: ScanContext | None = None) -> dict[str, int]:

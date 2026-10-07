@@ -735,6 +735,18 @@ are presented consistently during staggered frontend/backend rollout.
 
 ## Entry data recovery and polling
 
+- Rolling discovery runs separately from full observation. Successful M5 windows
+  are durably recorded with plans; one pending window is recovered per pass, with
+  the newest window prioritized. Failed windows remain pending. Replay and fresh
+  final admission remain mandatory before any order; existing claims are retained.
+- Historical discovery readers are cancelled and awaited together on failure.
+  M5 deadlines apply per bounded batch, not to an entire market universe. A
+  shielded observation task owns its configured cycle timeout and can expire;
+  scanner/discovery health reports stale progress rather than just task presence.
+- Quote diagnostics retain the original vendor timestamp and report request time,
+  receipt age and evaluation age. Separate quota-wait telemetry distinguishes
+  account pacing from aggregate fetch delay. No stale-quote gate is relaxed.
+
 - Approval reads independent risk context and liquidity bars concurrently, and loads
   macro/sector context before requesting the executable quote. ORB admission uses
   bid/ask directly and does not wait for the optional last-trade endpoint. Quote

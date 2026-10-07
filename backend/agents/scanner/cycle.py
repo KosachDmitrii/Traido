@@ -82,6 +82,7 @@ async def run_cycle(
     from market_data.sector_preflight import offer
     from strategy.orb.intraday import refresh
     from strategy.orb.runtime import discover, observe, retire_pending_legacy
+    from strategy.orb.store import read_session
 
     result = CycleResult()
     if on_progress:
@@ -95,17 +96,33 @@ async def run_cycle(
         async with open_scan_context(settings or get_settings()) as ctx:
             data = await discover(ctx, universe_service)
             offer(data)
-            statuses = await observe(context=ctx) if data.get("status") == "ready" else {}
             if data.get("status") == "ready":
                 data = (await refresh(ctx, universe_service)) or data
                 offer(data)
+                _trace(ctx, "observation_started", plans=len(data.get("plans", {})))
+                observed = time.monotonic()
+                statuses = await observe(context=ctx)
+                result.timings.deep_analysis = time.monotonic() - observed
+                _trace(ctx, "observation_completed", seconds=result.timings.deep_analysis)
+            else:
+                statuses = {}
     else:
         data = await discover(context, universe_service)
         offer(data)
-        statuses = await observe(context=context) if data.get("status") == "ready" else {}
         if data.get("status") == "ready":
             data = (await refresh(context, universe_service)) or data
             offer(data)
+            _trace(context, "observation_started", plans=len(data.get("plans", {})))
+            observed = time.monotonic()
+            statuses = await observe(context=context)
+            result.timings.deep_analysis = time.monotonic() - observed
+            _trace(context, "observation_completed", seconds=result.timings.deep_analysis)
+        else:
+            statuses = {}
+    if data.get("status") == "ready" and data.get("session"):
+        # Independent discovery may have appended plans during observation.
+        # Project counts from current storage rather than a pre-pass snapshot.
+        data = (await asyncio.to_thread(read_session, data["session"])) or data
     counts = data.get("counts", {})
     f = result.funnel
     f.universe_total = counts.get("universe", 0)
