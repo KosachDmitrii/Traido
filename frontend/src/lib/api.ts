@@ -991,6 +991,7 @@ export type OrbState = { state: string; reasons: string[]; bid?: string | null; 
 export type OrbExecution = { stage: string; opportunity_id: string; last_outcome?: string | null;
   last_error?: string | null; retry_at?: string | null; attempts: number };
 export type OrbSession = { execution?: Record<string, OrbExecution>; status: string; feed?: string; reason?: string | null; session?: string;
+  observation?: { total: number; checked_recently: number; pending: number; blocked_reasons: Record<string, number>; progress?: { stage?: string; progressed_at?: string } };
   plans?: Record<string, OrbPlan>; states?: Record<string, OrbState>;
   counts?: Record<string, number>; rejection_counts?: Record<string, number>;
   intraday_discovery?: { status?: string; reason?: string; range_start?: string; range_end?: string; evaluated_at?: string; checked?: number; added?: string[]; rejection_counts?: Record<string, number> } };

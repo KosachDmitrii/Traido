@@ -44,6 +44,7 @@ const reasons: Record<string,string> = {
   ORB_ENTRY_MISSED:"Цена выше предела покупки. Вход сейчас запрещён.",
   ORB_ENTRY_EXPIRED:"Время новых входов по этому плану истекло.",
   ORB_QUOTE_STALE:"Ждём свежую котировку Alpaca.",
+  ORB_OBSERVATION_TIMEOUT:"Проверка заняла слишком долго. Повторяем её; покупка приостановлена.",
   ORB_QUOTE_MISSING:"Нет достоверной котировки.",
   ORB_SERVICE_UNAVAILABLE:"Не удалось проверить данные или счёт. Повторная проверка выполняется автоматически.",
   ORB_HISTORY_INCOMPLETE:"Нет полной истории для 14 предыдущих сессий.",
@@ -56,6 +57,6 @@ const reasons: Record<string,string> = {
   PORTFOLIO_DRAWDOWN_UNAVAILABLE:"Недоступна просадка счёта.",
 };
 export const orbReason = (reason: string) => reason.split(",").map(code=>reasons[code] ?? code).join(" · ");
-export const orbState = (state?:string) => ({EXECUTED:"Исполнено",SKIPPED:"Пропущено",EXPIRED:"Истёк",DISCARDED:"Снят",APPROVING:"Проверяем исполнение",APPROVED:"Одобрено",WAIT:"Ждём цену входа",BUY_ALLOWED:"Проверка входа",BLOCKED:"Вход заблокирован",DATA_BLOCKED:"Нет данных",NO_TRADE:"Нет входа"}[state ?? ""] ?? "План");
+export const orbState = (state?:string) => ({EXECUTED:"Исполнено",SKIPPED:"Пропущено",EXPIRED:"Истёк",DISCARDED:"Снят",APPROVING:"Проверяем исполнение",APPROVED:"Одобрено",WAIT:"Ждём цену входа",BUY_ALLOWED:"Проверка входа",BLOCKED:"Вход заблокирован",DATA_BLOCKED:"Ждём достоверные данные",NO_TRADE:"Нет входа"}[state ?? ""] ?? "План");
 export const px = (value: unknown) => value == null || !Number.isFinite(Number(value)) ? "—" : Number(value).toFixed(2);
 export const etTime = (value:string) => new Date(value).toLocaleTimeString("ru-RU",{timeZone:"America/New_York",hour:"2-digit",minute:"2-digit"});

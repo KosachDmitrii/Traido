@@ -224,6 +224,14 @@ def update_states(day: str, states: dict[str, dict[str, Any]]) -> None:
         payload = deepcopy(row.payload)
         for symbol, state in states.items():
             current = payload.get("states", {}).get(symbol, {})
+            # A slower full pass must not replace a newer stream observation.
+            # Machine transitions without an observation timestamp retain the
+            # existing claim/state behavior.
+            if state.get("observed_at") and current.get("observed_at"):
+                incoming = datetime.fromisoformat(state["observed_at"])
+                previous = datetime.fromisoformat(current["observed_at"])
+                if incoming.tzinfo and previous.tzinfo and incoming < previous:
+                    continue
             next_state = {**current, **state}
             if current.get("opportunity_id"):
                 next_state["opportunity_id"] = current["opportunity_id"]

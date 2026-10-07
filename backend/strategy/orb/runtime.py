@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time as monotonic_clock
 from collections import Counter
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
@@ -42,6 +43,80 @@ from trading.session_hours import us_equity_rth_open
 from universe.models import UniverseTier
 from universe.provider import ALPACA_CLASSIFICATION_REVISION
 from universe.service import UniverseService
+
+OBSERVATION_BATCH = 100
+ENTRY_BATCH = 8
+OBSERVATION: dict[str, Any] = {}
+_evaluating: set[str] = set()
+
+
+def observation_order(stored: dict[str, Any], symbols: Any) -> list[str]:
+    """Oldest observed first; persisted progress provides restart fairness."""
+    states = stored.get("states") or {}
+    return sorted(
+        symbols,
+        key=lambda s: (
+            states.get(s, {}).get("last_checked_at") or states.get(s, {}).get("observed_at") or "",
+            s,
+        ),
+    )
+
+
+def observation_checkpoint(stage: str, **facts: Any) -> None:
+    OBSERVATION.update(stage=stage, progressed_at=datetime.now(UTC).isoformat(), **facts)
+    logger.info("ORB observation progress: stage=%s facts=%s", stage, facts)
+
+
+async def evaluate_observation_batch(
+    stored: dict[str, Any], symbols: list[str], ctx: ScanContext
+) -> Counter[str]:
+    """Two bounded evaluators; no concurrent observation of the same symbol."""
+    semaphore = asyncio.Semaphore(2)
+
+    async def one(symbol: str) -> tuple[str | None, dict[str, Any] | None]:
+        async with semaphore:
+            if symbol in _evaluating:
+                return None, None
+            _evaluating.add(symbol)
+            try:
+                result = await asyncio.wait_for(evaluate_symbol(symbol, ctx), timeout=45)
+                # Claimed/open symbols can return without changing market
+                # evidence. Advance scheduling only, preserving that evidence.
+                return result.status, {"last_checked_at": datetime.now(UTC).isoformat()}
+            except Exception as exc:  # noqa: BLE001 — bounded failure, never grant admission
+                reason = (
+                    "ORB_OBSERVATION_TIMEOUT"
+                    if isinstance(exc, TimeoutError)
+                    else data_error_reason(exc, feed=stored.get("feed", "sip"))
+                )
+                logger.warning(
+                    "ORB symbol observation blocked: symbol=%s reason=%s", symbol, reason
+                )
+                return "data_blocked", {
+                    "state": "DATA_BLOCKED",
+                    "reasons": [reason],
+                    "observed_at": datetime.now(UTC).isoformat(),
+                    "bid": None,
+                    "ask": None,
+                    "quote_at": None,
+                }
+            finally:
+                _evaluating.discard(symbol)
+
+    async with asyncio.TaskGroup() as group:
+        tasks = {symbol: group.create_task(one(symbol)) for symbol in symbols}
+    counts: Counter[str] = Counter()
+    updates = {}
+    for symbol, task in tasks.items():
+        status, error = task.result()
+        if status:
+            counts[status] += 1
+        if error:
+            updates[symbol] = {"last_checked_at": datetime.now(UTC).isoformat(), **error}
+    if updates:
+        await asyncio.to_thread(update_states, stored["session"], updates)
+    return counts
+
 
 _discovery_lock = asyncio.Lock()
 _observation_task: asyncio.Task[dict[str, int]] | None = None
@@ -127,7 +202,10 @@ async def discover(
             from core.enums import BrokerEnvironment
             from strategy.orb.store import upgrade_unpublished_entry_limits
 
-            if get_settings().broker_env is BrokerEnvironment.PAPER:
+            if (
+                get_settings().broker_env is BrokerEnvironment.PAPER
+                and existing.get("entry_policy_rollout") != PARAMETERS["entry_policy_revision"]
+            ):
                 existing = (
                     await asyncio.to_thread(upgrade_unpublished_entry_limits, day, now=now)
                 ) or existing
@@ -859,6 +937,12 @@ async def observe_priority(context: ScanContext | None = None) -> dict[str, int]
         for (symbol, _ts), bar in pending.items():
             if symbol in plans:
                 by_symbol.setdefault(symbol, []).append(bar)
+        selected_stream = set(observation_order(stored, by_symbol)[:OBSERVATION_BATCH])
+        with _pending_completed_bars_lock:
+            for key, bar in pending.items():
+                if key[0] in plans and key[0] not in selected_stream:
+                    _pending_completed_bars.setdefault(key, bar)
+        by_symbol = {s: bars for s, bars in by_symbol.items() if s in selected_stream}
 
         ready_due = asyncio.get_running_loop().time() - _last_ready_check >= 5
         ready_symbols = {
@@ -869,6 +953,7 @@ async def observe_priority(context: ScanContext | None = None) -> dict[str, int]
             and states.get(symbol, {}).get("state")
             not in {"NO_TRADE", "EXECUTED", "APPROVED", "DISCARDED", "EXPIRED"}
         }
+        ready_symbols = set(observation_order(stored, ready_symbols)[:ENTRY_BATCH])
         if not by_symbol and not (ready_due and ready_symbols):
             return {}
         if ready_due:
@@ -913,6 +998,7 @@ async def observe_priority(context: ScanContext | None = None) -> dict[str, int]
                 passive[symbol] = {
                     "state": "WAIT",
                     "reasons": ["ORB_RETEST_WAIT_BREAKOUT"],
+                    "last_checked_at": now.isoformat(),
                     **_bar_observation(latest, observed_at=now),
                 }
             else:
@@ -920,6 +1006,13 @@ async def observe_priority(context: ScanContext | None = None) -> dict[str, int]
 
         if passive:
             await asyncio.to_thread(update_states, stored["session"], passive)
+
+        selected_candidates = set(observation_order(stored, candidates)[:ENTRY_BATCH])
+        with _pending_completed_bars_lock:
+            for key, bar in pending.items():
+                if key[0] in candidates - selected_candidates:
+                    _pending_completed_bars.setdefault(key, bar)
+        candidates = selected_candidates
 
         counts: Counter[str] = Counter(wait_for_entry=len(passive))
         if candidates:
@@ -934,7 +1027,17 @@ async def observe_priority(context: ScanContext | None = None) -> dict[str, int]
                 from strategy.orb.retest_data import prime_bars
 
                 candidate_plans = [OrbPlan.model_validate(plans[s]) for s in sorted(candidates)]
-                await prime_bars(ctx.market_data, candidate_plans, now=now)
+                try:
+                    await prime_bars(ctx.market_data, candidate_plans, now=now)
+                except BaseException:
+                    # Ownership of these stream events returns to the queue
+                    # on recovery failure/cancellation. Keep any newer
+                    # correction already delivered while the request ran.
+                    with _pending_completed_bars_lock:
+                        for key, bar in pending.items():
+                            if key[0] in candidates:
+                                _pending_completed_bars.setdefault(key, bar)
+                    raise
                 snapshots = getattr(ctx.market_data, "get_snapshots", None)
                 if callable(snapshots):
                     try:
@@ -943,26 +1046,7 @@ async def observe_priority(context: ScanContext | None = None) -> dict[str, int]
                         )
                     except Exception:  # noqa: BLE001 — quotes cannot authorize entries
                         ctx.observation_snapshots = {}
-                for symbol in sorted(candidates):
-                    try:
-                        result = await evaluate_symbol(symbol, ctx)
-                        counts[result.status] += 1
-                    except Exception as exc:  # noqa: BLE001 — one symbol fails closed
-                        reason = data_error_reason(exc, feed=stored.get("feed", "sip"))
-                        await asyncio.to_thread(
-                            update_state,
-                            stored["session"],
-                            symbol,
-                            {
-                                "state": "DATA_BLOCKED",
-                                "reasons": [reason],
-                                "observed_at": datetime.now(UTC).isoformat(),
-                                "bid": None,
-                                "ask": None,
-                                "quote_at": None,
-                            },
-                        )
-                        counts["data_blocked"] += 1
+                counts.update(await evaluate_observation_batch(stored, sorted(candidates), ctx))
 
         from core.desk_bus import DESK_BUS
 
@@ -974,7 +1058,7 @@ async def observe_priority(context: ScanContext | None = None) -> dict[str, int]
 
 
 async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
-    """Perform one complete persisted ORB observation pass."""
+    """Check one bounded oldest-first portion of the persisted ORB universe."""
     from contextlib import AsyncExitStack
 
     from core.desk_bus import DESK_BUS
@@ -983,7 +1067,17 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
     stored = await asyncio.to_thread(read_session, str(now.astimezone(ET).date()))
     if stored is None:
         return {}
-    plans = stored.get("plans") or {}
+    all_plans = stored.get("plans") or {}
+    selected = observation_order(stored, all_plans)[:OBSERVATION_BATCH]
+    plans = {s: all_plans[s] for s in selected}
+    started = monotonic_clock.monotonic()
+    observation_checkpoint(
+        "history",
+        session=stored["session"],
+        batch=len(plans),
+        total=len(all_plans),
+        pending=len(all_plans),
+    )
     _restore_session_board(stored)
     BOARD.set_agent("setup", status="working", detail=f"Monitoring {len(plans)} ORB setups")
     BOARD.set_agent("entry", status="working", detail=f"Checking {len(plans)} entry triggers")
@@ -1008,25 +1102,28 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
             BOARD.set_agent("setup", status="error", detail=reason)
             BOARD.set_agent("entry", status="error", detail=reason)
             BOARD.log("scanner", f"ORB history unavailable: {reason}", level="warn")
-            for symbol in plans:
-                await asyncio.to_thread(
-                    update_state,
-                    stored["session"],
-                    symbol,
-                    {
+            await asyncio.to_thread(
+                update_states,
+                stored["session"],
+                {
+                    symbol: {
                         "state": "DATA_BLOCKED",
                         "reasons": [reason],
                         "observed_at": datetime.now(UTC).isoformat(),
+                        "last_checked_at": datetime.now(UTC).isoformat(),
                         "bid": None,
                         "ask": None,
                         "quote_at": None,
-                    },
-                )
+                    }
+                    for symbol in plans
+                },
+            )
             refreshed = await asyncio.to_thread(read_session, stored["session"])
             if refreshed is not None:
                 STATUS.update(refreshed)
             DESK_BUS.bump_desk(kind="orb_observation")
             return {"data_blocked": len(plans)}
+        observation_checkpoint("snapshots", batch=len(plans))
         snapshots = getattr(ctx.market_data, "get_snapshots", None)
         if callable(snapshots):
             try:
@@ -1044,6 +1141,7 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
         from strategy.orb.retest import rebuild
         from strategy.orb.retest_data import coverage_end, read_cached_bars
 
+        observation_checkpoint("replay", batch=len(plans))
         parsed = {symbol: OrbPlan.model_validate(raw) for symbol, raw in plans.items()}
         simple = [
             plan
@@ -1086,6 +1184,7 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
                 "state": decision_state,
                 "reasons": reasons,
                 "observed_at": now.isoformat(),
+                "last_checked_at": now.isoformat(),
                 "bid": None,
                 "ask": None,
                 "quote_at": None,
@@ -1114,36 +1213,10 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
             ] += 1
         if passive:
             await asyncio.to_thread(update_states, stored["session"], passive)
-        last_symbol: str | None = None
-        for symbol in sorted(candidates):
-            last_symbol = symbol
-            try:
-                result = await evaluate_symbol(symbol, ctx)
-                counts[result.status] += 1
-            except Exception as exc:  # noqa: BLE001 — a failed input blocks this symbol
-                reason = data_error_reason(exc, feed=stored.get("feed", "sip"))
-                previous = stored.get("states", {}).get(symbol, {})
-                if previous.get("state") != "DATA_BLOCKED" or previous.get("reasons") != [reason]:
-                    BOARD.log(
-                        "scanner",
-                        f"ORB observation unavailable: {reason}",
-                        symbol=symbol,
-                        level="warn",
-                    )
-                await asyncio.to_thread(
-                    update_state,
-                    stored["session"],
-                    symbol,
-                    {
-                        "state": "DATA_BLOCKED",
-                        "reasons": [reason],
-                        "bid": None,
-                        "ask": None,
-                        "quote_at": None,
-                        "observed_at": datetime.now(UTC).isoformat(),
-                    },
-                )
-                counts["data_blocked"] += 1
+        chosen = observation_order(stored, candidates)[:ENTRY_BATCH]
+        last_symbol = chosen[-1] if chosen else None
+        observation_checkpoint("entries", candidates=len(candidates), checked=len(chosen))
+        counts.update(await evaluate_observation_batch(stored, chosen, ctx))
 
     summary = " · ".join(f"{key} {value}" for key, value in sorted(counts.items())) or "no plans"
     BOARD.set_agent("setup", status="done", detail=f"ORB setups checked · {summary}")
@@ -1163,9 +1236,25 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
         reason_counts = Counter(
             str(reason) for item in current_states.values() for reason in item.get("reasons") or []
         )
+        from strategy.orb.observation_status import observation_status
+
+        progress = observation_status(refreshed, now=datetime.now(UTC))
+        observation_checkpoint(
+            "completed",
+            pending=progress["pending"],
+            checked_recently=progress["checked_recently"],
+            elapsed_seconds=round(monotonic_clock.monotonic() - started, 3),
+        )
+        from core.metrics import METRICS
+
+        METRICS.gauge("orb_observation_pending", progress["pending"])
+        METRICS.gauge("orb_observation_checked_recently", progress["checked_recently"])
+        METRICS.gauge("orb_observation_total", progress["total"])
+        METRICS.gauge("orb_observation_data_blocked", state_counts.get("DATA_BLOCKED", 0))
         logger.info(
-            "ORB decision summary: session=%s plans=%s states=%s reasons=%s",
+            "ORB decision summary: session=%s plans=%s batch=%s states=%s reasons=%s",
             stored["session"],
+            len(all_plans),
             len(plans),
             dict(state_counts),
             dict(reason_counts.most_common(12)),

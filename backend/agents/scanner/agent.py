@@ -704,6 +704,19 @@ async def _scanner_loop_inner() -> None:
             seconds_until_due=_schedule.seconds_until_due(),
             provider_failed=cycle_provider_failed(status),
         )
+        from strategy.orb.runtime import OBSERVATION
+        from trading.session_hours import us_equity_rth_open
+
+        if (
+            OBSERVATION.get("pending", 0) > 0
+            and us_equity_rth_open(datetime.now(UTC))
+            and not cycle_provider_failed(status)
+        ):
+            # Drain the bounded sweep without taking a full scan interval
+            # between portions. Vendor cooldown remains authoritative.
+            from market_data.providers.alpaca import market_data_cooldown_seconds
+
+            delay = max(5.0, market_data_cooldown_seconds())
         await wait_before_next_cycle(delay)
 
 

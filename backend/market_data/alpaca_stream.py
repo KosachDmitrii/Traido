@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import time
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -129,6 +130,7 @@ async def _run(key: str, secret: str, feed: str = "sip") -> None:
                 await ws.send(json.dumps({"action": "auth", "key": key, "secret": secret}))
                 authenticated = False
                 subscribed = False
+                next_membership_check = time.monotonic() + 30
                 while True:
                     try:
                         raw = await asyncio.wait_for(ws.recv(), timeout=30)
@@ -187,6 +189,28 @@ async def _run(key: str, secret: str, feed: str = "sip") -> None:
                                 )
                     if day != str(datetime.now(ET).date()):
                         break
+                    # An active feed never reaches recv's idle timeout. Check
+                    # membership on elapsed time too, so newly discovered
+                    # companies receive bars during a busy market session.
+                    if subscribed and time.monotonic() >= next_membership_check:
+                        wanted = list(
+                            (await asyncio.to_thread(read_session, day) or {}).get("plans", {})
+                        )[:_symbol_limit]
+                        added = sorted(set(wanted) - set(symbols))
+                        if added:
+                            await ws.send(
+                                json.dumps(
+                                    {"action": "subscribe", "bars": added, "updatedBars": added}
+                                )
+                            )
+                            symbols = list(dict.fromkeys([*symbols, *added]))
+                            logger.info(
+                                "Alpaca %s stream expanded: added=%s total=%s",
+                                feed,
+                                len(added),
+                                len(symbols),
+                            )
+                        next_membership_check = time.monotonic() + 30
         except asyncio.CancelledError:
             raise
         except Exception as exc:  # noqa: BLE001 — reconnect without leaking credentials

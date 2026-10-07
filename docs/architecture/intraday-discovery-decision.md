@@ -35,6 +35,47 @@ discovery. The owner authorized repairing search latency and measuring freshness
 These bounds diagnose and recover operational delays; they do not prove a
 five-second quote age can always be met or that a trade opportunity was lost.
 
+### Bounded observation — owner decision, 2026-10-07
+
+The owner authorized professional operational repairs after the afternoon audit
+found discovery continuing while the full scanner heartbeat exceeded 600 seconds.
+This changes processing and diagnostics, not strategy or capital policy.
+
+- Each full observation loads/replays at most 100 plans, oldest persisted
+  `last_checked_at` first (falling back to existing `observed_at`). Checking a
+  claimed/open symbol advances scheduling without renewing its market evidence.
+  Subsequent portions include the remaining universe;
+  there is no permanent top-N exclusion. While recent checks remain pending,
+  the scanner retries after 5 seconds, subject to the shared Alpaca cooldown.
+- At most eight actionable candidates enter admission per portion, with two
+  evaluators per full/priority path. A shared symbol reservation prevents the
+  two paths from evaluating the same symbol simultaneously. Each evaluation
+  has a 45-second deadline; failure is DATA_BLOCKED, never an admission.
+  The existing overall cycle deadline remains authoritative.
+- Priority stream observation handles at most 100 symbols and eight candidates;
+  deferred events remain queued. A failed/cancelled candidate history request
+  returns its events to the queue and preserves newer received corrections.
+- Market-bar writes deduplicate identical provenance keys and upsert 100 rows
+  per SQL statement in one transaction. Last received correction wins; feed,
+  symbol, timeframe, UTC timestamp and validation retain their meaning.
+- Busy websocket processing checks session membership every 30 seconds and
+  incrementally subscribes newly discovered names to bars/updatedBars. The
+  quiet timeout reconnect path and subscription acknowledgement checks remain.
+- Older observation timestamps cannot overwrite a newer saved projection.
+  Claims and machine transitions retain their existing authority.
+- Desk diagnostics separately show checked-in-five-minutes, pending checks
+  and DATA_BLOCKED reason totals. A recent check is not a fresh market quote.
+  Logs identify history/snapshots/replay/entries/completed and duration;
+  public metrics report observation totals, pending, recent checks and blocked
+  states. Funnel completion counts describe the checked portion rather than
+  claiming the entire universe was evaluated in one cycle.
+
+Regression coverage includes SQL batching/corrections/provenance, whole-universe
+rotation, stale projection rejection, isolated symbol failures, concurrent
+symbol ownership, busy-stream subscription growth and priority recovery.
+No synthetic candle, stale-quote acceptance, historical entry permission,
+Live order or change to manual_target exits is authorized by this repair.
+
 ## Confirmed problems
 
 `runtime.discover` returns the persisted `all_qualified` selection all day.

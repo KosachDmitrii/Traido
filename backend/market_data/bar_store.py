@@ -20,35 +20,27 @@ def stamp(ts: datetime) -> str:
 def save(
     feed: str, symbol: str, timeframe: str, values: list[tuple[datetime, dict[str, Any]]]
 ) -> None:
-    if not values:
-        return
-    with session_factory()() as db:
-        if db.get_bind().dialect.name == "postgresql":
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-
-            make_insert: Any = pg_insert
-        else:
-            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-
-            make_insert = sqlite_insert
-        for ts, payload in values:
-            stmt = make_insert(MarketBarRow).values(
-                feed=feed, symbol=symbol, timeframe=timeframe, timestamp=stamp(ts), payload=payload
-            )
-            db.execute(
-                stmt.on_conflict_do_update(
-                    index_elements=["feed", "symbol", "timeframe", "timestamp"],
-                    set_={"payload": stmt.excluded.payload},
-                )
-            )
-        db.commit()
+    save_many(feed, timeframe, {symbol: values})
 
 
 def save_many(
     feed: str, timeframe: str, values: dict[str, list[tuple[datetime, dict[str, Any]]]]
 ) -> None:
     """Upsert several symbols in one transaction."""
-    flattened = [(symbol, ts, payload) for symbol, rows in values.items() for ts, payload in rows]
+    # PostgreSQL rejects two updates of the same key in one INSERT. Preserve
+    # the existing correction semantics: last received value wins.
+    unique = {
+        (symbol, stamp(ts)): {
+            "feed": feed,
+            "symbol": symbol,
+            "timeframe": timeframe,
+            "timestamp": stamp(ts),
+            "payload": payload,
+        }
+        for symbol, rows in values.items()
+        for ts, payload in rows
+    }
+    flattened = list(unique.values())
     if not flattened:
         return
     with session_factory()() as db:
@@ -60,16 +52,10 @@ def save_many(
             from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
             make_insert = sqlite_insert
-        # Keep individual conflict clauses portable across SQLite and Postgres,
-        # but pay the transaction/connection cost only once per provider batch.
-        for symbol, ts, payload in flattened:
-            stmt = make_insert(MarketBarRow).values(
-                feed=feed,
-                symbol=symbol,
-                timeframe=timeframe,
-                timestamp=stamp(ts),
-                payload=payload,
-            )
+        # 100 rows = 500 bind parameters, within both dialects' limits. One
+        # transaction retains atomic correction/provenance across all chunks.
+        for offset in range(0, len(flattened), 100):
+            stmt = make_insert(MarketBarRow).values(flattened[offset : offset + 100])
             db.execute(
                 stmt.on_conflict_do_update(
                     index_elements=["feed", "symbol", "timeframe", "timestamp"],

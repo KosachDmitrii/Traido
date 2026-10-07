@@ -94,7 +94,9 @@ async def run_cycle(
     await asyncio.to_thread(retire_pending_legacy)
     if context is None:
         async with open_scan_context(settings or get_settings()) as ctx:
+            _trace(ctx, "discovery_started")
             data = await discover(ctx, universe_service)
+            _trace(ctx, "discovery_completed")
             offer(data)
             if data.get("status") == "ready":
                 data = (await refresh(ctx, universe_service)) or data
@@ -139,6 +141,10 @@ async def run_cycle(
     result.deep_symbols = result.shortlist
     result.universe_symbols = result.shortlist
     if data.get("status") == "ready":
+        # One bounded portion was checked, not every selected plan. The ORB
+        # projection separately reports the whole universe and pending checks.
+        f.deep_analysis_started = sum(statuses.values())
+        f.deep_analysis_completed = f.deep_analysis_started
         f.published = statuses.get("awaiting_confirmation", 0)
         f.risk_passed = f.published
         f.wait_for_entry = statuses.get("wait_for_entry", 0)
@@ -146,7 +152,7 @@ async def run_cycle(
         f.risk_rejected = statuses.get("risk_rejected", 0)
         f.position_open = statuses.get("position_open", 0)
         f.deep_analysis_no_candidate = (
-            f.quant_shortlisted
+            f.deep_analysis_completed
             - f.published
             - f.wait_for_entry
             - f.data_blocked

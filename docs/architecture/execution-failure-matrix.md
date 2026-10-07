@@ -735,6 +735,16 @@ are presented consistently during staggered frontend/backend rollout.
 
 ## Entry data recovery and polling
 
+| Observation condition | Recovery and effect on execution |
+| --- | --- |
+| A full-universe observation is slow | Process oldest checked plans in portions of 100; retain all plans and continue pending portions. No unobserved plan is assumed admissible. |
+| A symbol evaluation exceeds 45 seconds or fails | Persist DATA_BLOCKED and clear displayed bid/ask/quote timestamp; continue other symbols. Existing admission and broker gates still decide any order. |
+| Priority history recovery fails or is cancelled | Requeue that portion's received events, preserving newer corrections and deferred events. Do not fabricate missing candles. |
+| New plans appear while websocket traffic remains busy | Check membership every 30 seconds and add SIP bar subscriptions; validate provider acknowledgement. REST recovery and freshness checks remain required. |
+| An older full observation finishes after a newer projection | Ignore its older timestamped projection; retain current state and existing claim. |
+| Bars contain repeated keys/corrections | Deduplicate each write using last correction, then batch atomic upserts with full feed/timeframe provenance. |
+| Recent check exists but source facts are invalid/stale | Show the data refusal separately from check age; a recent check never passes the quote/history gates. |
+
 - Rolling discovery runs separately from full observation. Successful M5 windows
   are durably recorded with plans; one pending window is recovered per pass, with
   the newest window prioritized. Failed windows remain pending. Replay and fresh

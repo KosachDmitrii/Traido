@@ -203,6 +203,16 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     from strategy.orb.store import read_session
 
     orb = read_session(str(datetime.now(UTC).astimezone(ET).date())) or dict(orb_status)
+    from strategy.orb.observation_status import observation_status
+    from strategy.orb.runtime import OBSERVATION
+
+    orb = {
+        **orb,
+        "observation": {
+            **observation_status(orb, now=datetime.now(UTC)),
+            "progress": dict(OBSERVATION),
+        },
+    }
     from market_data.factory import resolve_alpaca_data_feed
 
     orb = {
