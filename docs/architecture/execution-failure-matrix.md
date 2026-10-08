@@ -739,6 +739,7 @@ are presented consistently during staggered frontend/backend rollout.
 | --- | --- |
 | A full-universe observation is slow | Process oldest checked plans in portions of 200; retain all plans and continue pending portions. Stream portions remain 100 and heavy entry portions remain 8. No unobserved plan is assumed admissible. |
 | Pending portions or an operator wake run before the next scheduled slot | Retain that future slot until its time passes. Extra checks cannot accumulate future slots and turn backlog recovery into an hours-long sleep. Normal cadence, overrun reporting and vendor cooldown remain. |
+| Rolling M5 discovery is slow | Its existing background loop remains the sole rolling reader; the scanner does not await rolling refresh before checking persisted plans. Newly appended plans join the oldest-first queue on the next portion. Discovery health and fail-closed data checks remain independent. |
 | A symbol evaluation exceeds 45 seconds or fails | Persist DATA_BLOCKED and clear displayed bid/ask/quote timestamp; continue other symbols. Existing admission and broker gates still decide any order. |
 | Priority history recovery fails or is cancelled | Requeue that portion's received events, preserving newer corrections and deferred events. Do not fabricate missing candles. |
 | New plans appear while websocket traffic remains busy | Check membership every 30 seconds and add SIP bar subscriptions; validate provider acknowledgement. REST recovery and freshness checks remain required. |

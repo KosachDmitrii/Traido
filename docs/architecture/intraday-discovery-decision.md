@@ -166,6 +166,14 @@ real observation-path coverage test checks 1,401 plans across bounded portions,
 including the tail, without sending orders. Check age still uses the original
 five-minute window; no stale fact is made fresh by increasing that window.
 
+Production tracing also showed about 50 seconds between discovery completion
+and observation start at a new M5 window. The scanner still awaited rolling
+refresh despite the existing independent discovery loop. Rolling refresh now
+belongs solely to that background loop; the scanner checks current persisted
+plans immediately. A slow rolling reader cannot hold observation behind its
+lock or network calls. New appended plans are read by the next portion. The
+initial session discovery, durable M5 recovery and discovery health remain.
+
 The first deployed rolling pass inspected 1,378 unselected names and added 146
 plans (including MSFT, ABNB and AXP). It also exposed a pre-existing eligibility
 gap: reference names explicitly describing geared/inverse objectives were not

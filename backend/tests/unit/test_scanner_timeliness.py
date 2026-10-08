@@ -5,6 +5,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import timedelta
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
@@ -172,8 +173,7 @@ async def test_discovery_runs_while_full_observation_is_waiting(monkeypatch):
 
     async def refresh(*args):
         calls.append(True)
-        if len(calls) == 2:
-            independently_refreshed.set()
+        independently_refreshed.set()
         return {"status": "ready", "plans": {}}
 
     async def observe(**kwargs):
@@ -200,12 +200,60 @@ async def test_discovery_runs_while_full_observation_is_waiting(monkeypatch):
         await asyncio.wait_for(entered.wait(), 1)
         discovery = asyncio.create_task(intraday.discovery_loop())
         await asyncio.wait_for(independently_refreshed.wait(), 1)
+        assert len(calls) == 1
         assert not scan.done()
     finally:
         scan.cancel()
         if discovery:
             discovery.cancel()
         await asyncio.gather(scan, *([discovery] if discovery else []), return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provided_context", [False, True])
+async def test_full_scanner_does_not_wait_for_stalled_rolling_discovery(
+    monkeypatch, provided_context
+):
+    from agents.scanner import cycle
+    from market_data import sector_preflight
+    from strategy.orb import store
+
+    started = asyncio.Event()
+    checked = asyncio.Event()
+    saved = {"status": "ready", "session": "2026-10-08", "plans": {}}
+    ctx = SimpleNamespace(scan_id=uuid4())
+
+    async def refresh(*args):
+        started.set()
+        await asyncio.Event().wait()
+
+    async def observe(**kwargs):
+        checked.set()
+        return {"wait_for_entry": 1}
+
+    @asynccontextmanager
+    async def context(*args):
+        yield ctx
+
+    monkeypatch.setattr(runtime, "discover", AsyncMock(return_value=saved))
+    monkeypatch.setattr(runtime, "observe", observe)
+    monkeypatch.setattr(runtime, "retire_pending_legacy", lambda: None)
+    monkeypatch.setattr(intraday, "refresh", refresh)
+    monkeypatch.setattr(cycle, "open_scan_context", context)
+    monkeypatch.setattr(sector_preflight, "offer", lambda data: None)
+    monkeypatch.setattr(store, "read_session", lambda day: saved)
+    discovery = asyncio.create_task(intraday.refresh(ctx, None))
+    try:
+        await asyncio.wait_for(started.wait(), 1)
+        result = await asyncio.wait_for(
+            cycle.run_cycle(universe_service=None, context=ctx if provided_context else None), 1
+        )
+        assert checked.is_set()
+        assert not discovery.done()
+        assert result.funnel.wait_for_entry == 1
+    finally:
+        discovery.cancel()
+        await asyncio.gather(discovery, return_exceptions=True)
 
 
 @pytest.mark.asyncio

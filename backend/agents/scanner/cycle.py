@@ -80,7 +80,6 @@ async def run_cycle(
     on_progress: Callable[[ScanFunnel], None] | None = None,
 ) -> CycleResult:
     from market_data.sector_preflight import offer
-    from strategy.orb.intraday import refresh
     from strategy.orb.runtime import discover, observe, retire_pending_legacy
     from strategy.orb.store import read_session
 
@@ -99,8 +98,8 @@ async def run_cycle(
             _trace(ctx, "discovery_completed")
             offer(data)
             if data.get("status") == "ready":
-                data = (await refresh(ctx, universe_service)) or data
-                offer(data)
+                # Rolling discovery owns its background reader. Waiting for it
+                # here stalls current-plan checks at every new M5 window.
                 _trace(ctx, "observation_started", plans=len(data.get("plans", {})))
                 observed = time.monotonic()
                 statuses = await observe(context=ctx)
@@ -112,8 +111,7 @@ async def run_cycle(
         data = await discover(context, universe_service)
         offer(data)
         if data.get("status") == "ready":
-            data = (await refresh(context, universe_service)) or data
-            offer(data)
+            # New plans are appended by the independent discovery loop.
             _trace(context, "observation_started", plans=len(data.get("plans", {})))
             observed = time.monotonic()
             statuses = await observe(context=context)
