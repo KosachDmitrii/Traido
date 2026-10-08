@@ -15,6 +15,9 @@ never run back-to-back to catch up. A scanner behind schedule is a scanner
 already struggling for provider capacity, and the last thing it should do is
 immediately start again with no gap. Skipping keeps the phase stable, so cycles
 stay aligned to the same points in the session however many were missed.
+
+Pending observation portions and operator wakes can run before the next slot.
+Those extra runs retain that future slot; they must not reserve another one.
 """
 
 from __future__ import annotations
@@ -62,7 +65,8 @@ class ScanSchedule:
         Returns the overrun in seconds — how far past its own slot the cycle
         ran. Advancing to the next *future* slot rather than to `due + interval`
         is what stops a run of missed slots from queueing up as back-to-back
-        cycles once the system recovers.
+        cycles once the system recovers. A run completing before the reserved
+        slot leaves it available: extra backlog portions do not advance time.
         """
         when = now if now is not None else time.monotonic()
         due = self.last_scheduled_at if self.last_scheduled_at is not None else self.next_due()
@@ -77,7 +81,6 @@ class ScanSchedule:
         else:
             self.last_overrun_sec = 0.0
 
-        self._cycle += 1
         while self.next_due() <= when:
             self._cycle += 1
         return overrun

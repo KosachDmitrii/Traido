@@ -415,6 +415,37 @@ def test_an_overrunning_cycle_is_reported_rather_than_absorbed() -> None:
     assert schedule.last_overrun_sec == pytest.approx(120.0)
 
 
+def test_pending_observation_portions_do_not_consume_future_slots() -> None:
+    """Fast backlog portions must not leave hours of sleep when pending clears."""
+    schedule = ScanSchedule(interval_sec=300.0, _origin=1000.0)
+    for index in range(100):
+        started = 1000.0 + index * 25.0
+        finished = started + 20.0
+        schedule.begin(now=started)
+        assert schedule.complete(now=finished) == 0.0
+        assert 0.0 < schedule.seconds_until_due(now=finished) <= 300.0
+        assert (schedule.next_due() - 1000.0) % 300.0 == pytest.approx(0.0)
+    assert schedule.overruns == 0
+
+
+def test_an_early_wake_retains_the_reserved_slot() -> None:
+    schedule = ScanSchedule(interval_sec=300.0, _origin=1000.0)
+    schedule.begin(now=1000.0)
+    schedule.complete(now=1020.0)
+    schedule.begin(now=1025.0)
+    schedule.complete(now=1045.0)
+    assert schedule.next_due() == pytest.approx(1300.0)
+
+
+def test_an_early_portion_crossing_a_slot_advances_past_completion() -> None:
+    schedule = ScanSchedule(interval_sec=300.0, _origin=1000.0)
+    schedule.begin(now=1000.0)
+    schedule.complete(now=1020.0)
+    schedule.begin(now=1290.0)
+    assert schedule.complete(now=1310.0) == 0.0
+    assert schedule.next_due() == pytest.approx(1600.0)
+
+
 def test_the_next_slot_is_never_in_the_past() -> None:
     """Otherwise a recovered scanner runs cycles back to back with no gap —
     bursting the provider budget exactly when it is already behind."""

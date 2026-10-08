@@ -144,6 +144,20 @@ entry execution failure. The FRED context agent runs only after an entry trigger
 
 ## Validation and remaining evidence
 
+### 2026-10-08 scanner cadence correction
+
+Production full observation stopped completing after 14:19 UTC while SIP bars
+and independent discovery continued. Readiness reported no scanner progress
+for more than 600 seconds. Bounded pending portions run before the next normal
+slot; the scheduler incorrectly advanced one whole interval for each portion.
+Once pending cleared, normal waiting used the accumulated future due time.
+The schedule now advances only past slots whose time has actually passed at
+completion. Early portions and operator wakes retain the next future slot.
+Deterministic regression tests reproduce the old failure and cover repeated
+portions, early wakes and a portion crossing a slot. Existing cadence/overrun
+tests continue to apply. This changes scheduling only, not strategy admission,
+size, order authorization, broker execution or the owner Paper exit policy.
+
 The first deployed rolling pass inspected 1,378 unselected names and added 146
 plans (including MSFT, ABNB and AXP). It also exposed a pre-existing eligibility
 gap: reference names explicitly describing geared/inverse objectives were not
