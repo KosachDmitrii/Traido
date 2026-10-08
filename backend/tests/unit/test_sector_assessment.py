@@ -332,3 +332,53 @@ async def test_sector_label_without_tradable_is_data_blocked() -> None:
     assert gate.status is DataHealthStatus.UNHEALTHY
     assert gate.reason_codes == ["SECTOR_METADATA_MISSING", "SECTOR_ASSESSMENT_MISSING"]
     assert gate.tradable_long is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["bullish", "bearish", "missing", "stale"])
+async def test_ezu_identity_survives_retest_and_requires_fresh_fund_bars(mode):
+    from strategy.orb.retest import rebuild
+    from tests.unit.test_orb_retest import scenario
+    from universe.provider import _instrument_from_alpaca
+
+    instrument = _instrument_from_alpaca(
+        {"symbol": "EZU", "class": "us_equity", "name": "iShares MSCI Eurozone ETF"}
+    )
+    base, rows, now = scenario()
+    evidence = dict(base.evidence)
+    for key in ("daily", "opening"):
+        evidence[key] = [{**bar, "symbol": "EZU"} for bar in evidence[key]]
+    evidence["instrument"] = {"asset_class": instrument.asset_class.value, "provider": "alpaca"}
+    base = base.model_copy(update={"symbol": "EZU", "evidence": evidence})
+    rows = [bar.model_copy(update={"symbol": "EZU"}) for bar in rows]
+    ready = rebuild(base, rows, now=now).plan
+    assert ready.evidence["instrument"]["asset_class"] == "etf"
+
+    class MarketData:
+        async def get_bars(self, symbol, timeframe, start, end):
+            assert symbol == "EZU"
+            if mode == "missing":
+                return []
+            return _bars(
+                symbol,
+                BENCHMARK_MIN_BARS + 10,
+                trend=-0.004 if mode == "bearish" else 0.004,
+                now=end - timedelta(days=10) if mode == "stale" else end,
+            )
+
+    assessed = await BenchmarkBarsSectorAssessment().assess(
+        "EZU",
+        market_data=MarketData(),
+        now=now,
+        asset_class=ready.evidence["instrument"]["asset_class"],
+    )
+    assert assessed.sector == "etf"
+    assert assessed.benchmark == "EZU"
+    assert "SECTOR_METADATA_MISSING" not in assessed.reason_codes
+    if mode == "bullish":
+        assert assessed.tradable_long is True
+    elif mode == "bearish":
+        assert assessed.tradable_long is False
+    else:
+        assert assessed.tradable_long is None
+        assert assessed.data_status is DataHealthStatus.UNHEALTHY

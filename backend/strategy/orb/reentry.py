@@ -89,6 +89,8 @@ async def rearm_closed_trade(day: str, symbol: str, broker: BrokerPort, *, now: 
     if rebuilt.plan is None:
         return False
     replacement = rebuilt.plan.model_dump(mode="json")
+    if "instrument" in plan.evidence:
+        replacement["evidence"]["instrument"] = deepcopy(plan.evidence["instrument"])
     replacement["evidence"]["reentry"] = {
         "policy": POLICY,
         "previous_opportunity_id": str(oid),

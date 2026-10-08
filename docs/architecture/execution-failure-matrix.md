@@ -771,3 +771,12 @@ are presented consistently during staggered frontend/backend rollout.
   the existing fill deadline; each read is bounded by its remaining time. No new
   order is submitted. Deadline expiry still
   invokes cancel/re-read settlement; unresolved broker truth remains UNKNOWN.
+
+### ORB instrument identity during plan renewal
+
+| Condition | Behaviour |
+| --- | --- |
+| Paper entry-policy rollout or closed-position reentry rebuilds a plan | Preserve captured instrument classification; rebuild geometry and retest evidence independently |
+| Saved unclaimed plan has an instrument object without asset_class | Restore identity from the provider universe on discovery, including at the current classification revision |
+| Provider identity unavailable or fund benchmark bars missing/stale | No synthetic sector or trading permission; existing admission remains fail closed |
+| Published, approving, executed or unresolved opportunity claim | Metadata repair leaves the claimed plan unchanged |

@@ -80,6 +80,17 @@ class FlatBroker:
 async def test_closed_trade_rearms_new_plan_once_without_rewriting_old_execution():
     opp, day = closed_trade()
     before = OpportunityStore().get(opp.id).model_dump()
+    from copy import deepcopy
+
+    from database.models.orb import OrbSessionRow
+
+    instrument = {"asset_class": "etf", "provider": "alpaca"}
+    with session_factory()() as db:
+        row = db.get(OrbSessionRow, day)
+        payload = deepcopy(row.payload)
+        payload["plans"][opp.candidate.symbol]["evidence"]["instrument"] = instrument
+        row.payload = payload
+        db.commit()
     assert (
         orb_execution_statuses(read_session(day)["states"])[opp.candidate.symbol]["stage"]
         == "CLOSED"
@@ -94,6 +105,7 @@ async def test_closed_trade_rearms_new_plan_once_without_rewriting_old_execution
     from strategy.orb import VERSION
 
     assert saved["plans"][opp.candidate.symbol]["version"] == VERSION
+    assert saved["plans"][opp.candidate.symbol]["evidence"]["instrument"] == instrument
     assert not saved["plans"][opp.candidate.symbol]["evidence"].get("retest")
     assert not await rearm_closed_trade(day, opp.candidate.symbol, FlatBroker(), now=now)
     assert OpportunityStore().get(opp.id).model_dump() == before
