@@ -218,7 +218,7 @@ async def discover(
                     symbol
                     for symbol, plan in existing.get("plans", {}).items()
                     if (
-                        not plan.get("evidence", {}).get("instrument")
+                        not (plan.get("evidence", {}).get("instrument") or {}).get("asset_class")
                         or existing.get("instrument_classification_revision")
                         != ALPACA_CLASSIFICATION_REVISION
                     )

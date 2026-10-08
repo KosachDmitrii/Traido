@@ -135,7 +135,7 @@ def restore_unclaimed_instruments(
                 and incoming.get("asset_class") == "etf"
             )
             if (
-                (current and not corrected_etf)
+                (current.get("asset_class") and not corrected_etf)
                 or payload.get("states", {}).get(symbol, {}).get("opportunity_id")
                 or symbol not in instruments
             ):
@@ -342,6 +342,8 @@ def upgrade_unpublished_entry_limits(day: str, *, now: datetime) -> dict[str, An
             if rebuilt.plan is None:
                 continue
             updated = rebuilt.plan.model_dump(mode="json")
+            if "instrument" in plan.evidence:
+                updated["evidence"]["instrument"] = deepcopy(plan.evidence["instrument"])
             change = {
                 "symbol": symbol,
                 "revision": revision,
