@@ -158,6 +158,14 @@ portions, early wakes and a portion crossing a slot. Existing cadence/overrun
 tests continue to apply. This changes scheduling only, not strategy admission,
 size, order authorization, broker execution or the owner Paper exit policy.
 
+After deployment, the scanner resumed, but 100-plan portions completed roughly
+every 30 seconds against over 1,300 plans. The full sweep portion is now 200 to
+amortize history/context work; the SIP priority portion remains 100, and heavy
+candidate evaluation remains bounded to 8 with the same admission gates. The
+real observation-path coverage test checks 1,401 plans across bounded portions,
+including the tail, without sending orders. Check age still uses the original
+five-minute window; no stale fact is made fresh by increasing that window.
+
 The first deployed rolling pass inspected 1,378 unselected names and added 146
 plans (including MSFT, ABNB and AXP). It also exposed a pre-existing eligibility
 gap: reference names explicitly describing geared/inverse objectives were not

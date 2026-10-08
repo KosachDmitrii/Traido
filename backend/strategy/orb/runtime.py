@@ -45,6 +45,9 @@ from universe.provider import ALPACA_CLASSIFICATION_REVISION
 from universe.service import UniverseService
 
 OBSERVATION_BATCH = 100
+# Full sweeps amortize history/context work across more plans. The stream
+# portion and heavy entry admission retain their independent smaller limits.
+FULL_OBSERVATION_BATCH = 200
 ENTRY_BATCH = 8
 OBSERVATION: dict[str, Any] = {}
 _evaluating: set[str] = set()
@@ -1068,7 +1071,7 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
     if stored is None:
         return {}
     all_plans = stored.get("plans") or {}
-    selected = observation_order(stored, all_plans)[:OBSERVATION_BATCH]
+    selected = observation_order(stored, all_plans)[:FULL_OBSERVATION_BATCH]
     plans = {s: all_plans[s] for s in selected}
     started = monotonic_clock.monotonic()
     observation_checkpoint(

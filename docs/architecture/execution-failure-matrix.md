@@ -737,7 +737,7 @@ are presented consistently during staggered frontend/backend rollout.
 
 | Observation condition | Recovery and effect on execution |
 | --- | --- |
-| A full-universe observation is slow | Process oldest checked plans in portions of 100; retain all plans and continue pending portions. No unobserved plan is assumed admissible. |
+| A full-universe observation is slow | Process oldest checked plans in portions of 200; retain all plans and continue pending portions. Stream portions remain 100 and heavy entry portions remain 8. No unobserved plan is assumed admissible. |
 | Pending portions or an operator wake run before the next scheduled slot | Retain that future slot until its time passes. Extra checks cannot accumulate future slots and turn backlog recovery into an hours-long sleep. Normal cadence, overrun reporting and vendor cooldown remain. |
 | A symbol evaluation exceeds 45 seconds or fails | Persist DATA_BLOCKED and clear displayed bid/ask/quote timestamp; continue other symbols. Existing admission and broker gates still decide any order. |
 | Priority history recovery fails or is cancelled | Requeue that portion's received events, preserving newer corrections and deferred events. Do not fabricate missing candles. |

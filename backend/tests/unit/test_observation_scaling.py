@@ -248,7 +248,7 @@ async def test_real_observation_pass_limits_history_and_eventually_checks_entire
     monkeypatch.setattr(runtime, "datetime", Clock)
     plans = {
         f"S{i:04}": plan.model_copy(update={"symbol": f"S{i:04}"}).model_dump(mode="json")
-        for i in range(257)
+        for i in range(1401)
     }
     create_session(plan.session, {"session": plan.session, "feed": "sip", "plans": plans})
     primed = []
@@ -273,11 +273,11 @@ async def test_real_observation_pass_limits_history_and_eventually_checks_entire
     monkeypatch.setattr(runtime, "evaluate_symbol", evaluate)
     broker = SimpleNamespace(place_order=AsyncMock())
     context = SimpleNamespace(market_data=SimpleNamespace(), broker=broker)
-    for _ in range(3):
+    for _ in range(8):
         result = await runtime._observe_once(context)
-        assert result == {"wait_for_entry": 100}
+        assert result == {"wait_for_entry": 200}
         instant += timedelta(seconds=1)
-    assert all(len(batch) == 100 for batch in primed)
+    assert all(len(batch) == 200 for batch in primed)
     assert set().union(*map(set, primed)) == set(plans)
     assert runtime.OBSERVATION["pending"] == 0
     evaluate.assert_not_awaited()
