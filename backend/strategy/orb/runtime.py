@@ -922,142 +922,155 @@ async def observe_priority(context: ScanContext | None = None) -> dict[str, int]
     transaction. Only symbols that can advance (plus already-ready entries)
     enter the heavier per-symbol admission path.
     """
-    global _last_ready_check
-
     if _priority_lock.locked():
         return {}
     async with _priority_lock:
         with _pending_completed_bars_lock:
             pending = dict(_pending_completed_bars)
             _pending_completed_bars.clear()
-        now = datetime.now(UTC)
-        stored = await asyncio.to_thread(read_session, str(now.astimezone(ET).date()))
-        if stored is None:
-            return {}
-        plans = stored.get("plans") or {}
-        states = stored.get("states") or {}
-        by_symbol: dict[str, list[Bar]] = {}
-        for (symbol, _ts), bar in pending.items():
-            if symbol in plans:
-                by_symbol.setdefault(symbol, []).append(bar)
-        selected_stream = set(observation_order(stored, by_symbol)[:OBSERVATION_BATCH])
-        with _pending_completed_bars_lock:
-            for key, bar in pending.items():
-                if key[0] in plans and key[0] not in selected_stream:
+        try:
+            return await _observe_priority_pending(pending, context)
+        except BaseException:
+            # A database/context failure or cancellation cannot consume the
+            # captured stream batch. Newer corrections win on retry.
+            with _pending_completed_bars_lock:
+                for key, bar in pending.items():
                     _pending_completed_bars.setdefault(key, bar)
-        by_symbol = {s: bars for s, bars in by_symbol.items() if s in selected_stream}
+            raise
 
-        ready_due = asyncio.get_running_loop().time() - _last_ready_check >= 5
-        ready_symbols = {
-            symbol
-            for symbol, raw in plans.items()
-            if (raw.get("evidence") or {}).get("retest")
-            and not states.get(symbol, {}).get("opportunity_id")
-            and states.get(symbol, {}).get("state")
-            not in {"NO_TRADE", "EXECUTED", "APPROVED", "DISCARDED", "EXPIRED"}
-        }
-        ready_symbols = set(observation_order(stored, ready_symbols)[:ENTRY_BATCH])
-        if not by_symbol and not (ready_due and ready_symbols):
-            return {}
-        if ready_due:
-            _last_ready_check = asyncio.get_running_loop().time()
 
-        # The stream can deliver a current bar after a restart while older bars
-        # are still absent.  A non-breakout current bar is only a valid fast-path
-        # decision when the durable series is contiguous from 09:35 ET.  Without
-        # this guard an earlier breakout is silently lost and the UI lies with a
-        # fresh-looking WAIT_BREAKOUT state.
-        from strategy.orb.retest_data import history_complete
+async def _observe_priority_pending(
+    pending: dict[tuple[str, datetime], Bar], context: ScanContext | None
+) -> dict[str, int]:
+    global _last_ready_check
+    now = datetime.now(UTC)
+    stored = await asyncio.to_thread(read_session, str(now.astimezone(ET).date()))
+    if stored is None:
+        return {}
+    plans = stored.get("plans") or {}
+    states = stored.get("states") or {}
+    by_symbol: dict[str, list[Bar]] = {}
+    for (symbol, _ts), bar in pending.items():
+        if symbol in plans:
+            by_symbol.setdefault(symbol, []).append(bar)
+    selected_stream = set(observation_order(stored, by_symbol)[:OBSERVATION_BATCH])
+    with _pending_completed_bars_lock:
+        for key, bar in pending.items():
+            if key[0] in plans and key[0] not in selected_stream:
+                _pending_completed_bars.setdefault(key, bar)
+    by_symbol = {s: bars for s, bars in by_symbol.items() if s in selected_stream}
 
-        history_checks = asyncio.Semaphore(8)
+    ready_due = asyncio.get_running_loop().time() - _last_ready_check >= 5
+    ready_symbols = {
+        symbol
+        for symbol, raw in plans.items()
+        if (raw.get("evidence") or {}).get("retest")
+        and not states.get(symbol, {}).get("opportunity_id")
+        and states.get(symbol, {}).get("state")
+        not in {"NO_TRADE", "EXECUTED", "APPROVED", "DISCARDED", "EXPIRED"}
+    }
+    ready_symbols = set(observation_order(stored, ready_symbols)[:ENTRY_BATCH])
+    if not by_symbol and not (ready_due and ready_symbols):
+        return {}
+    if ready_due:
+        _last_ready_check = asyncio.get_running_loop().time()
 
-        async def complete(symbol: str) -> tuple[str, bool]:
-            async with history_checks:
-                plan = OrbPlan.model_validate(plans[symbol])
-                value = await asyncio.to_thread(history_complete, plan, now=now)
-                return symbol, value
+    # The stream can deliver a current bar after a restart while older bars
+    # are still absent.  A non-breakout current bar is only a valid fast-path
+    # decision when the durable series is contiguous from 09:35 ET.  Without
+    # this guard an earlier breakout is silently lost and the UI lies with a
+    # fresh-looking WAIT_BREAKOUT state.
+    from strategy.orb.retest_data import history_complete
 
-        history_ready = dict(await asyncio.gather(*(complete(symbol) for symbol in by_symbol)))
-        candidates = set(ready_symbols if ready_due else ())
-        passive: dict[str, dict[str, Any]] = {}
-        for symbol, bars in by_symbol.items():
+    history_checks = asyncio.Semaphore(8)
+
+    async def complete(symbol: str) -> tuple[str, bool]:
+        async with history_checks:
             plan = OrbPlan.model_validate(plans[symbol])
-            state = states.get(symbol, {})
-            latest = max(bars, key=lambda bar: bar.ts)
-            wait_breakout = state.get("reasons") == ["ORB_RETEST_WAIT_BREAKOUT"]
-            can_breakout = any(
-                bar.ts >= plan.range_end
-                and bar.close > plan.range_high + Decimal("0.01")
-                and bar.close > bar.open
-                for bar in bars
+            value = await asyncio.to_thread(history_complete, plan, now=now)
+            return symbol, value
+
+    history_ready = dict(await asyncio.gather(*(complete(symbol) for symbol in by_symbol)))
+    candidates = set(ready_symbols if ready_due else ())
+    passive: dict[str, dict[str, Any]] = {}
+    for symbol, bars in by_symbol.items():
+        plan = OrbPlan.model_validate(plans[symbol])
+        state = states.get(symbol, {})
+        latest = max(bars, key=lambda bar: bar.ts)
+        wait_breakout = state.get("reasons") == ["ORB_RETEST_WAIT_BREAKOUT"]
+        can_breakout = any(
+            bar.ts >= plan.range_end
+            and bar.close > plan.range_high + Decimal("0.01")
+            and bar.close > bar.open
+            for bar in bars
+        )
+        if (
+            wait_breakout
+            and not can_breakout
+            and history_ready.get(symbol, False)
+            and now < plan.entry_deadline
+            and not state.get("opportunity_id")
+        ):
+            passive[symbol] = {
+                "state": "WAIT",
+                "reasons": ["ORB_RETEST_WAIT_BREAKOUT"],
+                "last_checked_at": now.isoformat(),
+                **_bar_observation(latest, observed_at=now),
+            }
+        else:
+            candidates.add(symbol)
+
+    if passive:
+        await asyncio.to_thread(update_states, stored["session"], passive)
+
+    selected_candidates = set(observation_order(stored, candidates)[:ENTRY_BATCH])
+    with _pending_completed_bars_lock:
+        for key, bar in pending.items():
+            if key[0] in candidates - selected_candidates:
+                _pending_completed_bars.setdefault(key, bar)
+    candidates = selected_candidates
+
+    counts: Counter[str] = Counter(wait_for_entry=len(passive))
+    if candidates:
+        from contextlib import AsyncExitStack
+
+        async with AsyncExitStack() as stack:
+            ctx = (
+                context
+                if context is not None
+                else await stack.enter_async_context(open_scan_context(get_settings()))
             )
-            if (
-                wait_breakout
-                and not can_breakout
-                and history_ready.get(symbol, False)
-                and now < plan.entry_deadline
-                and not state.get("opportunity_id")
-            ):
-                passive[symbol] = {
-                    "state": "WAIT",
-                    "reasons": ["ORB_RETEST_WAIT_BREAKOUT"],
-                    "last_checked_at": now.isoformat(),
-                    **_bar_observation(latest, observed_at=now),
-                }
-            else:
-                candidates.add(symbol)
+            from strategy.orb.retest_data import prime_bars
 
-        if passive:
-            await asyncio.to_thread(update_states, stored["session"], passive)
-
-        selected_candidates = set(observation_order(stored, candidates)[:ENTRY_BATCH])
-        with _pending_completed_bars_lock:
-            for key, bar in pending.items():
-                if key[0] in candidates - selected_candidates:
-                    _pending_completed_bars.setdefault(key, bar)
-        candidates = selected_candidates
-
-        counts: Counter[str] = Counter(wait_for_entry=len(passive))
-        if candidates:
-            from contextlib import AsyncExitStack
-
-            async with AsyncExitStack() as stack:
-                ctx = (
-                    context
-                    if context is not None
-                    else await stack.enter_async_context(open_scan_context(get_settings()))
-                )
-                from strategy.orb.retest_data import prime_bars
-
-                candidate_plans = [OrbPlan.model_validate(plans[s]) for s in sorted(candidates)]
+            candidate_plans = [OrbPlan.model_validate(plans[s]) for s in sorted(candidates)]
+            try:
+                await prime_bars(ctx.market_data, candidate_plans, now=now)
+            except BaseException:
+                # Ownership of these stream events returns to the queue
+                # on recovery failure/cancellation. Keep any newer
+                # correction already delivered while the request ran.
+                with _pending_completed_bars_lock:
+                    for key, bar in pending.items():
+                        if key[0] in candidates:
+                            _pending_completed_bars.setdefault(key, bar)
+                raise
+            snapshots = getattr(ctx.market_data, "get_snapshots", None)
+            if callable(snapshots):
                 try:
-                    await prime_bars(ctx.market_data, candidate_plans, now=now)
-                except BaseException:
-                    # Ownership of these stream events returns to the queue
-                    # on recovery failure/cancellation. Keep any newer
-                    # correction already delivered while the request ran.
-                    with _pending_completed_bars_lock:
-                        for key, bar in pending.items():
-                            if key[0] in candidates:
-                                _pending_completed_bars.setdefault(key, bar)
-                    raise
-                snapshots = getattr(ctx.market_data, "get_snapshots", None)
-                if callable(snapshots):
-                    try:
-                        ctx.observation_snapshots = await asyncio.wait_for(
-                            snapshots(sorted(candidates)), timeout=10
-                        )
-                    except Exception:  # noqa: BLE001 — quotes cannot authorize entries
-                        ctx.observation_snapshots = {}
-                counts.update(await evaluate_observation_batch(stored, sorted(candidates), ctx))
+                    ctx.observation_snapshots = await asyncio.wait_for(
+                        snapshots(sorted(candidates)), timeout=10
+                    )
+                except Exception:  # noqa: BLE001 — quotes cannot authorize entries
+                    ctx.observation_snapshots = {}
+            counts.update(await evaluate_observation_batch(stored, sorted(candidates), ctx))
 
-        from core.desk_bus import DESK_BUS
+    from core.desk_bus import DESK_BUS
 
-        refreshed = await asyncio.to_thread(read_session, stored["session"])
-        if refreshed is not None:
-            STATUS.update(refreshed)
-        DESK_BUS.bump_desk(kind="orb_priority_observation")
-        return dict(counts)
+    refreshed = await asyncio.to_thread(read_session, stored["session"])
+    if refreshed is not None:
+        STATUS.update(refreshed)
+    DESK_BUS.bump_desk(kind="orb_priority_observation")
+    return dict(counts)
 
 
 async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
@@ -1239,11 +1252,18 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
         reason_counts = Counter(
             str(reason) for item in current_states.values() for reason in item.get("reasons") or []
         )
-        from strategy.orb.observation_status import observation_status
+        from strategy.orb.observation_status import next_observation_at, observation_status
 
-        progress = observation_status(refreshed, now=datetime.now(UTC))
+        completed_at = datetime.now(UTC)
+        progress = observation_status(refreshed, now=completed_at)
+        next_check = next_observation_at(
+            refreshed,
+            now=completed_at,
+            reserve_seconds=monotonic_clock.monotonic() - started,
+        )
         observation_checkpoint(
             "completed",
+            next_check_at=next_check.isoformat() if next_check is not None else None,
             pending=progress["pending"],
             checked_recently=progress["checked_recently"],
             elapsed_seconds=round(monotonic_clock.monotonic() - started, 3),

@@ -780,3 +780,16 @@ are presented consistently during staggered frontend/backend rollout.
 | Saved unclaimed plan has an instrument object without asset_class | Restore identity from the provider universe on discovery, including at the current classification revision |
 | Provider identity unavailable or fund benchmark bars missing/stale | No synthetic sector or trading permission; existing admission remains fail closed |
 | Published, approving, executed or unresolved opportunity claim | Metadata repair leaves the claimed plan unchanged |
+
+### Observation and exit ownership recovery
+
+| Condition | Behaviour |
+| --- | --- |
+| All plans recently checked, open BUY awaiting approval | Cap scanner idle time at the earliest observation expiry, reserving the last measured portion runtime; retain provider cooldown, single-walker cadence and RTH scope |
+| Database/context read or persistence failure; priority task cancelled | Return the captured stream batch to its locked queue; preserve newer corrections; no admission is granted by retry |
+| Priority retry repeats already evaluated evidence | Persisted opportunity claims and execution idempotency remain authoritative; replay cannot authorize a duplicate order |
+| Exit card approving for the exact open position | Target loop leaves it to durable fill reconciliation; close requests return the existing card before reading broker holdings |
+| Existing exit intent UNKNOWN | Preserve UNKNOWN and its block; no second sale and no inferred fill |
+| Broker flat while an acknowledged sale awaits local settlement | Recover the existing order through reconciliation, apply cumulative fills once, then complete the exit card; never invent a fill price |
+
+Freshness scheduling is a capacity-aware scheduling bound, not a guarantee that a vendor outage or a slow portion cannot exceed five minutes. Missing/stale trading facts still fail closed.

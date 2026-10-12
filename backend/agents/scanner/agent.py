@@ -15,6 +15,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 from agents.scanner.cycle import CycleResult, rank_key, run_cycle
 from agents.scanner.funnel import ScanFunnel
@@ -135,6 +136,25 @@ def choose_scan_delay(
             cool = 0.0
         return min(interval, max(HUNTING_RETRY_SECONDS, cool))
     return max(0.0, seconds_until_due)
+
+
+def cap_observation_delay(
+    delay: float, observation: dict[str, Any], *, now: datetime, cooldown: float
+) -> float:
+    """Freshness limits idle time; provider cooldown always remains authoritative."""
+    if observation.get("pending", 0) > 0:
+        return max(5.0, cooldown)
+    raw = observation.get("next_check_at")
+    if raw is None:
+        return delay
+    try:
+        deadline = datetime.fromisoformat(raw)
+        if deadline.tzinfo is None:
+            raise ValueError("naive deadline")
+        remaining = max(5.0, (deadline - now).total_seconds())
+    except (TypeError, ValueError):
+        remaining = 5.0
+    return max(cooldown, min(delay, remaining))
 
 
 @dataclass
@@ -707,16 +727,14 @@ async def _scanner_loop_inner() -> None:
         from strategy.orb.runtime import OBSERVATION
         from trading.session_hours import us_equity_rth_open
 
-        if (
-            OBSERVATION.get("pending", 0) > 0
-            and us_equity_rth_open(datetime.now(UTC))
-            and not cycle_provider_failed(status)
-        ):
+        if us_equity_rth_open(datetime.now(UTC)) and not cycle_provider_failed(status):
             # Drain the bounded sweep without taking a full scan interval
             # between portions. Vendor cooldown remains authoritative.
             from market_data.providers.alpaca import market_data_cooldown_seconds
 
-            delay = max(5.0, market_data_cooldown_seconds())
+            delay = cap_observation_delay(
+                delay, OBSERVATION, now=datetime.now(UTC), cooldown=market_data_cooldown_seconds()
+            )
         await wait_before_next_cycle(delay)
 
 
