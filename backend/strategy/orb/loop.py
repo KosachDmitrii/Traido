@@ -19,6 +19,7 @@ _exit_lock = asyncio.Lock()
 
 async def exit_due_positions(*, now: datetime | None = None) -> int:
     from api.deps import build_execution_service
+    from trading.exits import EXITS
     from trading.ledger import LEDGER
 
     if _exit_lock.locked():
@@ -27,7 +28,12 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
         count = 0
         fixed_now = now
         now = now or datetime.now(UTC)
+        pending_positions = {item.proposal.position_id for item in EXITS.list_pending()}
         for row in LEDGER.get_open():
+            # Reconciliation owns accepted/partial/unknown sales. Do not
+            # regenerate a target trigger while that exact exit is claimed.
+            if getattr(row, "id", None) in pending_positions:
+                continue
             payload = row.payload or {}
             if payload.get("exit_policy") != "session_close" or not payload.get("exit_at"):
                 continue

@@ -2995,6 +2995,21 @@ class ExecutionService:
         symbol = symbol.upper()
         if manual_target_exits() and reason not in {OPERATOR_CLOSE_REASON, "ORB_TARGET_REACHED"}:
             raise RuntimeError("AUTOMATIC_EXIT_DISABLED_BY_OWNER")
+        from trading.ledger import LEDGER
+
+        ledger_row = LEDGER.find_open_by_symbol(symbol)
+        if ledger_row is not None:
+            for pending in self.exit_store.list_pending():
+                if (
+                    pending.proposal.symbol.upper() == symbol
+                    and pending.proposal.position_id == ledger_row.id
+                ):
+                    live = self._live_exit_intent(symbol, ledger_row.id)
+                    if live is not None and live.status is IntentStatus.UNKNOWN:
+                        raise RuntimeError("EXIT_STATE_UNKNOWN:existing_exit_unresolved")
+                    # The broker may already be flat while durable fill
+                    # reconciliation is still updating this exact position.
+                    return pending
         positions = await self.broker.list_positions()
         pos = next((p for p in positions if p.symbol.upper() == symbol), None)
         if pos is None:
@@ -3002,9 +3017,6 @@ class ExecutionService:
         if pos.qty <= 0:
             raise BrokerRejection("NON_LONG_POSITION_REQUIRES_RECONCILIATION")
 
-        from trading.ledger import LEDGER
-
-        ledger_row = LEDGER.find_open_by_symbol(symbol)
         current = await self._last_price(symbol, fallback=pos.avg_entry)
         pnl_pct = (
             float((current - pos.avg_entry) / pos.avg_entry * 100) if pos.avg_entry > 0 else 0.0
