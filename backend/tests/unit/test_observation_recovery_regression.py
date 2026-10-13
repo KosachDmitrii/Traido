@@ -49,8 +49,10 @@ async def test_failed_stream_batch_returns_to_queue_and_preserves_newer_correcti
         runtime, "read_session", fail if failure == "session" else lambda day: saved
     )
     monkeypatch.setattr(
-        "strategy.orb.retest_data.history_complete",
-        fail if failure in {"history", "cancel"} else lambda *a, **k: True,
+        "strategy.orb.retest_data.history_complete_many",
+        AsyncMock(side_effect=fail)
+        if failure in {"history", "cancel"}
+        else AsyncMock(return_value={plan.symbol: True}),
     )
     monkeypatch.setattr(
         runtime, "update_states", fail if failure == "projection" else lambda *a: None
@@ -62,7 +64,10 @@ async def test_failed_stream_batch_returns_to_queue_and_preserves_newer_correcti
     assert not runtime._priority_lock.locked()
     # Restart the pass after recovery. It consumes the same captured bar once.
     monkeypatch.setattr(runtime, "read_session", lambda day: saved)
-    monkeypatch.setattr("strategy.orb.retest_data.history_complete", lambda *a, **k: True)
+    monkeypatch.setattr(
+        "strategy.orb.retest_data.history_complete_many",
+        AsyncMock(return_value={plan.symbol: True}),
+    )
     written = []
     monkeypatch.setattr(runtime, "update_states", lambda day, updates: written.append(updates))
     assert await runtime.observe_priority(SimpleNamespace()) == {"wait_for_entry": 1}

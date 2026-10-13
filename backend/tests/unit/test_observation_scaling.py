@@ -223,7 +223,9 @@ async def test_busy_stream_subscribes_new_symbols_without_idle_timeout(monkeypat
 
     monkeypatch.setattr(websockets.asyncio.client, "connect", lambda *a, **kw: Connection())
     monkeypatch.setattr(alpaca_stream.time, "monotonic", lambda: clock[0])
-    monkeypatch.setattr(store, "read_session", lambda day: {"plans": {s: {} for s in symbols}})
+    monkeypatch.setattr(
+        store, "read_runtime_session", lambda day: {"plans": {s: {} for s in symbols}}
+    )
     with pytest.raises(asyncio.CancelledError):
         await alpaca_stream._run("test-key", "test-secret")
     subscriptions = [m for m in sent if m["action"] == "subscribe"]
@@ -312,7 +314,7 @@ async def test_priority_recovery_failure_retains_deferred_events_and_newer_corre
         runtime.notify_completed_bar(correction)
         raise TimeoutError
 
-    monkeypatch.setattr(retest_data, "history_complete", lambda *a, **kw: False)
+    monkeypatch.setattr(retest_data, "history_complete_many", AsyncMock(return_value={}))
     monkeypatch.setattr(retest_data, "prime_bars", prime)
     with pytest.raises(TimeoutError):
         await runtime.observe_priority(SimpleNamespace(market_data=SimpleNamespace()))

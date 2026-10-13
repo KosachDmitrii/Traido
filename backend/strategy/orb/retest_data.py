@@ -53,6 +53,25 @@ def history_complete(plan: OrbPlan, *, now: datetime) -> bool:
     return first_gap(plan, rows, end) == end
 
 
+async def history_complete_many(plans: list[OrbPlan], *, now: datetime) -> dict[str, bool]:
+    """Bulk-check stream evidence; keep the same coverage/contiguity requirement."""
+    end = _boundary(now)
+    result = {}
+    groups: dict[tuple[str, datetime], list[OrbPlan]] = defaultdict(list)
+    for plan in plans:
+        if _coverage.get((plan.symbol, plan.session, plan.source), plan.range_end) >= end:
+            result[plan.symbol] = True
+        else:
+            groups[(plan.source, plan.range_end)].append(plan)
+    for (source, start), members in groups.items():
+        rows = await asyncio.to_thread(
+            load_bars_many, source, [p.symbol for p in members], start, end
+        )
+        for plan in members:
+            result[plan.symbol] = first_gap(plan, rows.get(plan.symbol, []), end) == end
+    return result
+
+
 def _remember(plan: OrbPlan, end: datetime, rows: list[Bar], now: datetime) -> None:
     complete = (
         _coverage.get((plan.symbol, plan.session, plan.source), plan.range_end) >= end

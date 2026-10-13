@@ -145,12 +145,18 @@ async def _run() -> None:
 
 def start_entry_watch_loop() -> None:
     global _task
+    from strategy.orb.runtime import start_entry_evaluator
+
+    start_entry_evaluator()
     if _task is None or _task.done():
         _task = asyncio.create_task(_run())
 
 
 def stop_entry_watch_loop() -> None:
     global _task
+    from strategy.orb.runtime import stop_entry_evaluator
+
+    stop_entry_evaluator()
     if _task is not None:
         _task.cancel()
         _task = None
