@@ -661,7 +661,8 @@ Entry reference-stop calculations remain unchanged; losses are not bounded by th
 | Cancellation unknown or raced a fill | Keep reconciliation unresolved; absorb broker fills on the usual path |
 | Missing stop | Intentional; do not recreate or flatten |
 | Target missing / quote stale | Hold, no invented target |
-| Target reached on a later day | Use original target and existing durable exit path |
+| Target reached during regular trading hours | Use original target and existing durable exit path |
+| Target reached premarket, after hours, on a weekend or holiday | Hold; do not queue a market SELL for the next session; reevaluate with a fresh quote during regular hours |
 | User sells | Existing manual exit remains available |
 
 Default `protected` behavior below is unchanged. Enable only in Paper after deployment.

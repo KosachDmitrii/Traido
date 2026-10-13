@@ -11,6 +11,7 @@ from decimal import Decimal
 from core.schemas import Quote
 from strategy.orb.runtime import observe_priority as observe
 from trading.exit_policy import manual_target_exits
+from trading.session_hours import us_equity_rth_open
 
 logger = logging.getLogger(__name__)
 _task: asyncio.Task[None] | None = None
@@ -77,7 +78,12 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                         or (quote.feed is not None and plan.source != f"alpaca:{quote.feed}")
                     ):
                         continue
-                    if quote.bid >= target:
+                    # Alpaca does not execute ordinary market orders outside
+                    # RTH. A target hit after hours would queue a SELL for the
+                    # next open, where a gap can turn it into an unintended
+                    # loss. Keep the position open and reevaluate on a fresh
+                    # regular-session quote instead.
+                    if us_equity_rth_open(now) and quote.bid >= target:
                         reason = "ORB_TARGET_REACHED"
                     elif (
                         not manual_target
