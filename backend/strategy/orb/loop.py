@@ -45,6 +45,11 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                 quote: Quote | None = None
                 target: Decimal | None = None
                 manual_target = manual_target_exits()
+                if manual_target:
+                    from trading.session_hours import us_equity_rth_open
+
+                    if not us_equity_rth_open(now):
+                        continue
                 reason = "ORB_SESSION_END" if not manual_target and now >= deadline else None
                 raw_plan = payload.get("orb_plan") or {}
                 if (
@@ -77,7 +82,7 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                         or (quote.feed is not None and plan.source != f"alpaca:{quote.feed}")
                     ):
                         continue
-                    if quote.bid >= target:
+                    if quote.bid >= target > Decimal(str(row.avg_entry)):
                         reason = "ORB_TARGET_REACHED"
                     elif (
                         not manual_target
