@@ -17,7 +17,7 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -2942,10 +2942,16 @@ class ExecutionService:
                 await self._audit_journal(journal)
             return sold
 
-        intent = live or await self._create_exit_intent(
-            claimed,
-            qty=round_equity_qty(pos.qty) if pos else round_equity_qty(claimed.proposal.entry * 0),
-        )
+        try:
+            intent = live or await self._create_exit_intent(
+                claimed,
+                qty=round_equity_qty(pos.qty)
+                if pos
+                else round_equity_qty(claimed.proposal.entry * 0),
+            )
+        except Exception:
+            self._release_exit(claimed)
+            raise
         ledger_row = LEDGER.get(position_id) or LEDGER.find_open_by_symbol(symbol)
         stop_oid = (ledger_row.payload or {}).get("stop_order_id") if ledger_row else None
 
@@ -3116,9 +3122,55 @@ class ExecutionService:
             purposes=frozenset({IntentPurpose.EXIT}),
         )
 
+    async def _target_exit_limit(self, item: ExitOpportunity) -> Decimal:
+        """Revalidate the stored target; a signal never authorizes a market sale."""
+        from core.clock import market_date
+        from strategy.orb.position_policy import observed_target
+        from trading.ledger import LEDGER
+        from trading.session_hours import ET, session_close, us_equity_rth_open
+
+        now = self._clock()
+        deadline = datetime.combine(market_date(now), session_close(market_date(now)), ET)
+        if not us_equity_rth_open(now) or (deadline - now).total_seconds() < 60:
+            raise BrokerRejection("TARGET_EXIT_SESSION_CLOSED_OR_CLOSING")
+        row = LEDGER.get(item.proposal.position_id)
+        target = observed_target(row.payload or {}) if row else None
+        if row is None or row.symbol != item.proposal.symbol or target is None:
+            raise BrokerRejection("TARGET_EXIT_GEOMETRY_UNVERIFIED")
+        if not target.is_finite() or target <= Decimal(str(row.avg_entry)):
+            raise BrokerRejection("TARGET_EXIT_NOT_PROFITABLE")
+        limit = target.quantize(Decimal("0.01"), rounding=ROUND_CEILING)
+        try:
+            quote = await self.quotes.get_quote(row.symbol) if self.quotes else None
+        except Exception as exc:
+            raise BrokerRejection("TARGET_EXIT_QUOTE_UNAVAILABLE") from exc
+        now = self._clock()
+        if (
+            quote is None
+            or quote.ts.tzinfo is None
+            or quote.symbol != row.symbol
+            or quote.feed != "sip"
+            or not -1 <= (now - quote.ts).total_seconds() <= 5
+            or not quote.bid.is_finite()
+            or not quote.ask.is_finite()
+            or quote.bid < limit
+            or quote.ask < quote.bid
+            or not us_equity_rth_open(now)
+            or (deadline - now).total_seconds() < 60
+        ):
+            raise BrokerRejection("TARGET_EXIT_QUOTE_OR_SESSION_INVALID")
+        return limit
+
     async def _create_exit_intent(self, item: ExitOpportunity, *, qty: Decimal) -> OrderIntent:
         if qty <= 0:
             raise BrokerRejection("NON_LONG_POSITION_REQUIRES_RECONCILIATION")
+        from core.clock import market_date
+
+        limit = (
+            await self._target_exit_limit(item)
+            if "ORB_TARGET_REACHED" in item.proposal.reasons
+            else None
+        )
         position_id = item.proposal.position_id
         attempt = len(self.intents.list_by_key_prefix(f"exit:{position_id}:"))
         intent, created = self.intents.create_or_get(
@@ -3129,7 +3181,11 @@ class ExecutionService:
                 symbol=item.proposal.symbol.upper(),
                 side=OrderSide.SELL,
                 requested_qty=qty,
-                order_type=OrderType.MARKET,
+                order_type=OrderType.LIMIT if limit is not None else OrderType.MARKET,
+                limit_price=limit,
+                risk_snapshot={"target_session": market_date(self._clock()).isoformat()}
+                if limit is not None
+                else {},
                 position_id=position_id,
                 exit_reason="; ".join(item.proposal.reasons),
             )
@@ -3184,6 +3240,17 @@ class ExecutionService:
         try:
             await self._free_shares_for_exit(symbol=intent.symbol, stop_order_id=stop_order_id)
             await self._verify_long_exit_quantity(intent.symbol, intent.requested_qty)
+            if intent.exit_reason == "ORB_TARGET_REACHED":
+                from core.clock import market_date
+
+                if (
+                    intent.risk_snapshot.get("target_session")
+                    != market_date(self._clock()).isoformat()
+                ):
+                    raise BrokerRejection("TARGET_EXIT_SESSION_EXPIRED")
+                limit = await self._target_exit_limit(item)
+                if intent.order_type is not OrderType.LIMIT or intent.limit_price != limit:
+                    raise BrokerRejection("TARGET_EXIT_INTENT_GEOMETRY_MISMATCH")
         except BrokerRejection as exc:
             # No submit has happened; safely retire this stale-sized intent.
             self.intents.transition(intent.id, IntentStatus.REJECTED, last_error=str(exc))
@@ -3237,7 +3304,8 @@ class ExecutionService:
                     client_order_id=client_id,
                     symbol=intent.symbol,
                     side=OrderSide.SELL,
-                    order_type=OrderType.MARKET,
+                    order_type=intent.order_type,
+                    limit_price=intent.limit_price,
                     qty=intent.requested_qty,
                     position_id=intent.position_id,
                     reason=f"approved exit {item.id}",
@@ -3550,4 +3618,19 @@ class ExecutionService:
             },
             entity_type="journal",
             entity_id=str(journal.id),
+        )
+
+
+async def cancel_expired_target_order(
+    broker: BrokerPort, intent: OrderIntent, audit: AuditPort | None = None
+) -> None:
+    """The execution boundary owns cancellation as well as submission."""
+    if intent.exit_reason != "ORB_TARGET_REACHED" or not intent.broker_order_id:
+        raise RuntimeError("TARGET_CANCEL_UNVERIFIED")
+    await broker.cancel_order(intent.broker_order_id)
+    if audit is not None:
+        await audit.append(
+            "TargetExitCancelRequested",
+            "execution",
+            {"intent_id": str(intent.id), "broker_order_id": intent.broker_order_id},
         )

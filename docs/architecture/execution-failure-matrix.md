@@ -793,3 +793,7 @@ are presented consistently during staggered frontend/backend rollout.
 | Broker flat while an acknowledged sale awaits local settlement | Recover the existing order through reconciliation, apply cumulative fills once, then complete the exit card; never invent a fill price |
 
 Freshness scheduling is a capacity-aware scheduling bound, not a guarantee that a vendor outage or a slow portion cannot exceed five minutes. Missing/stale trading facts still fail closed.
+
+## Automatic stored-target exits
+
+Target exits revalidate SIP quotes and stored geometry before intent creation and again before submit. Only regular-session sales with at least 60 seconds remaining are admitted. The durable intent carries a sell LIMIT rounded upward to a cent, above actual ledger entry. Alpaca uses DAY with extended hours disabled; manual sells retain MARKET. Failed pre-submit validation retires the intent and releases the card, with no broker submission. Existing unresolved sales remain owned by reconciliation.
