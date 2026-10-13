@@ -794,3 +794,31 @@ are presented consistently during staggered frontend/backend rollout.
 | Broker flat while an acknowledged sale awaits local settlement | Recover the existing order through reconciliation, apply cumulative fills once, then complete the exit card; never invent a fill price |
 
 Freshness scheduling is a capacity-aware scheduling bound, not a guarantee that a vendor outage or a slow portion cannot exceed five minutes. Missing/stale trading facts still fail closed.
+
+### SIP ingestion and independent observation throughput (2026-10-13)
+
+The socket reader enqueues source messages into a bounded FIFO. One writer
+coalesces up to 500 messages, hydrates missing five-minute windows in bulk,
+upserts real source minutes and then completed M5 bars in bulk. Its bounded
+window cache is derived from durable minutes, never a substitute for missing
+minutes. Later corrections win in arrival order, including an evicted window
+rehydrated after restart. Notifications and stream freshness advance only after
+completed-bar persistence succeeds. No feed downgrade or broker operation is
+introduced by ingestion.
+
+| Condition | Behavior |
+|---|---|
+| Database writer is slow | Socket continues receiving into the bounded queue; batch telemetry reports queue depth and write duration |
+| Queue capacity exceeded | Invalidate stream freshness, report overflow and reconnect; REST must prove any missing interval before admission |
+| Minute or M5 persistence fails | No freshness/notification advances; interrupt the socket reader and recover through durable data/REST |
+| Disconnect or shutdown | Stop the reader, drain bounded pending writes; cancellation joins an active transaction before another connection starts |
+| Late correction or cache eviction | Hydrate real minutes, apply the last received correction, recompute OHLCV; no fabricated rows |
+| Entry admission is slow | The independent entry evaluator owns queued symbols; full-universe passive observation continues |
+| Entry context/database failure | Retain queued symbols for retry; queueing alone never advances last_checked_at or grants BUY |
+| Session projection update | PostgreSQL locks the same session row, reads only affected plans/states and patches those states atomically with decision events; claims, geometry and other symbols remain intact |
+
+Runtime/desk reads exclude the discovery archive; public discovery still returns
+its full durable selection after restart. Symbol evaluation reads only its own
+current plan and claim. Priority history checks use a bulk read with the same
+contiguity and successful-REST coverage requirements. Every actual entry retains
+the existing fresh quote, provenance, admission, risk and Paper-only checks.

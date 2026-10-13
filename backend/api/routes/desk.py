@@ -200,7 +200,7 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     from core.clock import ET
     from strategy.orb.data_access import DATA_ACCESS
     from strategy.orb.runtime import STATUS as orb_status
-    from strategy.orb.store import read_session
+    from strategy.orb.store import read_runtime_session as read_session
 
     orb = read_session(str(datetime.now(UTC).astimezone(ET).date())) or dict(orb_status)
     from strategy.orb.observation_status import observation_status
