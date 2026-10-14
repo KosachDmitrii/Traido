@@ -822,3 +822,26 @@ its full durable selection after restart. Symbol evaluation reads only its own
 current plan and claim. Priority history checks use a bulk read with the same
 contiguity and successful-REST coverage requirements. Every actual entry retains
 the existing fresh quote, provenance, admission, risk and Paper-only checks.
+
+
+### Protected new Paper entries (2026-10-14)
+
+The new-entry policy is `protected_intraday_v1`, saved atomically with approval
+and copied into the position ledger. Legacy holdings without that marker keep
+the owner-selected manual/target policy; rollout does not liquidate them or
+install retroactive stops. Live trading remains prohibited.
+
+| Condition | Behavior |
+|---|---|
+| New entry approved while global Paper policy is manual_target | Freeze protected policy in the approval transaction; install a stop for actual fills using the existing durable protection path |
+| Stop rejected for a new protected entry | Existing emergency-flatten path; unresolved response stays UNKNOWN |
+| Restart or partial exit on a new protected holding | Recover persisted policy; restore/resize protection from signed broker holdings |
+| Mixed legacy/new book | Cancel owned legacy stops only; preserve and reconcile new protected stops |
+| New protected ORB holding reaches target, no-progress horizon, or session deadline | Existing exit owner submits and reconciles the close |
+| Legacy manual/target holding falls below reference stop or reaches session deadline | Preserve original policy; no automatic retroactive exit |
+| Active retest entry has less than its existing 30-minute no-progress horizon until exit_at | Reject with ORB_INSUFFICIENT_SESSION_TIME, including older persisted plans and final pre-submit checks |
+| Explicit crypto fund objective in provider metadata | Reject with CRYPTO_FUND_RISK_PROFILE_UNVALIDATED; preserve existing holdings |
+
+The entry horizon is a conservative Paper constraint derived from the existing
+time-exit rule, not a backtested optimal cutoff. Crypto funds remain blocked
+until a separate profile is validated. Broker stops do not guarantee fill price.

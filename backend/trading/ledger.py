@@ -119,6 +119,7 @@ class PositionLedger:
                 ),
                 "card_risk_reward": opp.candidate.risk_reward,
                 "exit_policy": opp.candidate.exit_policy,
+                "position_exit_policy": opp.candidate.position_exit_policy,
                 "exit_at": opp.candidate.exit_at.isoformat() if opp.candidate.exit_at else None,
                 "orb_plan": opp.candidate.orb_plan,
                 "pipeline_run_id": str(opp.candidate.pipeline_run_id)

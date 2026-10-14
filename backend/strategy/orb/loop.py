@@ -45,7 +45,7 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                 execution = None
                 quote: Quote | None = None
                 target: Decimal | None = None
-                manual_target = manual_target_exits()
+                manual_target = manual_target_exits(payload)
                 reason = "ORB_SESSION_END" if not manual_target and now >= deadline else None
                 raw_plan = payload.get("orb_plan") or {}
                 if (

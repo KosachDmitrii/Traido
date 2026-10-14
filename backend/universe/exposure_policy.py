@@ -10,6 +10,23 @@ from decimal import Decimal
 from typing import Any
 
 
+def crypto_fund_exposure(metadata: dict[str, Any]) -> bool:
+    """Explicit crypto objectives need a separate validated risk profile.
+
+    Match provider fund objectives, not ordinary companies in the blockchain industry.
+    """
+    name = str(metadata.get("asset_name") or "")
+    return bool(
+        re.search(
+            r"\b(?:bitcoin|ethereum|ether|solana|dogecoin|xrp|crypto(?:currency)?)\b"
+            r".*\b(?:etf|trust|fund|etp)\b|\b(?:etf|trust|fund|etp)\b"
+            r".*\b(?:bitcoin|ethereum|ether|solana|dogecoin|xrp|crypto(?:currency)?)\b",
+            name,
+            re.IGNORECASE,
+        )
+    )
+
+
 def geared_exposure(metadata: dict[str, Any]) -> bool:
     name = str(metadata.get("asset_name") or "")
     if re.search(

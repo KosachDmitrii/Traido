@@ -782,6 +782,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         entry=plan.max_entry,
         stop=plan.stop,
         exit_policy="session_close",
+        position_exit_policy="protected_intraday_v1",
         exit_at=plan.exit_at,
         orb_plan=plan.model_dump(mode="json"),
         reasons=trigger.reasons,

@@ -52,7 +52,7 @@ from risk.kill_switch import is_kill_switch_on
 from risk.risk_engine import RiskContext, RiskEngine
 from trading.decision_pipeline import NEW_EXPOSURE_GATE_ORDER
 from trading.entry_activity import track_entry
-from trading.exit_policy import manual_target_exits
+from trading.exit_policy import PROTECTED_INTRADAY, manual_target_exits, manual_target_position
 from trading.exits import (
     EXIT_APPROVING,
     EXIT_AWAITING,
@@ -409,6 +409,16 @@ class ExecutionService:
 
         if is_kill_switch_on():
             raise RuntimeError("KILL_SWITCH")
+
+        # Freeze the new entry's exit contract before admission/intent commit.
+        # Existing ledger rows without this marker retain the owner-selected policy.
+        opp = opp.model_copy(
+            update={
+                "candidate": opp.candidate.model_copy(
+                    update={"position_exit_policy": PROTECTED_INTRADAY}
+                )
+            }
+        )
 
         # Declared gate order must stay loaded on the capital path. The list is
         # the DecisionPipeline contract; silently dropping an import would mean
@@ -831,6 +841,7 @@ class ExecutionService:
                 request_fingerprint=fp,
                 broker_account_id=broker_account_id,
                 broker_environment=broker_env,
+                position_exit_policy=opp.candidate.position_exit_policy,
             )
         except (
             StaleDecisionError,
@@ -1029,6 +1040,7 @@ class ExecutionService:
                 stop_price=stop_px,
                 position_id=None,
                 reason=f"protective stop for {opp.id}",
+                protected_entry=opp.candidate.position_exit_policy == PROTECTED_INTRADAY,
             )
         except Exception as exc:  # noqa: BLE001 — the venue could not be read at all
             stop_error = str(exc)
@@ -1048,7 +1060,7 @@ class ExecutionService:
                 entity_type="order",
                 entity_id=stop_order_id,
             )
-        elif not manual_target_exits():
+        elif not manual_target_exits({"position_exit_policy": opp.candidate.position_exit_policy}):
             failure = stop_error or "protective stop not accepted"
             await self.audit.append(
                 "StopOrderFailed",
@@ -1062,6 +1074,7 @@ class ExecutionService:
                 qty=filled_qty,
                 pipeline_run_id=opp.candidate.pipeline_run_id,
                 reason=f"stop_failed:{failure}",
+                protected_entry=opp.candidate.position_exit_policy == PROTECTED_INTRADAY,
             )
             if flat:
                 self.intents.transition(
@@ -2024,6 +2037,7 @@ class ExecutionService:
         stop_price: Decimal,
         position_id: UUID | None,
         reason: str,
+        protected_entry: bool = False,
     ) -> str | None:
         """Send one protective stop, or adopt one a previous attempt already sent.
 
@@ -2035,7 +2049,7 @@ class ExecutionService:
         left resting above an account that no longer held the shares. One
         trigger away from a short, in a system that disables shorting.
         """
-        if manual_target_exits():
+        if not protected_entry and manual_target_position(symbol, position_id):
             return None
         intent, resumed = await self._protection_intent(
             symbol=symbol, qty=qty, position_id=position_id, reason=reason
@@ -2266,7 +2280,7 @@ class ExecutionService:
         broker. Returns the stop order id, or None if the position had to be
         emergency-closed instead.
         """
-        if manual_target_exits():
+        if manual_target_position(symbol, position_id):
             return None
         oid = await self._place_protective_stop(
             symbol=symbol,
@@ -2318,7 +2332,7 @@ class ExecutionService:
         remainder naked, so a failure to re-place it flattens the remainder
         rather than leaving it exposed.
         """
-        if manual_target_exits():
+        if manual_target_position(symbol, position_id):
             return None
         await self.audit.append(
             "ProtectionResizeRequested",
@@ -2513,6 +2527,7 @@ class ExecutionService:
         pipeline_run_id: UUID | None,
         reason: str,
         position_id: UUID | None = None,
+        protected_entry: bool = False,
     ) -> bool:
         """Sell out of a position we cannot protect.
 
@@ -2525,7 +2540,7 @@ class ExecutionService:
         Returns True only when the exit is *confirmed* filled. An unconfirmed
         flatten is not safety — the caller must keep the state unresolved.
         """
-        if manual_target_exits():
+        if not protected_entry and manual_target_position(symbol, position_id):
             await self.audit.append(
                 "AutomaticExitSuppressed", "execution", {"symbol": symbol, "reason": reason}
             )
@@ -2993,7 +3008,10 @@ class ExecutionService:
             raise RuntimeError("exit_store_not_configured")
 
         symbol = symbol.upper()
-        if manual_target_exits() and reason not in {OPERATOR_CLOSE_REASON, "ORB_TARGET_REACHED"}:
+        if manual_target_position(symbol) and reason not in {
+            OPERATOR_CLOSE_REASON,
+            "ORB_TARGET_REACHED",
+        }:
             raise RuntimeError("AUTOMATIC_EXIT_DISABLED_BY_OWNER")
         from trading.ledger import LEDGER
 
@@ -3292,7 +3310,7 @@ class ExecutionService:
         is assumed and the symbol stays blocked.
         """
         oid = submitted.broker_order_id or ""
-        if manual_target_exits():
+        if manual_target_exits(ledger_row.payload if ledger_row is not None else None):
             # A broker-acknowledged sale has no local fill deadline. Return a
             # pending card promptly; durable reconciliation owns later fills.
             try:
