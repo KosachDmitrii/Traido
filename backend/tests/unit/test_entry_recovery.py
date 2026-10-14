@@ -107,6 +107,28 @@ async def run(c):
 
 
 @pytest.mark.asyncio
+async def test_recovery_preserves_new_policy_after_durable_reload(case, monkeypatch):
+    from core.config import get_settings
+    from trading.exit_policy import PROTECTED_INTRADAY, manual_target_exits
+
+    monkeypatch.setattr(get_settings(), "paper_exit_policy", "manual_target")
+    case.opp = case.opp.model_copy(
+        update={
+            "candidate": case.opp.candidate.model_copy(
+                update={"position_exit_policy": PROTECTED_INTRADAY}
+            )
+        }
+    )
+    monkeypatch.setattr(recovery.OPPORTUNITIES, "get", lambda _: case.opp)
+    await run(case)
+    case.ledger = PositionLedger()
+    row = case.ledger.get_open()[0]
+    assert row.payload["position_exit_policy"] == PROTECTED_INTRADAY
+    assert not manual_target_exits(row.payload)
+    case.broker.place_order.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_terminal_fill_recovers_once_and_protection_stays_visible(case):
     report = await run(case)
     rows = case.ledger.get_open()

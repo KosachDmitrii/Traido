@@ -42,7 +42,6 @@ function pnlView(p: DeskPosition) {
 
 export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
   const t = useT();
-  const manualTarget = desk?.position_exit_policy === "manual_target";
   const { showFlash, refreshAll } = useDesk();
   // Two clicks to flatten. The button sits in a list that is otherwise entirely
   // read-only, so a single click here would be the only place on the desk where
@@ -106,6 +105,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
             </div>
           ) : (
             positions.map((p) => {
+              const manualTarget = (p.position_exit_policy ?? desk?.position_exit_policy) === "manual_target";
               const pnl = pnlView(p);
               const isShort = Number(p.qty) < 0;
               const hasBrokerStop = (desk?.open_orders ?? []).some(o => o.symbol === p.symbol && o.side.toLowerCase() === "sell" && ["stop", "stop_limit"].includes(o.order_type.toLowerCase()));
@@ -117,7 +117,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
               ];
               metrics.push(
                 { key: "mark", label: t("desk.positions.stat.mark"), value: fmtPx(p.mark) },
-                { key: "stop", label: t("desk.positions.stat.stop"), value: isShort ? "—" : manualTarget ? stopStatus : fmtPx(p.stop) },
+                { key: "stop", label: t("desk.positions.stat.stop"), value: isShort ? "—" : manualTarget ? stopStatus : hasBrokerStop ? `${fmtPx(p.stop)} · у брокера` : desk?.open_orders_verified ? `${fmtPx(p.stop)} · защита не подтверждена` : `${fmtPx(p.stop)} · проверяется` },
                 { key: "tgt", label: t("desk.positions.stat.tgt"), value: isShort ? "—" : manualTarget ? `${fmtPx(p.target)} · или вручную, без срока` : ["orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"].includes(p.strategy_version ?? "") && p.target ? `${fmtPx(p.target)} · стоп / время` : p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
               );
               return (

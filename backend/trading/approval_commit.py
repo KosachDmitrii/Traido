@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from threading import Lock
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -64,6 +64,7 @@ def commit_approval_bundle(
     request_fingerprint: str | None = None,
     broker_account_id: str | None = None,
     broker_environment: str = "paper",
+    position_exit_policy: Literal["protected_intraday_v1"] | None = None,
 ) -> ApprovalBundle:
     """Persist claim + ApprovalAdmission + opp link + Entry intent before broker.
 
@@ -106,6 +107,7 @@ def commit_approval_bundle(
         "broker_account_id": broker_account_id,
         "broker_environment": broker_environment,
         "admission_store": adm,
+        "position_exit_policy": position_exit_policy,
     }
     if isinstance(opportunity_store, OpportunityStore) and isinstance(
         intent_store, OrderIntentStore
@@ -157,6 +159,7 @@ def _commit_sql(
     request_fingerprint: str,
     broker_account_id: str | None = None,
     broker_environment: str = "paper",
+    position_exit_policy: Literal["protected_intraday_v1"] | None = None,
 ) -> ApprovalBundle:
     fp = request_fingerprint
     if broker_environment != "paper":
@@ -330,6 +333,14 @@ def _commit_sql(
                 "approval_price": round_equity_price(limit_px),
             }
         )
+        if position_exit_policy is not None:
+            opp = opp.model_copy(
+                update={
+                    "candidate": opp.candidate.model_copy(
+                        update={"position_exit_policy": position_exit_policy}
+                    )
+                }
+            )
         _write_payload(session, opp)
 
         intent, created = _intent_in_session(
@@ -444,6 +455,7 @@ def _commit_memory(
     request_fingerprint: str,
     broker_account_id: str | None = None,
     broker_environment: str = "paper",
+    position_exit_policy: Literal["protected_intraday_v1"] | None = None,
 ) -> ApprovalBundle:
     fp = request_fingerprint
     if broker_environment != "paper":
@@ -575,6 +587,14 @@ def _commit_memory(
                 "approval_price": round_equity_price(limit_px),
             }
         )
+        if position_exit_policy is not None:
+            opp = opp.model_copy(
+                update={
+                    "candidate": opp.candidate.model_copy(
+                        update={"position_exit_policy": position_exit_policy}
+                    )
+                }
+            )
         opportunity_store.update(opp)
 
         key = (

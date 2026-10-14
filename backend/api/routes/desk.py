@@ -36,6 +36,7 @@ from strategy.orb.position_policy import observed_target
 from trading.decision_outcome import DECISION_OUTCOMES, DecisionOutcomeRecord
 from trading.desk_positions import protective_stop_for_display
 from trading.desk_viability import attach_cached_buy_viability
+from trading.exit_policy import manual_target_exits
 from trading.exits import EXITS, ExitOpportunity
 from trading.ledger import LEDGER
 from trading.opportunities import OPPORTUNITIES
@@ -191,6 +192,9 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
             "stop": _tick(r.stop_price),
             "target": _tick(observed_target(r.payload or {}) or r.target_price),
             "exit_policy": (r.payload or {}).get("exit_policy"),
+            "position_exit_policy": "manual_target"
+            if manual_target_exits(r.payload or {})
+            else "protected",
             "exit_at": (r.payload or {}).get("exit_at"),
             "strategy_version": r.strategy_version,
         }
@@ -246,7 +250,7 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
         orb.update(status="data_blocked", reason=DATA_ACCESS.get("reason"))
     return {
         "mode": settings.trading_mode.value,
-        "position_exit_policy": "manual_target" if manual_target_exits() else "protected",
+        "position_exit_policy": "protected",
         "orb": orb,
         "entry_policy": _entry_policy_payload(),
         "auto_trigger": _auto_trigger_payload(),
@@ -604,6 +608,11 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
                     if meta
                     else None,
                     "exit_policy": (meta.payload or {}).get("exit_policy") if meta else None,
+                    "position_exit_policy": (
+                        "manual_target" if manual_target_exits(meta.payload or {}) else "protected"
+                    )
+                    if meta
+                    else None,
                     "exit_at": (meta.payload or {}).get("exit_at") if meta else None,
                     "strategy_version": meta.strategy_version if meta else None,
                     "ledger_linked": meta is not None,
@@ -619,6 +628,9 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
                 "stop": _tick(r.stop_price),
                 "target": _tick(observed_target(r.payload or {}) or r.target_price),
                 "exit_policy": (r.payload or {}).get("exit_policy"),
+                "position_exit_policy": "manual_target"
+                if manual_target_exits(r.payload or {})
+                else "protected",
                 "exit_at": (r.payload or {}).get("exit_at"),
                 "strategy_version": r.strategy_version,
             }

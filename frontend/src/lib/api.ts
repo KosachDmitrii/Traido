@@ -287,6 +287,7 @@ export type DeskPosition = {
   strategy_version?: string | null;
   exit_at?: string | null;
   exit_policy?: string | null;
+  position_exit_policy?: "protected" | "manual_target" | null;
   /** The broker's own mark. Null when it did not report one — not zero. */
   mark?: string | null;
   pnl?: string | null;

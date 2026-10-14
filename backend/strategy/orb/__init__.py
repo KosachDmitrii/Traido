@@ -238,6 +238,8 @@ def form_plan(
         seconds=60
     )
     deadline = exit_at - timedelta(minutes=5)
+    if version in {VERSION, INTRADAY_VERSION}:
+        deadline = exit_at - timedelta(minutes=PARAMETERS["time_exit_minutes"])
     if not us_equity_rth_open(now) or now >= deadline:
         return OrbDecision(state="NO_TRADE", reasons=["ORB_OUTSIDE_ENTRY_SESSION"])
     if now < end:
@@ -381,6 +383,12 @@ def evaluate_trigger(
         or str(now.astimezone(ET).date()) != plan.session
     ):
         return result("NO_TRADE", "ORB_ENTRY_EXPIRED")
+    # Leave the strategy's existing no-progress observation horizon before
+    # scheduled liquidation. Also applies to plans persisted before this revision.
+    if plan.version in {VERSION, INTRADAY_VERSION} and now >= plan.exit_at - timedelta(
+        minutes=PARAMETERS["time_exit_minutes"]
+    ):
+        return result("NO_TRADE", "ORB_INSUFFICIENT_SESSION_TIME")
     if now < plan.range_end:
         return result("WAIT", "ORB_OPENING_RANGE_FORMING")
     if quote is None or quote.symbol.upper() != plan.symbol or quote.ts.tzinfo is None:

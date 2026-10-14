@@ -767,9 +767,11 @@ async def reconcile_protective_orders(
 
     if manual_target_exits():
         rows = ledger.get_open()
+        manual_rows = [row for row in rows if manual_target_exits(row.payload or {})]
+        manual_symbols = {row.symbol.upper() for row in manual_rows}
         owned_ids = {
             str((row.payload or {}).get("stop_order_id"))
-            for row in rows
+            for row in manual_rows
             if (row.payload or {}).get("stop_order_id")
         }
         owned_ids.update(
@@ -778,10 +780,15 @@ async def reconcile_protective_orders(
             if intent.broker_order_id
         )
         for oid, order in resting.items():
-            if oid not in owned_ids or order.order_type not in {
-                OrderType.STOP,
-                OrderType.STOP_LIMIT,
-            }:
+            if (
+                order.symbol.upper() not in manual_symbols
+                or oid not in owned_ids
+                or order.order_type
+                not in {
+                    OrderType.STOP,
+                    OrderType.STOP_LIMIT,
+                }
+            ):
                 continue
             if execution is None or not await execution.cancel_protection(
                 broker_order_id=oid, symbol=order.symbol, reason="owner_manual_target_exit_policy"
@@ -810,12 +817,15 @@ async def reconcile_protective_orders(
             ),
             sum(item.startswith("exit_policy:") for item in rep.unresolved),
         )
-        return 0
+        if len(manual_rows) == len(rows):
+            return 0
 
     held_at_broker = await _broker_quantities(broker)
 
     for row in ledger.get_open():
         payload = row.payload or {}
+        if manual_target_exits(payload):
+            continue
         stop_oid = payload.get("stop_order_id")
         stop_price = row.stop_price
         rep.checked.append(f"protection:{row.symbol}")

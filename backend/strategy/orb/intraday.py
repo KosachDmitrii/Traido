@@ -136,13 +136,16 @@ async def refresh(ctx: Any, universe: Any, *, now: datetime | None = None) -> di
                         },
                     }
                 saved = await asyncio.to_thread(merge_intraday_discovery, day, pool=pool)
-            from universe.exposure_policy import geared_exposure
+            from universe.exposure_policy import crypto_fund_exposure, geared_exposure
 
             symbols = [
                 s
                 for s in pool
                 if s not in saved.get("plans", {})
                 and not geared_exposure(
+                    (pool[s].get("instrument") or {}).get("classification_evidence") or {}
+                )
+                and not crypto_fund_exposure(
                     (pool[s].get("instrument") or {}).get("classification_evidence") or {}
                 )
             ]
