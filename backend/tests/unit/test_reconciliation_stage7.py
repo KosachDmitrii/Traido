@@ -57,8 +57,11 @@ def _intent(
             status=status,
             broker_order_id=broker_order_id,
             client_order_id="traido-e-recon",
-            approval_admission_record_id=uuid4() if status is IntentStatus.CREATED else None,
+            approval_admission_record_id=uuid4(),
             geometry_hash="recon-test",
+            request_id=uuid4(),
+            request_fingerprint="a" * 32,
+            broker_account_id="mock-paper-account",
         )
     )
     return intent
@@ -410,3 +413,78 @@ async def test_matching_negative_ledger_and_broker_are_still_an_incident(monkeyp
     assert adjusted == 0 and row.qty == Decimal(-2)
     assert incidents[0]["qty"] == Decimal(-2)
     assert any("unexpected_short" in item for item in report.unresolved)
+
+
+@pytest.fixture(params=["memory", "sql"])
+def racing_store(request, tmp_path):
+    from sqlalchemy import create_engine
+
+    from trading.intents import OrderIntentStore
+
+    if request.param == "memory":
+        yield MemoryOrderIntentStore()
+    else:
+        engine = create_engine(f"sqlite:///{tmp_path / 'race.db'}")
+        yield OrderIntentStore(engine)
+        engine.dispose()
+
+
+@pytest.mark.parametrize("broker_missing", [False, True])
+async def test_fill_committed_during_broker_lookup_is_not_regressed(
+    racing_store, monkeypatch, broker_missing
+):
+    broker = MockPaperBroker()
+    order = _order(broker, status=OrderStatus.FILLED, filled=Decimal(10))
+    intent = _intent(
+        racing_store, status=IntentStatus.SUBMITTED, broker_order_id=order.broker_order_id
+    )
+
+    async def lookup(oid):
+        racing_store.transition(
+            intent.id,
+            IntentStatus.FILLED,
+            filled_qty=Decimal(10),
+            average_fill_price=Decimal(100),
+        )
+        if broker_missing:
+            raise TimeoutError("broker response lost after the execution owner settled")
+        return order
+
+    monkeypatch.setattr(broker, "get_order", lookup)
+    audit = InMemoryAudit()
+    report = await reconcile_order_intents(broker, racing_store, audit)
+    assert racing_store.get(intent.id).status is IntentStatus.FILLED
+    assert racing_store.get(intent.id).filled_qty == Decimal(10)
+    assert report.unresolved == []
+    assert not any(e["event_type"] == "EntryStateUnknown" for e in audit.events)
+    assert broker.orders == [order], "recovery must not place another order"
+
+
+@pytest.mark.parametrize("winner", [IntentStatus.FILLED, IntentStatus.UNKNOWN])
+async def test_concurrent_commit_between_read_and_transition_wins(
+    racing_store, monkeypatch, winner
+):
+    broker = MockPaperBroker()
+    order = _order(broker, status=OrderStatus.FILLED, filled=Decimal(10))
+    intent = _intent(
+        racing_store, status=IntentStatus.SUBMITTED, broker_order_id=order.broker_order_id
+    )
+    original = racing_store.transition_from
+    raced = False
+
+    def commit_first(intent_id, *, from_status, to_status, **updates):
+        nonlocal raced
+        if not raced:
+            raced = True
+            racing_store.transition(intent_id, winner)
+        return original(intent_id, from_status=from_status, to_status=to_status, **updates)
+
+    monkeypatch.setattr(racing_store, "transition_from", commit_first)
+    audit = InMemoryAudit()
+    await reconcile_order_intents(broker, racing_store, audit)
+    assert racing_store.get(intent.id).status is winner
+    assert not audit.events, "a losing CAS cannot claim a resolution or unknown state"
+    assert broker.orders == [order]
+    # The next pass can resolve a genuinely unknown order from broker truth.
+    await reconcile_order_intents(broker, racing_store, audit)
+    assert racing_store.get(intent.id).status is IntentStatus.FILLED
