@@ -1,6 +1,11 @@
 # Cursor / agent notes for this repo
 
 ## Capital safety
+- Owner authorization 2026-10-15: add a Paper automatic-stop toggle, independent
+  of auto-buy. An explicit selection applies to open and new positions; OFF
+  cancels owned stops and suppresses protection-failure flattening, ON restores
+  saved protection. Targets always operate; existing timed exits are unchanged.
+  Before the first selection, preserve existing per-position defaults.
 - Owner authorization 2026-10-14: new approvals use saved
   `protected_intraday_v1` (stop, target, no-progress/time and session exits).
   Legacy holdings keep the earlier manual_target policy; never retroactively

@@ -127,7 +127,7 @@ async def test_reconciliation_preserves_new_stop_and_cancels_only_legacy_stop(mo
         broker, ledger, execution=execution, report=ReconciliationReport()
     )
     execution.cancel_protection.assert_awaited_once_with(
-        broker_order_id="BWA", symbol="BWA", reason="owner_manual_target_exit_policy"
+        broker_order_id="BWA", symbol="BWA", reason="owner_automatic_stop_disabled"
     )
     execution.ensure_protection.assert_not_awaited()
 
