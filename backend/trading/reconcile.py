@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any, Protocol
 
+from broker.interface import BrokerRejection
 from core.activity import BOARD
 from core.enums import IntentStatus, OpportunityStatus, OrderSide, OrderStatus, OrderType
 from core.ports import AuditPort, BrokerPort
@@ -24,7 +25,13 @@ from core.schemas import ExternalPositionIncident, OrderRecord
 from trading.exit_policy import manual_target_exits
 from trading.intents import INTENTS, OrderIntentStorePort, apply_exit_to_ledger
 from trading.ledger import LEDGER, PositionLedger
-from trading.order_intent import OrderIntent, intent_status_for, locate_broker_order
+from trading.order_intent import (
+    UNRESOLVED,
+    IllegalTransition,
+    OrderIntent,
+    intent_status_for,
+    locate_broker_order,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -320,16 +327,30 @@ async def reconcile_order_intents(
 
         if intent.may_resubmit:
             # Never transmitted, so nothing to reconcile — retire it.
-            intents.transition(intent.id, IntentStatus.REJECTED, last_error="never submitted")
-            rep.changed.append(f"intent:{intent.id}:retired")
+            retired = intents.transition_from(
+                intent.id,
+                from_status=intent.status,
+                to_status=IntentStatus.REJECTED,
+                last_error="never submitted",
+            )
+            if retired is not None:
+                rep.changed.append(f"intent:{intent.id}:retired")
             continue
 
         found = await locate_broker_order(broker, intent)
         if found is None:
-            await _mark_intent_unknown(intents, audit, intent, "broker has no trace of this order")
-            rep.unresolved.append(f"intent:{intent.id}:no_broker_trace")
+            if await _mark_intent_unknown(
+                intents, audit, intent, "broker has no trace of this order"
+            ):
+                rep.unresolved.append(f"intent:{intent.id}:no_broker_trace")
             continue
 
+        # Broker I/O yields to execution. Never apply its earlier snapshot over
+        # a state another owner has already settled.
+        current = intents.get(intent.id)
+        if current is None or current.status not in UNRESOLVED:
+            continue
+        intent = current
         target = intent_status_for(found.status, found.filled_qty)
         if target is intent.status:
             intents.update_fields(intent.id, last_broker_state=found.status.value)
@@ -344,23 +365,28 @@ async def reconcile_order_intents(
             continue
 
         try:
-            intents.transition(
+            updated = intents.transition_from(
                 intent.id,
-                target,
+                from_status=intent.status,
+                to_status=target,
                 broker_order_id=found.broker_order_id,
                 filled_qty=found.filled_qty or intent.filled_qty,
                 average_fill_price=found.filled_avg_price or intent.average_fill_price,
                 last_broker_state=found.status.value,
             )
-        except RuntimeError:
+        except IllegalTransition:
             # The lifecycle forbids this move, which means our model of the
             # order is wrong. That is precisely what UNKNOWN is for.
-            await _mark_intent_unknown(
+            if await _mark_intent_unknown(
                 intents, audit, intent, f"broker reports {found.status.value}, local disagrees"
-            )
-            rep.unresolved.append(f"intent:{intent.id}:illegal_transition")
+            ):
+                rep.unresolved.append(f"intent:{intent.id}:illegal_transition")
             continue
 
+        if updated is None:
+            # The concurrent owner won the CAS and owns the resulting fill.
+            # A later pass rereads broker truth; never regress or resubmit here.
+            continue
         rep.changed.append(f"intent:{intent.id}:{target.value}")
         if audit:
             await audit.append(
@@ -491,9 +517,20 @@ async def _mark_intent_unknown(
     audit: AuditPort | None,
     intent: OrderIntent,
     reason: str,
-) -> None:
+) -> bool:
     if intent.status is not IntentStatus.UNKNOWN:
-        intents.transition(intent.id, IntentStatus.UNKNOWN, last_error=reason)
+        changed = intents.transition_from(
+            intent.id,
+            from_status=intent.status,
+            to_status=IntentStatus.UNKNOWN,
+            last_error=reason,
+        )
+        if changed is None:
+            return False
+    else:
+        current = intents.get(intent.id)
+        if current is None or current.status is not IntentStatus.UNKNOWN:
+            return False
     if audit:
         await audit.append(
             "ExitStateUnknown" if intent.is_exit else "EntryStateUnknown",
@@ -502,6 +539,7 @@ async def _mark_intent_unknown(
             entity_type="order_intent",
             entity_id=str(intent.id),
         )
+    return True
 
 
 # ── Position quantities ──────────────────────────────────────────────────────
@@ -1078,14 +1116,22 @@ async def _resize_stale_protection(
         rep.unresolved.append(f"protection:{row.symbol}:qty_mismatch")
         return
 
-    new_oid = await execution.resize_protection(
-        symbol=row.symbol,
-        position_id=row.id,
-        remaining_qty=held,
-        stop_price=Decimal(str(row.stop_price)) if row.stop_price is not None else None,
-        reason="reconcile: resting stop does not match position size",
-        previous_stop_order_id=stop.broker_order_id,
-    )
+    try:
+        new_oid = await execution.resize_protection(
+            symbol=row.symbol,
+            position_id=row.id,
+            remaining_qty=held,
+            stop_price=Decimal(str(row.stop_price)) if row.stop_price is not None else None,
+            reason="reconcile: resting stop does not match position size",
+            previous_stop_order_id=stop.broker_order_id,
+        )
+    except BrokerRejection as exc:
+        if str(exc) != "EXIT_STOP_FILLED_RECONCILE_REQUIRED":
+            raise
+        # The stop sold shares while cancellation was in flight. Keep this
+        # symbol unresolved, but continue auditing protection on other symbols.
+        rep.unresolved.append(f"protection:{row.symbol}:stop_fill_reconcile_required")
+        return
     if new_oid is None:
         rep.unresolved.append(f"protection:{row.symbol}:resize_failed")
         return

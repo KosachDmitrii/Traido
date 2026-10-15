@@ -845,3 +845,15 @@ install retroactive stops. Live trading remains prohibited.
 The entry horizon is a conservative Paper constraint derived from the existing
 time-exit rule, not a backtested optimal cutoff. Crypto funds remain blocked
 until a separate profile is validated. Broker stops do not guarantee fill price.
+
+### Concurrent reconciliation (2026-10-15)
+
+- Broker lookups may overlap execution updates. Reconciliation rereads the stored
+  intent and uses a status compare-and-swap. A lost CAS defers to the current
+  owner; it never regresses a terminal fill or emits a false UNKNOWN event.
+- Missing broker responses still make an unchanged unresolved intent UNKNOWN.
+  A concurrent settled intent is preserved. No retry submits a duplicate order.
+- A protective stop filling during resize leaves that symbol explicitly
+  unresolved (`stop_fill_reconcile_required`) for the next broker-truth pass.
+  No replacement SELL is sent; the remaining protection audit continues.
+  Other broker errors still propagate.

@@ -129,11 +129,17 @@ def ledger(monkeypatch: pytest.MonkeyPatch) -> PositionLedger:
     return isolated
 
 
-def _position(ledger: PositionLedger, *, qty: Decimal, stop_order_id: str | None = None) -> UUID:
+def _position(
+    ledger: PositionLedger,
+    *,
+    qty: Decimal,
+    stop_order_id: str | None = None,
+    symbol: str = "AAPL",
+) -> UUID:
     from risk.risk_engine import RiskEngine
 
     candidate = TradeCandidate(
-        symbol="AAPL",
+        symbol=symbol,
         action=TradeAction.BUY,
         confidence=0.8,
         entry=Decimal(100),
@@ -591,3 +597,63 @@ async def test_every_exposed_position_is_named_when_protection_cannot_be_read(
     assert all("broker_unreadable" not in u for u in report.unresolved), (
         "the report must name the exposed symbol, not just the failed call"
     )
+
+
+async def test_stop_fill_during_resize_keeps_auditing_other_positions(ledger):
+    from broker.interface import BrokerRejection
+
+    _position(ledger, qty=Decimal(70), stop_order_id="stale-stop")
+    stale = _sell(
+        oid="stale-stop",
+        status=OrderStatus.ACCEPTED,
+        qty=Decimal(100),
+        filled=None,
+        order_type=OrderType.STOP,
+    )
+
+    class FilledDuringResize(_Resizer):
+        async def resize_protection(self, **kwargs):
+            raise BrokerRejection("EXIT_STOP_FILLED_RECONCILE_REQUIRED")
+
+    _position(ledger, qty=Decimal(10), stop_order_id="msft-stop", symbol="MSFT")
+    good = stale.model_copy(
+        update={
+            "symbol": "MSFT",
+            "broker_order_id": "msft-stop",
+            "qty": Decimal(10),
+        }
+    )
+    # A second row must still be audited after the first stop fills.
+    from types import SimpleNamespace
+
+    from trading.reconcile import _resize_stale_protection
+
+    execution = FilledDuringResize()
+    report = ReconciliationReport()
+    await reconcile_protective_orders(
+        _Broker(open_orders=[stale, good]),
+        ledger,
+        InMemoryAudit(),
+        execution=execution,
+        report=report,
+    )
+    assert "protection:AAPL:stop_fill_reconcile_required" in report.unresolved
+    assert "protection:MSFT" in report.checked
+    assert not execution.installed and not execution.resized
+    assert not any("resized" in change for change in report.changed)
+
+    # Unrelated errors must still propagate instead of being silently swallowed.
+    class BrokenResize(_Resizer):
+        async def resize_protection(self, **kwargs):
+            raise BrokerRejection("BROKER_UNAVAILABLE")
+
+    with pytest.raises(BrokerRejection, match="BROKER_UNAVAILABLE"):
+        await _resize_stale_protection(
+            ledger,
+            None,
+            BrokenResize(),
+            SimpleNamespace(symbol="AAPL", id=uuid4(), stop_price=Decimal(95)),
+            stop=stale,
+            held=Decimal(70),
+            rep=ReconciliationReport(),
+        )
