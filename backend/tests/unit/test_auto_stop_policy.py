@@ -240,3 +240,27 @@ async def test_api_only_confirms_a_pass_that_applied_the_selection(monkeypatch, 
     )
     result = await put_auto_stop(AutoStopBody(enabled=False))
     assert result["reconciliation_ok"] is (not unresolved)
+
+
+@pytest.mark.asyncio
+@pytest.mark.usefixtures("capital_path_ready")
+@pytest.mark.parametrize("enabled", [False, True])
+async def test_complete_entry_obeys_switch_without_false_unknown(monkeypatch, enabled):
+    from broker.paper.mock import MockPaperBroker
+    from core.enums import OpportunityStatus
+    from risk.kill_switch import set_kill_switch
+    from tests.unit import test_entry_is_priced_to_execute as entry
+    from trading.ledger import LEDGER
+
+    monkeypatch.setattr(get_settings(), "paper_exit_policy", "manual_target")
+    policy.set_enabled(enabled)
+    candidate = entry._card().model_copy(update={"position_exit_policy": PROTECTED_INTRADAY})
+    monkeypatch.setattr(entry, "_card", lambda: candidate)
+    set_kill_switch(False)
+    broker = MockPaperBroker()
+    _, result = await entry._approve(broker, market_price=66.47)
+    assert result.status is OpportunityStatus.EXECUTED
+    stops = [o for o in broker.orders if o.order_type is OrderType.STOP]
+    assert len(stops) == int(enabled)
+    assert len(broker.orders) == 1 + int(enabled), "no emergency or duplicate sale"
+    assert len(LEDGER.get_open(candidate.symbol)) == 1
