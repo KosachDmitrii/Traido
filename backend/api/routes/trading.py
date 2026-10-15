@@ -1,5 +1,6 @@
 """Opportunity confirmation + portfolio + kill switch."""
 
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Literal
@@ -331,3 +332,42 @@ async def get_broker_backend_route() -> dict:
 @router.put("/broker-backend")
 async def put_broker_backend() -> dict:
     raise HTTPException(status_code=410, detail="ALPACA_ONLY_BROKER_SELECTION_REMOVED")
+
+
+class AutoStopBody(BaseModel):
+    enabled: bool = Field(description="Automatic protective stop sales; targets stay enabled")
+
+
+@router.get("/auto-stop")
+async def get_auto_stop() -> dict:
+    from trading.auto_stop_policy import policy_payload
+
+    return policy_payload()
+
+
+@router.put("/auto-stop")
+async def put_auto_stop(body: AutoStopBody) -> dict:
+    from trading.auto_stop_policy import policy_payload, set_enabled
+
+    try:
+        await asyncio.to_thread(set_enabled, body.enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="AUTO_STOP_POLICY_NOT_SAVED") from exc
+    await create_audit().append("AutoStopPolicyChanged", "user", {"enabled": body.enabled})
+    DESK_BUS.bump_desk(kind="auto_stop_policy")
+    from api.deps import build_reconcile_pass
+    from trading.reconcile_supervisor import RECONCILE
+
+    applied = False
+
+    async def apply_selection() -> dict:
+        nonlocal applied
+        report = await build_reconcile_pass()
+        applied = not report.get("unresolved")
+        return report
+
+    await RECONCILE.run(apply_selection)
+    # Joining an older pass cannot verify this operator selection.
+    return {**policy_payload(), "reconciliation_ok": applied}

@@ -857,3 +857,16 @@ until a separate profile is validated. Broker stops do not guarantee fill price.
   unresolved (`stop_fill_reconcile_required`) for the next broker-truth pass.
   No replacement SELL is sent; the remaining protection audit continues.
   Other broker errors still propagate.
+
+### Owner automatic-stop switch (2026-10-15)
+
+Paper `/auto-stop` is independent of auto-buy and the kill switch. The first
+explicit operator selection applies to existing and future positions. Targets
+and the existing per-position timed exits remain active. OFF cancels only owned
+protective stops through ExecutionService and verifies cancellation; unknown or
+filled cancels remain unresolved. It suppresses new protective stops and the
+protection-failure emergency flatten. ON restores stops using stored geometry
+and broker holdings, including legacy positions; an already-breached stop may
+sell immediately. No stored selection preserves the previous per-position rules.
+Redis persists the selection on Railway; failed writes do not update memory.
+Unavailable/corrupt policy on first load blocks evaluation instead of guessing.

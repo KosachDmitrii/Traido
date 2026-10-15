@@ -52,7 +52,13 @@ from risk.kill_switch import is_kill_switch_on
 from risk.risk_engine import RiskContext, RiskEngine
 from trading.decision_pipeline import NEW_EXPOSURE_GATE_ORDER
 from trading.entry_activity import track_entry
-from trading.exit_policy import PROTECTED_INTRADAY, manual_target_exits, manual_target_position
+from trading.exit_policy import (
+    PROTECTED_INTRADAY,
+    automatic_stops_enabled,
+    automatic_stops_for_position,
+    manual_target_exits,
+    manual_target_position,
+)
 from trading.exits import (
     EXIT_APPROVING,
     EXIT_AWAITING,
@@ -1060,7 +1066,7 @@ class ExecutionService:
                 entity_type="order",
                 entity_id=stop_order_id,
             )
-        elif not manual_target_exits({"position_exit_policy": opp.candidate.position_exit_policy}):
+        elif automatic_stops_enabled({"position_exit_policy": opp.candidate.position_exit_policy}):
             failure = stop_error or "protective stop not accepted"
             await self.audit.append(
                 "StopOrderFailed",
@@ -2049,7 +2055,7 @@ class ExecutionService:
         left resting above an account that no longer held the shares. One
         trigger away from a short, in a system that disables shorting.
         """
-        if not protected_entry and manual_target_position(symbol, position_id):
+        if not automatic_stops_for_position(symbol, position_id, protected_entry=protected_entry):
             return None
         intent, resumed = await self._protection_intent(
             symbol=symbol, qty=qty, position_id=position_id, reason=reason
@@ -2280,7 +2286,7 @@ class ExecutionService:
         broker. Returns the stop order id, or None if the position had to be
         emergency-closed instead.
         """
-        if manual_target_position(symbol, position_id):
+        if not automatic_stops_for_position(symbol, position_id):
             return None
         oid = await self._place_protective_stop(
             symbol=symbol,
@@ -2332,7 +2338,7 @@ class ExecutionService:
         remainder naked, so a failure to re-place it flattens the remainder
         rather than leaving it exposed.
         """
-        if manual_target_position(symbol, position_id):
+        if not automatic_stops_for_position(symbol, position_id):
             return None
         await self.audit.append(
             "ProtectionResizeRequested",
@@ -2540,7 +2546,7 @@ class ExecutionService:
         Returns True only when the exit is *confirmed* filled. An unconfirmed
         flatten is not safety — the caller must keep the state unresolved.
         """
-        if not protected_entry and manual_target_position(symbol, position_id):
+        if not automatic_stops_for_position(symbol, position_id, protected_entry=protected_entry):
             await self.audit.append(
                 "AutomaticExitSuppressed", "execution", {"symbol": symbol, "reason": reason}
             )

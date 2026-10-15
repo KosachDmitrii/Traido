@@ -1,5 +1,5 @@
 import panels from "@/styles/SettingsPanels.module.css";
-import { runScanner, setKillSwitch, setAutoTrigger } from "@/lib/api";
+import { runScanner, setKillSwitch, setAutoTrigger, setAutoStop } from "@/lib/api";
 import { executionBrokerLabelKey } from "@/lib/brokerLabel";
 import { PaperRiskPeriod } from "@/components/desk/PaperRiskPeriod";
 import { useDesk } from "@/context/DeskContext";
@@ -33,6 +33,21 @@ export function SettingsPage() {
   const [triggerBusy, setTriggerBusy] = useState(false);
   const [triggerError, setTriggerError] = useState("");
   const trigger = desk?.auto_trigger;
+  const autoStop = desk?.auto_stop;
+  const [stopBusy, setStopBusy] = useState(false);
+  const [stopError, setStopError] = useState("");
+  const toggleStop = async (enabled: boolean) => {
+    setStopBusy(true);
+    setStopError("");
+    try {
+      const result = await setAutoStop(enabled);
+      if (result.reconciliation_ok === false) setStopError(locale === "ru"
+        ? "Настройка сохранена, но применение у брокера ещё не подтверждено. Стоп может оставаться активным; проверьте ордера."
+        : "Saved, but broker application is not yet verified. A stop may still be active; check orders.");
+    } catch (error) {
+      setStopError(error instanceof Error ? error.message : String(error));
+    } finally { await refreshAll(); setStopBusy(false); }
+  };
   const toggleTrigger = async (enabled: boolean) => {
     setTriggerBusy(true);
     setTriggerError("");
@@ -188,6 +203,31 @@ export function SettingsPage() {
         </div>
       </article>
 
+      <article className="settings-card">
+        <div className="settings-card__body">
+          <h3>{locale === "ru" ? "Автоматическая продажа по стопу" : "Automatic stop sales"}</h3>
+          <p className="settings-card__lead">{locale === "ru"
+            ? "Управляет стопами открытых и новых позиций в Paper. Продажа по цели работает всегда. Выходы по времени продолжают действовать для позиций, где они предусмотрены."
+            : "Controls stops for open and new Paper positions. Target sales always remain active. Scheduled exits still apply to positions that use them."}</p>
+          <div className="settings-kill-control">
+            <div className="settings-kill-control__copy">
+              <strong>{!autoStop ? (locale === "ru" ? "Статус недоступен" : "Status unavailable") : autoStop.enabled ? (locale === "ru" ? "Включена" : "On") : (locale === "ru" ? "Выключена" : "Off")}</strong>
+              <span>{locale === "ru"
+                ? "Выключение отменяет стопы приложения. Включение размещает защиту; если цена уже ниже стопа, возможна продажа. Отмена требует подтверждения брокера."
+                : "Turning off cancels app stops. Turning on installs protection; a price below the stop may trigger a sale. Cancellation requires broker confirmation."}</span>
+            </div>
+            {stopBusy && <LoadingDots ariaLabel={t("common.loading")} />}
+            <SwitchControl checked={autoStop?.enabled ?? false} onCheckedChange={(enabled) => void toggleStop(enabled)}
+              disabled={stopBusy || !autoStop?.available}
+              aria-label={locale === "ru" ? "Автоматическая продажа по стопу" : "Automatic stop sales"} />
+          </div>
+          {autoStop && !autoStop.configured && <p className={panels.note}>{locale === "ru"
+            ? "До первого изменения новые позиции используют стопы, а ранее открытые сохраняют свои индивидуальные настройки."
+            : "Before the first change, new positions use stops and legacy positions retain their individual settings."}</p>}
+          {stopError && <p role="alert">{stopError}</p>}
+        </div>
+      </article>
+
       <article className={`settings-card ${panels.strategy}`}>
         <div className="settings-card__body">
           <div className="settings-card__head"><h3>Opening Range Breakout</h3><span className={panels.badge}>ORB · Paper</span></div>
@@ -196,7 +236,7 @@ export function SettingsPage() {
             <div><dt>{locale === "ru" ? "Диапазон открытия" : "Opening range"}</dt><dd>09:30–09:35 <small>ET</small></dd></div>
             <div><dt>{locale === "ru" ? "Отбор" : "Selection"}</dt><dd>{locale === "ru" ? "Относительный объём" : "Relative volume"}</dd></div>
             <div><dt>{locale === "ru" ? "Вход" : "Entry"}</dt><dd>{!trigger ? "—" : trigger.enabled ? (locale === "ru" ? "Автоматический" : "Automatic") : (locale === "ru" ? "С подтверждением" : "Confirmation")}</dd></div>
-            <div><dt>{locale === "ru" ? "Выход" : "Exit"}</dt><dd>{desk?.position_exit_policy === "manual_target" ? (locale === "ru" ? "Вручную / по цели. Без автостопа и срока." : "Manual / target. No auto stop or deadline.") : (locale === "ru" ? "Цель / стоп / время" : "Target / stop / time")}</dd></div>
+            <div><dt>{locale === "ru" ? "Выход" : "Exit"}</dt><dd>{desk?.position_exit_policy === "manual_target" ? (locale === "ru" ? "Вручную / по цели. Без автостопа и срока." : "Manual / target. No auto stop or deadline.") : (locale === "ru" ? (autoStop?.enabled === false ? "Цель / время, стоп отключён" : "Цель / стоп / время") : (autoStop?.enabled === false ? "Target / time, stops off" : "Target / stop / time"))}</dd></div>
           </dl>
           <p className={panels.note}>{locale === "ru" ? "Новый сигнал действует 10 минут. Цена и риск проверяются перед покупкой. Правила и параметры — в паспорте стратегии." : "A new signal lasts 10 minutes. Price and risk are checked before buying. See the strategy passport for rules and parameters."}</p>
         </div>

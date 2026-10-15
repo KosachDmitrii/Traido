@@ -514,3 +514,14 @@ def disable_api_auth_in_tests(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]
     """A developer `.env` may set TRAIDO_API_KEY; HTTP tests must not need it."""
     monkeypatch.setenv("TRAIDO_AUTH_DISABLED", "true")
     yield
+
+
+@pytest.fixture(autouse=True)
+def isolated_auto_stop_policy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    from trading import auto_stop_policy
+
+    monkeypatch.setattr(auto_stop_policy, "POLICY_PATH", tmp_path / "auto_stop.json")
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    auto_stop_policy.reset_cache()
+    yield
+    auto_stop_policy.reset_cache()

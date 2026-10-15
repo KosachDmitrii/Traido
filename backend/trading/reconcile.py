@@ -22,7 +22,7 @@ from core.activity import BOARD
 from core.enums import IntentStatus, OpportunityStatus, OrderSide, OrderStatus, OrderType
 from core.ports import AuditPort, BrokerPort
 from core.schemas import ExternalPositionIncident, OrderRecord
-from trading.exit_policy import manual_target_exits
+from trading.exit_policy import automatic_stops_enabled, manual_target_exits
 from trading.intents import INTENTS, OrderIntentStorePort, apply_exit_to_ledger
 from trading.ledger import LEDGER, PositionLedger
 from trading.order_intent import (
@@ -803,9 +803,9 @@ async def reconcile_protective_orders(
         o.broker_order_id: o for o in open_orders if o.side == OrderSide.SELL and o.broker_order_id
     }
 
-    if manual_target_exits():
-        rows = ledger.get_open()
-        manual_rows = [row for row in rows if manual_target_exits(row.payload or {})]
+    rows = ledger.get_open()
+    manual_rows = [row for row in rows if not automatic_stops_enabled(row.payload or {})]
+    if manual_rows:
         manual_symbols = {row.symbol.upper() for row in manual_rows}
         owned_ids = {
             str((row.payload or {}).get("stop_order_id"))
@@ -829,7 +829,7 @@ async def reconcile_protective_orders(
             ):
                 continue
             if execution is None or not await execution.cancel_protection(
-                broker_order_id=oid, symbol=order.symbol, reason="owner_manual_target_exit_policy"
+                broker_order_id=oid, symbol=order.symbol, reason="owner_automatic_stop_disabled"
             ):
                 rep.unresolved.append(f"exit_policy:{order.symbol}:stop_cancel_unconfirmed")
                 continue
@@ -842,7 +842,7 @@ async def reconcile_protective_orders(
                     {
                         "symbol": order.symbol,
                         "broker_order_id": oid,
-                        "exit_policy": "manual_target",
+                        "auto_stop_enabled": False,
                     },
                 )
         # Absence of a stop is intentional; do not reinstall or flatten.
@@ -862,7 +862,7 @@ async def reconcile_protective_orders(
 
     for row in ledger.get_open():
         payload = row.payload or {}
-        if manual_target_exits(payload):
+        if not automatic_stops_enabled(payload):
             continue
         stop_oid = payload.get("stop_order_id")
         stop_price = row.stop_price

@@ -136,7 +136,7 @@ async def test_existing_stop_cancelled_but_never_reinstalled(cancelled):
     report = ReconciliationReport()
     await reconcile_protective_orders(broker, ledger, execution=execution, report=report)
     execution.cancel_protection.assert_awaited_once_with(
-        broker_order_id="owned", symbol="AAPL", reason="owner_manual_target_exit_policy"
+        broker_order_id="owned", symbol="AAPL", reason="owner_automatic_stop_disabled"
     )
     execution.ensure_protection.assert_not_awaited()
     assert bool(report.unresolved) is (not cancelled)

@@ -106,6 +106,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
           ) : (
             positions.map((p) => {
               const manualTarget = (p.position_exit_policy ?? desk?.position_exit_policy) === "manual_target";
+              const stopEnabled = p.auto_stop_enabled ?? !manualTarget;
               const pnl = pnlView(p);
               const isShort = Number(p.qty) < 0;
               const hasBrokerStop = (desk?.open_orders ?? []).some(o => o.symbol === p.symbol && o.side.toLowerCase() === "sell" && ["stop", "stop_limit"].includes(o.order_type.toLowerCase()));
@@ -117,8 +118,8 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
               ];
               metrics.push(
                 { key: "mark", label: t("desk.positions.stat.mark"), value: fmtPx(p.mark) },
-                { key: "stop", label: t("desk.positions.stat.stop"), value: isShort ? "—" : manualTarget ? stopStatus : hasBrokerStop ? `${fmtPx(p.stop)} · у брокера` : desk?.open_orders_verified ? `${fmtPx(p.stop)} · защита не подтверждена` : `${fmtPx(p.stop)} · проверяется` },
-                { key: "tgt", label: t("desk.positions.stat.tgt"), value: isShort ? "—" : manualTarget ? `${fmtPx(p.target)} · или вручную, без срока` : ["orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"].includes(p.strategy_version ?? "") && p.target ? `${fmtPx(p.target)} · стоп / время` : p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
+                { key: "stop", label: t("desk.positions.stat.stop"), value: isShort ? "—" : !stopEnabled ? stopStatus : hasBrokerStop ? `${fmtPx(p.stop)} · у брокера` : desk?.open_orders_verified ? `${fmtPx(p.stop)} · защита не подтверждена` : `${fmtPx(p.stop)} · проверяется` },
+                { key: "tgt", label: t("desk.positions.stat.tgt"), value: isShort ? "—" : manualTarget ? `${fmtPx(p.target)} · или вручную, без срока` : ["orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"].includes(p.strategy_version ?? "") && p.target ? `${fmtPx(p.target)} · ${stopEnabled ? "стоп / время" : "по времени, без стопа"}` : p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
               );
               return (
                 <div className="pos-row" key={p.symbol}>
