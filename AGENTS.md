@@ -1,6 +1,10 @@
 # Cursor / agent notes for this repo
 
 ## Capital safety
+- Owner authorization 2026-10-19: Paper automatic-selling toggle OFF permits
+  automatic sales only at the stored target. It also suppresses no-progress,
+  session/time and emergency exits for open and new positions. Manual sells
+  remain available. This supersedes the timed-exit exception from 2026-10-15.
 - Owner authorization 2026-10-15: add a Paper automatic-stop toggle, independent
   of auto-buy. An explicit selection applies to open and new positions; OFF
   cancels owned stops and suppresses protection-failure flattening, ON restores

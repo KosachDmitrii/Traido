@@ -11,7 +11,7 @@ import styles from "./StrategiesPage.module.css";
 export function StrategiesPage() {
   const { desk } = useDesk();
   const stopsEnabled = desk?.auto_stop?.enabled !== false;
-  const manualTarget = desk?.position_exit_policy === "manual_target";
+  const manualTarget = !stopsEnabled || desk?.position_exit_policy === "manual_target";
   const { locale } = useI18n();
   const ru = locale === "ru";
   const [data, setData] = useState<StrategyPassport | null>(null);

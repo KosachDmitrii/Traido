@@ -205,21 +205,21 @@ export function SettingsPage() {
 
       <article className="settings-card">
         <div className="settings-card__body">
-          <h3>{locale === "ru" ? "Автоматическая продажа по стопу" : "Automatic stop sales"}</h3>
+          <h3>{locale === "ru" ? "Автоматическая продажа" : "Automatic selling"}</h3>
           <p className="settings-card__lead">{locale === "ru"
-            ? "Управляет стопами открытых и новых позиций в Paper. Продажа по цели работает всегда. Выходы по времени продолжают действовать для позиций, где они предусмотрены."
-            : "Controls stops for open and new Paper positions. Target sales always remain active. Scheduled exits still apply to positions that use them."}</p>
+            ? "Управляет автоматическими продажами открытых и новых позиций в Paper. Когда выключена, автоматическая продажа разрешена только по достигнутой цели. Стопы, выходы по времени и аварийные автопродажи отключены. Позиции могут оставаться на следующие дни."
+            : "Controls automatic selling for open and new Paper positions. When off, only reached-target sales remain automatic. Stops, timed exits and emergency automatic sales are disabled. Positions may carry overnight."}</p>
           <div className="settings-kill-control">
             <div className="settings-kill-control__copy">
               <strong>{!autoStop ? (locale === "ru" ? "Статус недоступен" : "Status unavailable") : autoStop.enabled ? (locale === "ru" ? "Включена" : "On") : (locale === "ru" ? "Выключена" : "Off")}</strong>
               <span>{locale === "ru"
-                ? "Выключение отменяет стопы приложения. Включение размещает защиту; если цена уже ниже стопа, возможна продажа. Отмена требует подтверждения брокера."
-                : "Turning off cancels app stops. Turning on installs protection; a price below the stop may trigger a sale. Cancellation requires broker confirmation."}</span>
+                ? "Продажа вручную доступна всегда. Выключение отменяет стопы приложения; отмена требует подтверждения брокера. Уже исполненную продажу отменить нельзя. Включение восстанавливает стопы и предусмотренные стратегией выходы по времени; если цена ниже стопа, возможна продажа."
+                : "Manual selling remains available. Turning off cancels app stops; cancellation requires broker confirmation. Completed sales cannot be undone. Turning on restores stops and strategy-defined timed exits; a price below the stop may trigger a sale."}</span>
             </div>
             {stopBusy && <LoadingDots ariaLabel={t("common.loading")} />}
             <SwitchControl checked={autoStop?.enabled ?? false} onCheckedChange={(enabled) => void toggleStop(enabled)}
               disabled={stopBusy || !autoStop?.available}
-              aria-label={locale === "ru" ? "Автоматическая продажа по стопу" : "Automatic stop sales"} />
+              aria-label={locale === "ru" ? "Автоматическая продажа" : "Automatic selling"} />
           </div>
           {autoStop && !autoStop.configured && <p className={panels.note}>{locale === "ru"
             ? "До первого изменения новые позиции используют стопы, а ранее открытые сохраняют свои индивидуальные настройки."
@@ -236,7 +236,7 @@ export function SettingsPage() {
             <div><dt>{locale === "ru" ? "Диапазон открытия" : "Opening range"}</dt><dd>09:30–09:35 <small>ET</small></dd></div>
             <div><dt>{locale === "ru" ? "Отбор" : "Selection"}</dt><dd>{locale === "ru" ? "Относительный объём" : "Relative volume"}</dd></div>
             <div><dt>{locale === "ru" ? "Вход" : "Entry"}</dt><dd>{!trigger ? "—" : trigger.enabled ? (locale === "ru" ? "Автоматический" : "Automatic") : (locale === "ru" ? "С подтверждением" : "Confirmation")}</dd></div>
-            <div><dt>{locale === "ru" ? "Выход" : "Exit"}</dt><dd>{desk?.position_exit_policy === "manual_target" ? (locale === "ru" ? "Вручную / по цели. Без автостопа и срока." : "Manual / target. No auto stop or deadline.") : (locale === "ru" ? (autoStop?.enabled === false ? "Цель / время, стоп отключён" : "Цель / стоп / время") : (autoStop?.enabled === false ? "Target / time, stops off" : "Target / stop / time"))}</dd></div>
+            <div><dt>{locale === "ru" ? "Выход" : "Exit"}</dt><dd>{(autoStop?.enabled === false || desk?.position_exit_policy === "manual_target") ? (locale === "ru" ? "Вручную / по цели. Без автостопа и срока." : "Manual / target. No auto stop or deadline.") : (locale === "ru" ? "Цель / стоп / время" : "Target / stop / time")}</dd></div>
           </dl>
           <p className={panels.note}>{locale === "ru" ? "Новый сигнал действует 10 минут. Цена и риск проверяются перед покупкой. Правила и параметры — в паспорте стратегии." : "A new signal lasts 10 minutes. Price and risk are checked before buying. See the strategy passport for rules and parameters."}</p>
         </div>

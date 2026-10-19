@@ -335,7 +335,9 @@ async def put_broker_backend() -> dict:
 
 
 class AutoStopBody(BaseModel):
-    enabled: bool = Field(description="Automatic protective stop sales; targets stay enabled")
+    enabled: bool = Field(
+        description="Paper automatic exits: OFF allows only target/operator sales; ON restores stops"
+    )
 
 
 @router.get("/auto-stop")

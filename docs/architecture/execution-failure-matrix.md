@@ -870,3 +870,26 @@ and broker holdings, including legacy positions; an already-breached stop may
 sell immediately. No stored selection preserves the previous per-position rules.
 Redis persists the selection on Railway; failed writes do not update memory.
 Unavailable/corrupt policy on first load blocks evaluation instead of guessing.
+
+
+### Owner automatic-selling switch revision (2026-10-19)
+
+Supersedes the 2026-10-15 timed-exit exception above. The existing Paper
+`/auto-stop` setting and persisted selection are retained; no reset is needed.
+An explicit OFF selects the shared manual/target-only policy before checking
+a position's frozen protected policy. ON and no selection keep prior defaults.
+
+| Condition | Behavior with explicit OFF in Paper |
+|---|---|
+| Existing or new protected position; no progress after 30 minutes | Keep open; no timed SELL |
+| Session deadline passes, including a later session after restart | Keep open; continue observing original target |
+| Fresh RTH bid reaches stored target | Existing target SELL path remains active |
+| Missing/stale target quote, premarket, weekend or after hours | No target SELL; re-evaluate during RTH |
+| Stop breached or protection unavailable | No stop installation or emergency automatic flatten |
+| Automatic close requested for any non-target reason | Execution boundary refuses before creating a SELL intent |
+| Explicit operator SELL | Existing manual exit path remains available |
+| Broker stop cancellation races a fill or cannot be confirmed | Preserve unresolved broker truth; never undo or conceal fills |
+
+Already executed sales cannot be undone. Reconciliation continues to process
+accepted/unknown exits and their actual fills without duplicating orders.
+The override remains Paper-only and is restored from Redis after restart.

@@ -1,4 +1,4 @@
-"""Durable Paper-only operator override for broker protective stops.
+"""Durable Paper-only automatic exit switch (OFF: targets/operator only).
 
 None preserves the per-position policy until the operator first changes it.
 Redis is authoritative on Railway; a failed durable write never changes memory.
