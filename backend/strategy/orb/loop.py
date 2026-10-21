@@ -46,6 +46,10 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                 quote: Quote | None = None
                 target: Decimal | None = None
                 manual_target = manual_target_exits(payload)
+                # Only the stored target can sell under this policy, and a
+                # target sale is regular-session only: skip the quote read.
+                if manual_target and not us_equity_rth_open(now):
+                    continue
                 reason = "ORB_SESSION_END" if not manual_target and now >= deadline else None
                 raw_plan = payload.get("orb_plan") or {}
                 if (
@@ -89,8 +93,11 @@ async def exit_due_positions(*, now: datetime | None = None) -> int:
                     # RTH. A target hit after hours would queue a SELL for the
                     # next open, where a gap can turn it into an unintended
                     # loss. Keep the position open and reevaluate on a fresh
-                    # regular-session quote instead.
-                    if us_equity_rth_open(now) and quote.bid >= target:
+                    # regular-session quote instead. A target at or below the
+                    # actual entry is never an automatic profit exit.
+                    if us_equity_rth_open(now) and quote.bid >= target > Decimal(
+                        str(row.avg_entry)
+                    ):
                         reason = "ORB_TARGET_REACHED"
                     elif (
                         not manual_target

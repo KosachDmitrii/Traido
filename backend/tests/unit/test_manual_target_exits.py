@@ -32,6 +32,7 @@ def owner_policy(monkeypatch):
         (0, "100.00", False, False, 0),
         (1, "100.00", False, False, 0),
         (5, "101.99", False, False, 0),
+        (3, "102.00", False, False, 0),  # Saturday: hold through closed session
         (5, "102.00", False, False, 1),
         (5, "102.60", True, False, 0),
         (5, "102.60", False, True, 0),

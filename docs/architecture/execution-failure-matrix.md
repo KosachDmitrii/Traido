@@ -921,3 +921,7 @@ a position's frozen protected policy. ON and no selection keep prior defaults.
 Already executed sales cannot be undone. Reconciliation continues to process
 accepted/unknown exits and their actual fills without duplicating orders.
 The override remains Paper-only and is restored from Redis after restart.
+
+## Automatic stored-target exits
+
+Target exits revalidate SIP quotes and stored geometry before intent creation and again before submit. Only regular-session sales with at least 60 seconds remaining are admitted. The durable intent carries a sell LIMIT rounded upward to a cent, above actual ledger entry. Alpaca uses DAY with extended hours disabled; manual sells retain MARKET. Failed pre-submit validation retires the intent and releases the card, with no broker submission. Existing unresolved sales remain owned by reconciliation.

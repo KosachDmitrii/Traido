@@ -372,23 +372,26 @@ async def test_off_execution_refuses_automatic_non_target_sales_before_broker(mo
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("capital_path_ready")
 @pytest.mark.parametrize("target", [False, True])
-async def test_off_keeps_manual_and_target_execution_available(target):
+async def test_off_keeps_manual_and_target_execution_available(target, monkeypatch):
+    from decimal import Decimal
+
     from tests.unit.test_operator_can_close_a_position import _service_with_open_position
     from trading.exits import EXIT_SOLD, OPERATOR_CLOSE_REASON
 
     service, broker = await _service_with_open_position()
+    if target:
+        # Target geometry/quote validation is covered in test_target_exit_limit;
+        # here only that OFF leaves the target sale (a LIMIT) available.
+        monkeypatch.setattr(
+            type(service), "_target_exit_limit", AsyncMock(return_value=Decimal("1.00"))
+        )
     policy.set_enabled(False)
     result = await service.close_position(
         "AAPL", reason="ORB_TARGET_REACHED" if target else OPERATOR_CLOSE_REASON
     )
     assert result.status == EXIT_SOLD
-    assert (
-        len(
-            [
-                o
-                for o in broker.orders
-                if o.side is OrderSide.SELL and o.order_type is OrderType.MARKET
-            ]
-        )
-        == 1
-    )
+    sells = [
+        o for o in broker.orders if o.side is OrderSide.SELL and o.order_type is not OrderType.STOP
+    ]
+    assert len(sells) == 1
+    assert sells[0].order_type is (OrderType.LIMIT if target else OrderType.MARKET)

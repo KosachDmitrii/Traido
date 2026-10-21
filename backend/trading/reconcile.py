@@ -351,6 +351,38 @@ async def reconcile_order_intents(
         if current is None or current.status not in UNRESOLVED:
             continue
         intent = current
+        if intent.exit_reason == "ORB_TARGET_REACHED" and intent.risk_snapshot.get(
+            "target_session"
+        ):
+            from core.clock import market_date
+            from trading.session_hours import us_equity_rth_open
+
+            if (
+                not us_equity_rth_open()
+                or intent.risk_snapshot["target_session"] != market_date().isoformat()
+            ) and found.status in {
+                OrderStatus.SUBMITTED,
+                OrderStatus.ACCEPTED,
+                OrderStatus.PARTIAL,
+            }:
+                try:
+                    from trading.execution import cancel_expired_target_order
+
+                    await cancel_expired_target_order(broker, intent, audit)
+                    found = await locate_broker_order(broker, intent)
+                    if found is None:
+                        raise RuntimeError("target cancellation unreadable")
+                except Exception:  # noqa: BLE001 — unresolved cancellation retains ownership
+                    if await _mark_intent_unknown(
+                        intents, audit, intent, "target session cancellation unresolved"
+                    ):
+                        rep.unresolved.append(f"intent:{intent.id}:target_cancel_unresolved")
+                    continue
+                # The cancel was broker I/O too: re-check ownership once more.
+                current = intents.get(intent.id)
+                if current is None or current.status not in UNRESOLVED:
+                    continue
+                intent = current
         target = intent_status_for(found.status, found.filled_qty)
         if target is intent.status:
             intents.update_fields(intent.id, last_broker_state=found.status.value)
