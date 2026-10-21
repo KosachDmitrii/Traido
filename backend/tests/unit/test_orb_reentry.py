@@ -184,6 +184,9 @@ async def test_runtime_new_signal_after_close_publishes_new_opportunity(monkeypa
 
     monkeypatch.setattr(runtime, "datetime", Frozen)
     monkeypatch.setattr(publication, "datetime", Frozen)
+    # Re-arm mechanics only: keep the scenario's frozen 2.2 geometry. Upgrading
+    # a re-armed plan to the current version is covered separately above.
+    monkeypatch.setattr("strategy.orb.reentry.VERSION", "orb@2.2.0")
     monkeypatch.setattr(OPPORTUNITIES, "_engine", get_sync_engine())
     monkeypatch.setattr(
         "trading.auto_trigger_policy.enqueue_auto_approve_opportunity", lambda *a, **k: None

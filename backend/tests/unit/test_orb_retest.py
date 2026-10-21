@@ -13,9 +13,10 @@ from strategy.orb.retest import rebuild
 from tests.unit.test_orb_policy import NOW, evidence, quote
 
 
-def scenario(now=NOW):
+def scenario(now=NOW, version="orb@2.2.0"):
+    # Frozen pre-calibration geometry; persisted 2.2/2.3 plans must keep it.
     daily, opening = evidence(now)
-    base = form_plan("AAPL", daily, opening, now=now, feed="sip").plan
+    base = form_plan("AAPL", daily, opening, now=now, feed="sip", version=version).plan
     assert base is not None
     start = base.range_end
 

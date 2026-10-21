@@ -32,7 +32,8 @@ from trading.opportunities import MemoryOpportunityStore
 def current_plan(version=None):
     base, pattern, _ = scenario(RTH_INSTANT)
     from core.schemas import Bar
-    from strategy.orb import INTRADAY_VERSION, form_plan
+    from strategy.orb import PDH_INTRADAY_VERSION as INTRADAY_VERSION
+    from strategy.orb import form_plan
 
     if version == INTRADAY_VERSION:
         base = form_plan(
@@ -262,6 +263,7 @@ async def test_runtime_publishes_once_and_skip_needs_a_new_pattern(monkeypatch):
         [Bar.model_validate(b) for b in plan.evidence["opening"]],
         now=RTH_INSTANT,
         feed="sip",
+        version=plan.version,
     ).plan
     with session_factory()() as db:
         saved = db.get(OrbSessionRow, plan.session)

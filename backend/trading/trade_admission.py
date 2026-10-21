@@ -156,6 +156,8 @@ def evaluate_from_admission_input(
         "orb@2.1.0",
         "orb@2.2.0",
         "orb@2.3.0",
+        "orb@2.4.0",
+        "orb@2.5.0",
     }:
         from strategy.orb.admission import evaluate_sealed
 

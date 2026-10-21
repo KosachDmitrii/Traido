@@ -26,8 +26,8 @@ from core.enums import (
 )
 from core.schemas import Bar, PipelineResult, TradeCandidate
 from strategy.orb import (
-    INTRADAY_VERSION,
     PARAMETERS,
+    PDH_VERSIONS,
     SUPPORTED_VERSIONS,
     VERSION,
     OrbPlan,
@@ -510,7 +510,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             stored = refreshed
             plan = OrbPlan.model_validate(stored["plans"][symbol])
             prior = stored["states"][symbol]
-    if plan.version in {VERSION, INTRADAY_VERSION}:
+    if plan.version in PDH_VERSIONS:
         from uuid import UUID
 
         from strategy.orb.retest import rebuild
@@ -884,8 +884,12 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         now=now,
         asset_class=asset_class,
     )
+    from strategy.orb.sizing import with_exit_slippage
+
     risk = RiskEngine(default_risk_limits()).evaluate(
-        candidate, await ctx.portfolio(), context=built.context
+        candidate,
+        await ctx.portfolio(),
+        context=with_exit_slippage(built.context, candidate, quote),
     )
     result = result.model_copy(
         update={

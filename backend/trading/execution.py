@@ -17,7 +17,7 @@ import logging
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -410,6 +410,8 @@ class ExecutionService:
             "orb@2.1.0",
             "orb@2.2.0",
             "orb@2.3.0",
+            "orb@2.4.0",
+            "orb@2.5.0",
         }:
             raise RuntimeError("STRATEGY_RETIRED:ORB_REQUIRED")
 
@@ -572,6 +574,9 @@ class ExecutionService:
         # buys fewer shares — and the engine, not this method, is what decides
         # how many. Skipping this would let an approval take more risk than the
         # scan approved, which is the one direction a re-check may never move.
+        from strategy.orb.sizing import with_exit_slippage
+
+        context = with_exit_slippage(context, priced, quote)
         risk = self.risk.evaluate(priced, portfolio, candidate_id=opp.id, context=context)
         if risk.verdict.value != "pass" or not risk.sized_qty:
             await self.audit.append(
@@ -739,6 +744,8 @@ class ExecutionService:
             "orb@2.1.0",
             "orb@2.2.0",
             "orb@2.3.0",
+            "orb@2.4.0",
+            "orb@2.5.0",
         }:
             from strategy.orb import OrbPlan, evaluate_trigger
 
@@ -955,7 +962,14 @@ class ExecutionService:
             raise RuntimeError(f"ENTRY_STATE_UNKNOWN:{exc}") from exc
 
         entry_wait = self.fill_timeout
-        if opp.candidate.strategy_version in {"orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"}:
+        if opp.candidate.strategy_version in {
+            "orb@2.0.0",
+            "orb@2.1.0",
+            "orb@2.2.0",
+            "orb@2.3.0",
+            "orb@2.4.0",
+            "orb@2.5.0",
+        }:
             until = datetime.fromisoformat(
                 opp.candidate.orb_plan["evidence"]["retest"]["valid_until"]
             )
@@ -1245,8 +1259,15 @@ class ExecutionService:
             "orb@2.1.0",
             "orb@2.2.0",
             "orb@2.3.0",
+            "orb@2.4.0",
+            "orb@2.5.0",
         }:
-            from strategy.orb import OrbPlan, evaluate_trigger
+            from strategy.orb import (
+                CALIBRATED_VERSIONS,
+                OrbPlan,
+                evaluate_trigger,
+                parameters_for,
+            )
 
             if quote is None or not spread.is_live:
                 return None, GateResult(
@@ -1266,6 +1287,16 @@ class ExecutionService:
                 )
             # Size against the disclosed worst permitted fill, not a stale offer.
             limit = plan.max_entry
+            if plan.version in CALIBRATED_VERSIONS:
+                # Marketable, but never sweep a thin book up to the cap.
+                limit = min(
+                    limit,
+                    (
+                        quote.ask
+                        + (quote.ask - quote.bid)
+                        * parameters_for(plan.version)["entry_limit_spreads"]
+                    ).quantize(Decimal("0.01"), rounding=ROUND_CEILING),
+                )
             checked = evaluate_trigger(plan, quote, now=self._clock(), limit_price=limit)
             if checked.state != "BUY_ALLOWED":
                 return None, GateResult(
@@ -1623,6 +1654,8 @@ class ExecutionService:
             "orb@2.1.0",
             "orb@2.2.0",
             "orb@2.3.0",
+            "orb@2.4.0",
+            "orb@2.5.0",
         }:
             from strategy.orb import OrbPlan, evaluate_trigger
             from trading.admission_records import ADMISSION_RECORDS

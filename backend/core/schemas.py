@@ -274,6 +274,8 @@ class TradeCandidate(StrictModel):
                     "orb@2.1.0",
                     "orb@2.2.0",
                     "orb@2.3.0",
+                    "orb@2.4.0",
+                    "orb@2.5.0",
                 }
                 or self.target is not None
                 or self.risk_reward is not None

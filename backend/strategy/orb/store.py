@@ -367,7 +367,7 @@ def upgrade_unpublished_entry_limits(day: str, *, now: datetime) -> dict[str, An
     a new ID. Approving, executed and unresolved claims are preserved. Plans
     are rebuilt from captured source bars.
     """
-    from strategy.orb import PARAMETERS, VERSION, OrbPlan
+    from strategy.orb import INTRADAY_VERSION, INTRADAY_VERSIONS, PARAMETERS, VERSION, OrbPlan
 
     revision = PARAMETERS["entry_policy_revision"]
     with session_factory()() as db:
@@ -417,13 +417,15 @@ def upgrade_unpublished_entry_limits(day: str, *, now: datetime) -> dict[str, An
             from core.schemas import Bar
             from strategy.orb import form_plan
 
+            # Intraday ranges are not 09:30 ranges; keep each plan's family.
+            new_version = INTRADAY_VERSION if plan.version in INTRADAY_VERSIONS else VERSION
             rebuilt = form_plan(
                 symbol,
                 [Bar.model_validate(b) for b in plan.evidence.get("daily", [])],
                 [Bar.model_validate(b) for b in plan.evidence.get("opening", [])],
                 now=now,
                 feed=plan.source.removeprefix("alpaca:"),
-                version=VERSION,
+                version=new_version,
             )
             if rebuilt.plan is None:
                 continue
@@ -440,7 +442,7 @@ def upgrade_unpublished_entry_limits(day: str, *, now: datetime) -> dict[str, An
                 "new_max_entry": str(rebuilt.plan.max_entry),
                 "previous_parameters": previous_parameters,
                 "old_version": plan.version,
-                "new_version": VERSION,
+                "new_version": new_version,
                 "reason": "USER_REQUESTED_PAPER_RETEST_ROLLOUT",
             }
             updated["evidence"]["entry_policy_change"] = change

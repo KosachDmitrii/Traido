@@ -13,13 +13,18 @@ def size_long_shares(
     risk_pct: float,
     max_position_pct: float,
     cash: Decimal,
+    slippage_per_share: Decimal = Decimal(0),
 ) -> tuple[Decimal, Decimal]:
     """
     Return (qty, max_loss_usd) for a long.
     Qty is limited by risk budget, max position %, and available cash.
+    `slippage_per_share` is the expected exit fill below the stop; it widens
+    the risk the budget is charged for, never the stop itself.
     """
-    risk_per_share = entry - stop
-    if risk_per_share <= 0 or entry <= 0 or equity <= 0:
+    if slippage_per_share < 0:
+        return Decimal(0), Decimal(0)
+    risk_per_share = entry - stop + slippage_per_share
+    if entry - stop <= 0 or entry <= 0 or equity <= 0:
         return Decimal(0), Decimal(0)
 
     risk_budget = equity * Decimal(str(risk_pct / 100.0))

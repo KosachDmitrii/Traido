@@ -98,10 +98,20 @@ async def diagnostics_f3() -> dict:
 
 @router.get("/evaluation/orb-paper")
 async def orb_paper_evaluation() -> dict:
-    """Separate actual journal outcomes for opening and intraday Paper policies."""
-    from strategy.orb import INTRADAY_VERSION
+    """Separate actual journal outcomes for opening and intraday Paper policies.
 
-    return {**paper_evaluation(), "intraday": paper_evaluation(version=INTRADAY_VERSION)}
+    `baseline` keeps the pre-calibration versions apart, for comparison only.
+    """
+    from strategy.orb import INTRADAY_VERSION, PDH_INTRADAY_VERSION, PDH_VERSION
+
+    return {
+        **paper_evaluation(),
+        "intraday": paper_evaluation(version=INTRADAY_VERSION),
+        "baseline": {
+            "opening": paper_evaluation(version=PDH_VERSION),
+            "intraday": paper_evaluation(version=PDH_INTRADAY_VERSION),
+        },
+    }
 
 
 @router.get("/evaluation/{symbol}")

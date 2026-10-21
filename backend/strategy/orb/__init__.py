@@ -16,9 +16,16 @@ from trading.session_hours import is_market_holiday, session_close, us_equity_rt
 PULLBACK_VERSION = "orb@1.5.0"
 RETEST_VERSION = "orb@2.0.0"
 CONTEXT_VERSION = "orb@2.1.0"
-VERSION = "orb@2.2.0"
-INTRADAY_VERSION = "orb@2.3.0"
-RETEST_VERSIONS = frozenset({RETEST_VERSION, CONTEXT_VERSION, VERSION, INTRADAY_VERSION})
+PDH_VERSION = "orb@2.2.0"
+PDH_INTRADAY_VERSION = "orb@2.3.0"
+# Calibrated entry/stop geometry and the intraday market filter. New plans use
+# these; persisted 2.2/2.3 plans and positions keep their frozen semantics.
+VERSION = "orb@2.4.0"
+INTRADAY_VERSION = "orb@2.5.0"
+CALIBRATED_VERSIONS = frozenset({VERSION, INTRADAY_VERSION})
+INTRADAY_VERSIONS = frozenset({PDH_INTRADAY_VERSION, INTRADAY_VERSION})
+PDH_VERSIONS = frozenset({PDH_VERSION, PDH_INTRADAY_VERSION, *CALIBRATED_VERSIONS})
+RETEST_VERSIONS = frozenset({RETEST_VERSION, CONTEXT_VERSION, *PDH_VERSIONS})
 SUPPORTED_VERSIONS = frozenset(
     {
         "orb@1.1.0",
@@ -88,6 +95,36 @@ PARAMETERS = {
     "context_revision": "pdh-confirmation-evidence-1",
     "target_policy": "observed_peak_capped_by_uncleared_previous_day_high",
 }
+
+PDH_PARAMETERS = dict(PARAMETERS)
+PARAMETERS = {
+    **PDH_PARAMETERS,
+    "entry_policy_revision": "paper-confirmation-1",
+    "entry_rule": "confirmation_bar_marketable_limit",
+    # Entry cap above the confirmation close, as a fraction of the risk there.
+    "entry_cap_r": "0.10",
+    "entry_limit_spreads": 2,
+    "retest_stop_buffer_atr": "0.10",
+    "stop_buffer_spreads": 2,
+    "min_stop_intraday_atr": "0.5",
+    "intraday_atr_bars": 14,
+    "min_stop_spreads": 3,
+    "max_stop_daily_atr": "1.0",
+    "sizing_slippage_spreads": 1,
+    "signal_ttl_minutes": 5,
+    "market_filter": "spy_vwap_two_closes_max_drop_relative_strength",
+    "market_benchmark": "SPY",
+    "market_vwap_closes": 2,
+    "market_max_drop_pct": "1.0",
+    "validation": "experimental_paper_not_backtested",
+}
+CALIBRATED_PARAMETERS = PARAMETERS
+
+
+def parameters_for(version: str) -> dict[str, Any]:
+    """Retest parameters frozen for a plan's version."""
+    return CALIBRATED_PARAMETERS if version in CALIBRATED_VERSIONS else PDH_PARAMETERS
+
 
 FLEX_PARAMETERS = {k: v for k, v in ALL_PARAMETERS.items() if k != "selection_scope"}
 FLEX_PARAMETERS["top_n"] = 20
@@ -204,7 +241,12 @@ def form_plan(
     parameters = {
         INTRADAY_VERSION: {**PARAMETERS, "range_policy": "completed_intraday_5m_same_clock_volume"},
         VERSION: PARAMETERS,
-        CONTEXT_VERSION: PARAMETERS,
+        PDH_INTRADAY_VERSION: {
+            **PDH_PARAMETERS,
+            "range_policy": "completed_intraday_5m_same_clock_volume",
+        },
+        PDH_VERSION: PDH_PARAMETERS,
+        CONTEXT_VERSION: PDH_PARAMETERS,
         RETEST_VERSION: RETEST_PARAMETERS,
         PULLBACK_VERSION: PULLBACK_PARAMETERS,
         "orb@1.4.0": EARLY_PARAMETERS,
@@ -218,7 +260,7 @@ def form_plan(
         return blocked("ORB_UNSUPPORTED_FEED")
     local = now.astimezone(ET)
     start = datetime.combine(local.date(), time(9, 30), ET)
-    if version == INTRADAY_VERSION:
+    if version in INTRADAY_VERSIONS:
         # The last evidence row identifies the immutable range, not the clock
         # at replay/approval. A later quote must never move the range forward.
         if not opening_bars or opening_bars[-1].ts.tzinfo is None:
@@ -238,7 +280,7 @@ def form_plan(
         seconds=60
     )
     deadline = exit_at - timedelta(minutes=5)
-    if version in {VERSION, INTRADAY_VERSION}:
+    if version in PDH_VERSIONS:
         deadline = exit_at - timedelta(minutes=PARAMETERS["time_exit_minutes"])
     if not us_equity_rth_open(now) or now >= deadline:
         return OrbDecision(state="NO_TRADE", reasons=["ORB_OUTSIDE_ENTRY_SESSION"])
@@ -252,7 +294,7 @@ def form_plan(
             if b.symbol.upper() != symbol.upper() or not _valid_bar(b):
                 raise ValueError("ORB_INVALID_BAR")
             ts = b.ts.astimezone(ET)
-            if version == INTRADAY_VERSION and b.source != "alpaca":
+            if version in INTRADAY_VERSIONS and b.source != "alpaca":
                 raise ValueError("ORB_INVALID_PROVENANCE")
             if opening and (ts.time() != start.time() or b.timeframe.value != "5m"):
                 continue
@@ -385,7 +427,7 @@ def evaluate_trigger(
         return result("NO_TRADE", "ORB_ENTRY_EXPIRED")
     # Leave the strategy's existing no-progress observation horizon before
     # scheduled liquidation. Also applies to plans persisted before this revision.
-    if plan.version in {VERSION, INTRADAY_VERSION} and now >= plan.exit_at - timedelta(
+    if plan.version in PDH_VERSIONS and now >= plan.exit_at - timedelta(
         minutes=PARAMETERS["time_exit_minutes"]
     ):
         return result("NO_TRADE", "ORB_INSUFFICIENT_SESSION_TIME")

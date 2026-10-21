@@ -40,7 +40,8 @@ def evaluate_sealed(inp: AdmissionInput) -> TradeAdmissionResult:
             "ORB_PRICE_WITHIN_LIMIT"
             if inp.strategy_version == "orb@1.5.0"
             else "ORB_RETEST_CONFIRMED"
-            if inp.strategy_version in {"orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"}
+            if inp.strategy_version
+            in {"orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0", "orb@2.4.0", "orb@2.5.0"}
             else "ORB_BREAKOUT_CONFIRMED"
         ],
         admission_version=inp.strategy_version,
@@ -112,9 +113,9 @@ async def final_admission(
         raise PretradeRejection("ORB_INVALIDATED", ",".join(rebuilt.reasons))
     fresh = rebuilt.plan
     assessed_bars = opening
-    from strategy.orb import INTRADAY_VERSION, VERSION
+    from strategy.orb import PDH_VERSIONS
 
-    if plan.version in {VERSION, INTRADAY_VERSION}:
+    if plan.version in PDH_VERSIONS:
         from strategy.orb.retest import rebuild
         from strategy.orb.retest_data import coverage_end, read_bars
 
@@ -152,6 +153,19 @@ async def final_admission(
     )
     if not gate.tradable_long or gate.status is DataHealthStatus.UNHEALTHY:
         raise PretradeRejection("MARKET_GATE_REJECTED", ",".join(gate.reason_codes))
+    from strategy.orb import CALIBRATED_VERSIONS, parameters_for
+
+    if plan.version in CALIBRATED_VERSIONS:
+        from strategy.orb.market_filter import assess_intraday_market
+
+        tape = await assess_intraday_market(
+            plan.symbol, market_data, now=now, parameters=parameters_for(plan.version)
+        )
+        if not tape.passed:
+            raise PretradeRejection(
+                "MARKET_FILTER_REJECTED" if tape.data_ok else "DATA_BLOCKED",
+                ",".join(tape.reasons),
+            )
     gh = geometry_hash_from_candidate(candidate)
     inp = AdmissionInput(
         orb_plan=plan.model_dump(mode="json"),

@@ -119,7 +119,7 @@ export function PositionsReview({ desk }: { desk: DeskResponse | null }) {
               metrics.push(
                 { key: "mark", label: t("desk.positions.stat.mark"), value: fmtPx(p.mark) },
                 { key: "stop", label: t("desk.positions.stat.stop"), value: isShort ? "—" : !stopEnabled ? stopStatus : hasBrokerStop ? `${fmtPx(p.stop)} · у брокера` : desk?.open_orders_verified ? `${fmtPx(p.stop)} · защита не подтверждена` : `${fmtPx(p.stop)} · проверяется` },
-                { key: "tgt", label: t("desk.positions.stat.tgt"), value: isShort ? "—" : manualTarget ? `${fmtPx(p.target)} · или вручную, без срока` : ["orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0"].includes(p.strategy_version ?? "") && p.target ? `${fmtPx(p.target)} · ${stopEnabled ? "стоп / время" : "по времени, без стопа"}` : p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
+                { key: "tgt", label: t("desk.positions.stat.tgt"), value: isShort ? "—" : manualTarget ? `${fmtPx(p.target)} · или вручную, без срока` : ["orb@2.0.0", "orb@2.1.0", "orb@2.2.0", "orb@2.3.0", "orb@2.4.0", "orb@2.5.0"].includes(p.strategy_version ?? "") && p.target ? `${fmtPx(p.target)} · ${stopEnabled ? "стоп / время" : "по времени, без стопа"}` : p.exit_policy === "session_close" ? "До закрытия сессии" : fmtPx(p.target) },
               );
               return (
                 <div className="pos-row" key={p.symbol}>

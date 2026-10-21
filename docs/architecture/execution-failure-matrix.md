@@ -631,6 +631,34 @@ experiment, not a return forecast. Detailed specification: `orb-retest-v2.md`.
 
 | Entry cancellation acknowledged but broker still reports ACCEPTED/PARTIAL | Keep UNKNOWN and the symbol blocked; never pretend the resting entry was canceled, even if filled quantity is currently zero |
 
+## ORB 2.4/2.5 calibrated entry, stop and tape filter (2026-10-21)
+
+New opening (`orb@2.4.0`) and intraday (`orb@2.5.0`) plans. Saved 2.2/2.3 plans,
+claims and positions keep their frozen geometry and parameters. Exits, protective
+stops, the automatic-stop switch and session-close behaviour are unchanged.
+Specification: `orb-calibrated-v2.4.md`.
+
+| Situation | Behaviour |
+|---|---|
+| Confirmation bar completes | Entry cap = confirmation close + 0.10 R (R measured at that close); no second return to the level is required |
+| Retest low minus 0.10 daily ATR leaves a stop within 0.5 × mean M5 true range (latest 14 bars, opening bar included) | No signal, `ORB_STOP_IN_NOISE`; pattern resets |
+| Stop distance above 1.0 daily ATR | No signal, `ORB_STOP_TOO_WIDE`; pattern resets |
+| Fewer than three intraday bars for the M5 ATR | `DATA_BLOCKED` / `ORB_RETEST_DATA_INVALID` |
+| Live spread × 2 exceeds the stop buffer, or spread × 3 exceeds cap − stop | WAIT / `ORB_SPREAD_TOO_WIDE`; never move the stop |
+| Signal older than one bar (5 minutes) | `ORB_RETEST_EXPIRED` |
+| Entry limit | min(cap, ask + 2 × spread), rounded up to a cent; never above the frozen cap |
+| Sizing | Risk per share = limit − stop + 1 live spread; dollar risk stays within the budget after modeled exit slippage |
+| SPY two latest completed M5 closes not both above session VWAP | Final admission `NO_TRADE` / `MARKET_BELOW_VWAP`; re-evaluated while the signal lives |
+| SPY last close ≤ previous session close − 1% | `NO_TRADE` / `MARKET_DOWN_DAY` |
+| Symbol return from the open below SPY's, or symbol close at/below its VWAP | `NO_TRADE` / `RELATIVE_STRENGTH_WEAK`, `SYMBOL_BELOW_VWAP` |
+| SPY/symbol M5 bars gapped, older than one window of lag, unreadable; SPY previous-session daily bar missing | `DATA_BLOCKED` / `MARKET_FILTER_DATA_MISSING`; never a pass |
+| Approval of a card created earlier | Final admission re-runs the tape filter on current bars; the re-check is never weaker than creation |
+| Unclaimed saved 2.2/2.3 plan on rollout | Existing locked rollout rebuilds it as 2.4 (opening) or 2.5 (intraday) from captured bars; claimed/approving/executed/UNKNOWN preserved |
+| Performance reporting | `orb-paper` evaluation reports 2.4/2.5 separately; 2.2/2.3 under `baseline` |
+
+Thresholds are fixed priors, not fitted. Acceptance: positive net expectancy in R
+over at least 200 Paper trades per version before any parameter change.
+
 ## Closed-position reentry lifecycle (`closed-position-reentry@1`)
 
 | Situation | Behaviour |
