@@ -8,9 +8,9 @@ from strategy.orb import VERSION
 
 
 def paper_evaluation(*, engine=None, version=VERSION) -> dict:
-    from strategy.orb import INTRADAY_VERSION
+    from strategy.orb import PDH_VERSIONS
 
-    if version not in {VERSION, INTRADAY_VERSION}:
+    if version not in PDH_VERSIONS:
         raise ValueError("ORB_EVALUATION_VERSION_UNSUPPORTED")
     with session_factory(engine)() as db:
         row = (

@@ -22,7 +22,8 @@ def window_evidence():
 
 def test_same_clock_volume_and_immutable_range_replay():
     daily, windows = window_evidence()
-    plan = form_plan("AAPL", daily, windows, now=NOW, feed="sip", version=INTRADAY_VERSION).plan
+    # Frozen pre-calibration intraday geometry, matching the legacy scenario bars.
+    plan = form_plan("AAPL", daily, windows, now=NOW, feed="sip", version="orb@2.3.0").plan
     assert plan.relative_volume == 2
     assert plan.range_start == windows[-1].ts
     _, rows, _ = scenario()

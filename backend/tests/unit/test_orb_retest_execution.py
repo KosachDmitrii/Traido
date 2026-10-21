@@ -32,7 +32,8 @@ from trading.opportunities import MemoryOpportunityStore
 def current_plan(version=None):
     base, pattern, _ = scenario(RTH_INSTANT)
     from core.schemas import Bar
-    from strategy.orb import INTRADAY_VERSION, form_plan
+    from strategy.orb import PDH_INTRADAY_VERSION as INTRADAY_VERSION
+    from strategy.orb import form_plan
 
     if version == INTRADAY_VERSION:
         base = form_plan(
@@ -104,7 +105,17 @@ class RetestMarket(LiquidMarketData):
 @pytest.mark.asyncio
 @pytest.mark.usefixtures("capital_path_ready")
 @pytest.mark.parametrize(
-    "failure", [None, "expensive", "missing_bar", "changed_confirmation", "stale_quote", "geared"]
+    "failure",
+    [
+        None,
+        "expensive",
+        "missing_bar",
+        "changed_confirmation",
+        "stale_quote",
+        "geared",
+        "crypto",
+        "stop_rejected",
+    ],
 )
 @pytest.mark.parametrize("manual_target", [False, True])
 @pytest.mark.parametrize("version", [None, "orb@2.3.0"])
@@ -117,12 +128,16 @@ async def test_retest_passes_real_execution_or_has_no_broker_effect(
         get_settings(), "paper_exit_policy", "manual_target" if manual_target else "protected"
     )
     plan, rows = current_plan(version)
-    if failure == "geared":
+    if failure in {"geared", "crypto"}:
         from copy import deepcopy
 
         evidence = deepcopy(plan.evidence)
         evidence["instrument"] = {
-            "classification_evidence": {"asset_name": "Direxion Daily Small Cap Bear 3X ETF"}
+            "classification_evidence": {
+                "asset_name": "Direxion Daily Small Cap Bear 3X ETF"
+                if failure == "geared"
+                else "Bitwise Solana Staking ETF"
+            }
         }
         plan = plan.model_copy(update={"evidence": evidence})
         with session_factory()() as db:
@@ -149,6 +164,18 @@ async def test_retest_passes_real_execution_or_has_no_broker_effect(
         policy_version=plan.version,
     )
     broker = MockPaperBroker()
+    if failure == "stop_rejected":
+        from broker.interface import BrokerRejection
+        from core.enums import OrderType
+
+        place = broker.place_order
+
+        async def refuse_stop(request):
+            if request.order_type == OrderType.STOP:
+                raise BrokerRejection("test_stop_rejected")
+            return await place(request)
+
+        monkeypatch.setattr(broker, "place_order", refuse_stop)
     risk = RiskEngine().evaluate(candidate, await broker.get_portfolio(), context=CLEARED_EARNINGS)
     store = MemoryOpportunityStore()
     opp = store.create(candidate, risk, TradingMode.CONFIRMATION)
@@ -169,7 +196,21 @@ async def test_retest_passes_real_execution_or_has_no_broker_effect(
         audit=InMemoryAudit(),
     )
     before = service.intents.list_by_key_prefix("entry:")
-    if failure:
+    if failure == "stop_rejected":
+        with pytest.raises(RuntimeError, match="STOP_FAILED_FLATTENED"):
+            await service.decide(
+                opp.id,
+                UserDecision.APPROVE,
+                request_id=uuid4(),
+                expected_decision_version=opp.decision_version,
+            )
+        assert len([o for o in broker.orders if o.side.value == "buy"]) == 1
+        assert len([o for o in broker.orders if o.side.value == "sell"]) == 1
+        assert await broker.list_positions() == []
+        from trading.ledger import LEDGER
+
+        assert LEDGER.find_open_by_symbol(plan.symbol) is None
+    elif failure:
         with pytest.raises((RuntimeError, ValueError)):
             await service.decide(
                 opp.id,
@@ -191,9 +232,13 @@ async def test_retest_passes_real_execution_or_has_no_broker_effect(
         assert len(buys) == 1 and buys[0].limit_price <= plan.max_entry
         assert any(
             o.order_type.value == "stop" and o.stop_price == plan.stop for o in broker.orders
-        ) is (not manual_target)
-        if manual_target:
-            assert len(broker.orders) == 1
+        )
+        assert len(broker.orders) == 2
+        from trading.ledger import LEDGER
+
+        row = LEDGER.find_open_by_symbol(plan.symbol)
+        assert row.payload["position_exit_policy"] == "protected_intraday_v1"
+        assert result.candidate.position_exit_policy == "protected_intraday_v1"
 
 
 @pytest.mark.asyncio
@@ -218,6 +263,7 @@ async def test_runtime_publishes_once_and_skip_needs_a_new_pattern(monkeypatch):
         [Bar.model_validate(b) for b in plan.evidence["opening"]],
         now=RTH_INSTANT,
         feed="sip",
+        version=plan.version,
     ).plan
     with session_factory()() as db:
         saved = db.get(OrbSessionRow, plan.session)

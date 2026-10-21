@@ -1,6 +1,6 @@
 """Owner exit selection: real stop cancellation and original targets across days."""
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal as D
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -31,11 +31,11 @@ def owner_policy(monkeypatch):
     [
         (0, "100.00", False, False, 0),
         (1, "100.00", False, False, 0),
-        (3, "101.99", False, False, 0),
+        (5, "101.99", False, False, 0),
         (3, "102.00", False, False, 0),  # Saturday: hold through closed session
         (5, "102.00", False, False, 1),
-        (3, "102.60", True, False, 0),
-        (3, "102.60", False, True, 0),
+        (5, "102.60", True, False, 0),
+        (5, "102.60", False, True, 0),
     ],
 )
 async def test_original_target_survives_time_and_day_change(
@@ -77,6 +77,43 @@ async def test_original_target_survives_time_and_day_change(
 
 
 @pytest.mark.usefixtures("owner_policy")
+@pytest.mark.parametrize(
+    "now",
+    [
+        datetime(2026, 9, 9, 21, 0, tzinfo=UTC),  # after hours
+        datetime(2026, 9, 12, 14, 0, tzinfo=UTC),  # weekend
+        datetime(2026, 9, 14, 12, 0, tzinfo=UTC),  # premarket
+    ],
+)
+async def test_target_hit_outside_regular_session_does_not_submit_sell(monkeypatch, now):
+    from api import deps
+    from trading.ledger import LEDGER
+
+    p, _, opened = ready_plan()
+    row = SimpleNamespace(
+        symbol=p.symbol,
+        qty=D(5),
+        avg_entry=D("101.12"),
+        opened_at=opened,
+        payload={
+            "exit_policy": "session_close",
+            "exit_at": p.exit_at.isoformat(),
+            "orb_plan": p.model_dump(mode="json"),
+        },
+    )
+    monkeypatch.setattr(LEDGER, "get_open", lambda: [row])
+    execution = SimpleNamespace(
+        quotes=SimpleNamespace(get_quote=AsyncMock(return_value=quote("102.60", "102.62", now))),
+        audit=InMemoryAudit(),
+        close_position=AsyncMock(),
+    )
+    monkeypatch.setattr(deps, "build_execution_service", lambda: execution)
+
+    assert await exit_due_positions(now=now) == 0
+    execution.close_position.assert_not_awaited()
+
+
+@pytest.mark.usefixtures("owner_policy")
 @pytest.mark.parametrize("cancelled", [False, True])
 async def test_existing_stop_cancelled_but_never_reinstalled(cancelled):
     row = SimpleNamespace(symbol="AAPL", payload={"stop_order_id": "owned"})
@@ -100,7 +137,7 @@ async def test_existing_stop_cancelled_but_never_reinstalled(cancelled):
     report = ReconciliationReport()
     await reconcile_protective_orders(broker, ledger, execution=execution, report=report)
     execution.cancel_protection.assert_awaited_once_with(
-        broker_order_id="owned", symbol="AAPL", reason="owner_manual_target_exit_policy"
+        broker_order_id="owned", symbol="AAPL", reason="owner_automatic_stop_disabled"
     )
     execution.ensure_protection.assert_not_awaited()
     assert bool(report.unresolved) is (not cancelled)

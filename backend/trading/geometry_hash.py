@@ -48,6 +48,8 @@ def geometry_hash_from_candidate(candidate: TradeCandidate, *, exec_timeframe: s
             "version": candidate.strategy_version,
             "plan": candidate.orb_plan,
         }
+        if candidate.position_exit_policy is not None:
+            payload["position_exit_policy"] = candidate.position_exit_policy
         return hashlib.sha256(
             json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         ).hexdigest()[:16]

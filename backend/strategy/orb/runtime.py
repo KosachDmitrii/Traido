@@ -26,8 +26,8 @@ from core.enums import (
 )
 from core.schemas import Bar, PipelineResult, TradeCandidate
 from strategy.orb import (
-    INTRADAY_VERSION,
     PARAMETERS,
+    PDH_VERSIONS,
     SUPPORTED_VERSIONS,
     VERSION,
     OrbPlan,
@@ -37,7 +37,15 @@ from strategy.orb import (
     form_plan,
 )
 from strategy.orb.data_access import data_error_reason
-from strategy.orb.store import create_session, read_session, update_state, update_states
+from strategy.orb.store import (
+    create_session,
+    read_symbol_session,
+    update_state,
+    update_states,
+)
+from strategy.orb.store import (
+    read_runtime_session as read_session,
+)
 from trading.scan_context import ScanContext, open_scan_context
 from trading.session_hours import us_equity_rth_open
 from universe.models import UniverseTier
@@ -127,8 +135,58 @@ _priority_lock = asyncio.Lock()
 _pending_completed_bars: dict[tuple[str, datetime], Bar] = {}
 _pending_completed_bars_lock = Lock()
 _last_ready_check = 0.0
+_entry_worker: asyncio.Task[None] | None = None
+_pending_entries: set[str] = set()
 STATUS: dict[str, Any] = {"status": "not_started", "version": VERSION, "parameters": PARAMETERS}
 logger = logging.getLogger(__name__)
+
+
+def start_entry_evaluator() -> None:
+    """Heavy admission must never hold up passive full-universe observation."""
+    global _entry_worker
+    if _entry_worker is None or _entry_worker.done():
+        _entry_worker = asyncio.create_task(
+            _evaluate_deferred_entries(), name="orb-entry-evaluator"
+        )
+
+
+def stop_entry_evaluator() -> None:
+    if _entry_worker is not None:
+        _entry_worker.cancel()
+
+
+async def _evaluate_deferred_entries() -> None:
+    while True:
+        try:
+            if _pending_entries:
+                from core.desk_bus import DESK_BUS
+                from strategy.orb.retest_data import prime_bars
+
+                now = datetime.now(UTC)
+                stored = await asyncio.to_thread(read_session, str(now.astimezone(ET).date()))
+                if stored is not None:
+                    selected = observation_order(
+                        stored, _pending_entries & stored.get("plans", {}).keys()
+                    )[:ENTRY_BATCH]
+                    # No queued geometry/approval is reused: recovery and the
+                    # evaluator reload current authoritative facts and claims.
+                    async with open_scan_context(get_settings()) as ctx:
+                        await prime_bars(
+                            ctx.market_data,
+                            [OrbPlan.model_validate(stored["plans"][s]) for s in selected],
+                            now=now,
+                        )
+                        await evaluate_observation_batch(stored, selected, ctx)
+                    _pending_entries.difference_update(selected)
+                    _pending_entries.intersection_update(stored.get("plans", {}))
+                    DESK_BUS.bump_desk(kind="orb_deferred_entries")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Context/database failures retain the queue for recovery.
+            logger.exception("ORB deferred entry observation failed; will retry")
+            await asyncio.sleep(5)
+        await asyncio.sleep(1)
 
 
 def notify_completed_bar(bar: Bar) -> None:
@@ -189,10 +247,12 @@ async def discover(
 ) -> dict[str, Any]:
     """Keep all qualifying plans, ordered by opening relative volume."""
     now = now or datetime.now(UTC)
+    from strategy.orb.store import read_session as read_full_session
+
     day = str(now.astimezone(ET).date())
     async with _discovery_lock:
         feed_name = getattr(ctx.market_data, "_feed", None)
-        existing = await asyncio.to_thread(read_session, day)
+        existing = await asyncio.to_thread(read_full_session, day)
         if existing is not None:
             STATUS.clear()
             STATUS.update(existing)
@@ -433,7 +493,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
     now = datetime.now(UTC)
     symbol = symbol.upper()
     result = PipelineResult(pipeline_run_id=uuid4(), symbol=symbol, status="wait_for_entry")
-    stored = await asyncio.to_thread(read_session, str(now.astimezone(ET).date()))
+    stored = await asyncio.to_thread(read_symbol_session, str(now.astimezone(ET).date()), symbol)
     if stored is None or symbol not in stored.get("plans", {}):
         return result.model_copy(update={"status": "no_trade", "errors": ["ORB_NOT_SELECTED"]})
     plan = OrbPlan.model_validate(stored["plans"][symbol])
@@ -442,7 +502,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         from strategy.orb.reentry import rearm_closed_trade
 
         if await rearm_closed_trade(plan.session, symbol, ctx.broker, now=now):
-            refreshed = await asyncio.to_thread(read_session, plan.session)
+            refreshed = await asyncio.to_thread(read_symbol_session, plan.session, symbol)
             if refreshed is None or symbol not in refreshed.get("plans", {}):
                 return result.model_copy(
                     update={"status": "data_blocked", "errors": ["ORB_SESSION_UNRESOLVED"]}
@@ -450,7 +510,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
             stored = refreshed
             plan = OrbPlan.model_validate(stored["plans"][symbol])
             prior = stored["states"][symbol]
-    if plan.version in {VERSION, INTRADAY_VERSION}:
+    if plan.version in PDH_VERSIONS:
         from uuid import UUID
 
         from strategy.orb.retest import rebuild
@@ -525,7 +585,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
                 return result
             plan = revised.plan
             prior = (
-                ((await asyncio.to_thread(read_session, plan.session)) or {})
+                ((await asyncio.to_thread(read_symbol_session, plan.session, symbol)) or {})
                 .get("states", {})
                 .get(symbol, {})
             )
@@ -722,6 +782,7 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         entry=plan.max_entry,
         stop=plan.stop,
         exit_policy="session_close",
+        position_exit_policy="protected_intraday_v1",
         exit_at=plan.exit_at,
         orb_plan=plan.model_dump(mode="json"),
         reasons=trigger.reasons,
@@ -823,8 +884,12 @@ async def evaluate_symbol(symbol: str, ctx: ScanContext, *, publish: bool = True
         now=now,
         asset_class=asset_class,
     )
+    from strategy.orb.sizing import with_exit_slippage
+
     risk = RiskEngine(default_risk_limits()).evaluate(
-        candidate, await ctx.portfolio(), context=built.context
+        candidate,
+        await ctx.portfolio(),
+        context=with_exit_slippage(built.context, candidate, quote),
     )
     result = result.model_copy(
         update={
@@ -980,17 +1045,11 @@ async def _observe_priority_pending(
     # decision when the durable series is contiguous from 09:35 ET.  Without
     # this guard an earlier breakout is silently lost and the UI lies with a
     # fresh-looking WAIT_BREAKOUT state.
-    from strategy.orb.retest_data import history_complete
+    from strategy.orb.retest_data import history_complete_many
 
-    history_checks = asyncio.Semaphore(8)
-
-    async def complete(symbol: str) -> tuple[str, bool]:
-        async with history_checks:
-            plan = OrbPlan.model_validate(plans[symbol])
-            value = await asyncio.to_thread(history_complete, plan, now=now)
-            return symbol, value
-
-    history_ready = dict(await asyncio.gather(*(complete(symbol) for symbol in by_symbol)))
+    history_ready = await history_complete_many(
+        [OrbPlan.model_validate(plans[symbol]) for symbol in by_symbol], now=now
+    )
     candidates = set(ready_symbols if ready_due else ())
     passive: dict[str, dict[str, Any]] = {}
     for symbol, bars in by_symbol.items():
@@ -1084,7 +1143,9 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
     if stored is None:
         return {}
     all_plans = stored.get("plans") or {}
-    selected = observation_order(stored, all_plans)[:FULL_OBSERVATION_BATCH]
+    deferred = _entry_worker is not None and not _entry_worker.done()
+    available = set(all_plans) - (_pending_entries | _evaluating) if deferred else all_plans
+    selected = observation_order(stored, available)[:FULL_OBSERVATION_BATCH]
     plans = {s: all_plans[s] for s in selected}
     started = monotonic_clock.monotonic()
     observation_checkpoint(
@@ -1232,7 +1293,13 @@ async def _observe_once(context: ScanContext | None = None) -> dict[str, int]:
         chosen = observation_order(stored, candidates)[:ENTRY_BATCH]
         last_symbol = chosen[-1] if chosen else None
         observation_checkpoint("entries", candidates=len(candidates), checked=len(chosen))
-        counts.update(await evaluate_observation_batch(stored, chosen, ctx))
+        if deferred:
+            _pending_entries.update(candidates)
+            # Queueing is not an observation timestamp or a BUY decision.
+            # The entry worker persists freshness only after actual evaluation.
+            counts["wait_for_entry"] += len(candidates)
+        else:
+            counts.update(await evaluate_observation_batch(stored, chosen, ctx))
 
     summary = " · ".join(f"{key} {value}" for key, value in sorted(counts.items())) or "no plans"
     BOARD.set_agent("setup", status="done", detail=f"ORB setups checked · {summary}")

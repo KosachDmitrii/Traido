@@ -4,7 +4,7 @@ from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import JSON, cast, func, literal, select, update
 from sqlalchemy.exc import IntegrityError
 
 from core.schemas import Quote
@@ -17,6 +17,47 @@ def read_session(day: str) -> dict[str, Any] | None:
     with session_factory()() as db:
         row = db.get(OrbSessionRow, day)
         return deepcopy(row.payload) if row else None
+
+
+def read_runtime_session(day: str) -> dict[str, Any] | None:
+    """Read authoritative plans/states without transferring the discovery archive."""
+    with session_factory()() as db:
+        if db.get_bind().dialect.name == "postgresql":
+            from sqlalchemy.dialects.postgresql import JSONB, array
+
+            payload = cast(OrbSessionRow.payload, JSONB).op("-")(
+                array(["discovery_pool", "rejections", "entry_policy_changes"])
+            )
+            value = db.scalar(select(payload).where(OrbSessionRow.session == day))
+        else:
+            row = db.get(OrbSessionRow, day)
+            value = row.payload if row else None
+        if value is None:
+            return None
+        return deepcopy(
+            {
+                k: v
+                for k, v in value.items()
+                if k not in {"discovery_pool", "rejections", "entry_policy_changes"}
+            }
+        )
+
+
+def read_symbol_session(day: str, symbol: str) -> dict[str, Any] | None:
+    """A symbol evaluator needs one current plan/claim, never the entire universe."""
+    with session_factory()() as db:
+        row = db.execute(
+            select(
+                OrbSessionRow.payload["plans"][symbol], OrbSessionRow.payload["states"][symbol]
+            ).where(OrbSessionRow.session == day)
+        ).first()
+        if row is None or row[0] is None:
+            return None
+        return {
+            "session": day,
+            "plans": {symbol: deepcopy(row[0])},
+            "states": {symbol: deepcopy(row[1] or {})},
+        }
 
 
 def merge_intraday_discovery(
@@ -218,12 +259,43 @@ def _append_decision(
 def update_states(day: str, states: dict[str, dict[str, Any]]) -> None:
     """Update the current projection once and append every observation atomically."""
     with session_factory()() as db:
-        row = db.scalar(select(OrbSessionRow).where(OrbSessionRow.session == day).with_for_update())
-        if row is None or any(symbol not in row.payload.get("plans", {}) for symbol in states):
+        postgres = db.get_bind().dialect.name == "postgresql"
+        if postgres:
+            from sqlalchemy.dialects.postgresql import JSONB, array
+
+            document = cast(OrbSessionRow.payload, JSONB)
+            parts: dict[str, Any] = {}
+            for name in ("plans", "states"):
+                members = func.jsonb_each(document[name]).table_valued("key", "value")
+                parts[name] = (
+                    select(
+                        func.coalesce(
+                            func.jsonb_object_agg(members.c.key, members.c.value),
+                            literal({}, type_=JSONB),
+                        )
+                    )
+                    .where(members.c.key.in_(list(states)))
+                    .correlate(OrbSessionRow)
+                    .scalar_subquery()
+                )
+            snapshot = db.execute(
+                select(parts["plans"], parts["states"])
+                .where(OrbSessionRow.session == day)
+                .with_for_update()
+            ).first()
+            payload = {"plans": snapshot[0], "states": snapshot[1]} if snapshot else None
+        else:
+            row = db.scalar(
+                select(OrbSessionRow).where(OrbSessionRow.session == day).with_for_update()
+            )
+            payload = deepcopy(row.payload) if row else None
+        if payload is None or any(
+            payload.get("plans", {}).get(symbol) is None for symbol in states
+        ):
             raise ValueError("ORB_PLAN_NOT_FOUND")
-        payload = deepcopy(row.payload)
+        patches = {}
         for symbol, state in states.items():
-            current = payload.get("states", {}).get(symbol, {})
+            current = payload.get("states", {}).get(symbol) or {}
             # A slower full pass must not replace a newer stream observation.
             # Machine transitions without an observation timestamp retain the
             # existing claim/state behavior.
@@ -236,8 +308,22 @@ def update_states(day: str, states: dict[str, dict[str, Any]]) -> None:
             if current.get("opportunity_id"):
                 next_state["opportunity_id"] = current["opportunity_id"]
             payload.setdefault("states", {})[symbol] = next_state
+            patches[symbol] = next_state
             _append_decision(db, day, symbol, current, next_state, payload["plans"][symbol])
-        row.payload = payload
+        if postgres and patches:
+            # Keep the same session row lock/CAS boundary and append-only audit,
+            # but send only the changed projections across the database wire.
+            merged = func.coalesce(document["states"], literal({}, type_=JSONB)).op("||")(
+                literal(patches, type_=JSONB)
+            )
+            db.execute(
+                update(OrbSessionRow)
+                .where(OrbSessionRow.session == day)
+                .values(payload=cast(func.jsonb_set(document, array(["states"]), merged), JSON))
+            )
+        elif not postgres:
+            assert row is not None
+            row.payload = payload
         db.commit()
 
 
@@ -281,7 +367,7 @@ def upgrade_unpublished_entry_limits(day: str, *, now: datetime) -> dict[str, An
     a new ID. Approving, executed and unresolved claims are preserved. Plans
     are rebuilt from captured source bars.
     """
-    from strategy.orb import PARAMETERS, VERSION, OrbPlan
+    from strategy.orb import INTRADAY_VERSION, INTRADAY_VERSIONS, PARAMETERS, VERSION, OrbPlan
 
     revision = PARAMETERS["entry_policy_revision"]
     with session_factory()() as db:
@@ -331,13 +417,15 @@ def upgrade_unpublished_entry_limits(day: str, *, now: datetime) -> dict[str, An
             from core.schemas import Bar
             from strategy.orb import form_plan
 
+            # Intraday ranges are not 09:30 ranges; keep each plan's family.
+            new_version = INTRADAY_VERSION if plan.version in INTRADAY_VERSIONS else VERSION
             rebuilt = form_plan(
                 symbol,
                 [Bar.model_validate(b) for b in plan.evidence.get("daily", [])],
                 [Bar.model_validate(b) for b in plan.evidence.get("opening", [])],
                 now=now,
                 feed=plan.source.removeprefix("alpaca:"),
-                version=VERSION,
+                version=new_version,
             )
             if rebuilt.plan is None:
                 continue
@@ -354,7 +442,7 @@ def upgrade_unpublished_entry_limits(day: str, *, now: datetime) -> dict[str, An
                 "new_max_entry": str(rebuilt.plan.max_entry),
                 "previous_parameters": previous_parameters,
                 "old_version": plan.version,
-                "new_version": VERSION,
+                "new_version": new_version,
                 "reason": "USER_REQUESTED_PAPER_RETEST_ROLLOUT",
             }
             updated["evidence"]["entry_policy_change"] = change

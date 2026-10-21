@@ -1,6 +1,19 @@
 # Cursor / agent notes for this repo
 
 ## Capital safety
+- Owner authorization 2026-10-19: Paper automatic-selling toggle OFF permits
+  automatic sales only at the stored target. It also suppresses no-progress,
+  session/time and emergency exits for open and new positions. Manual sells
+  remain available. This supersedes the timed-exit exception from 2026-10-15.
+- Owner authorization 2026-10-15: add a Paper automatic-stop toggle, independent
+  of auto-buy. An explicit selection applies to open and new positions; OFF
+  cancels owned stops and suppresses protection-failure flattening, ON restores
+  saved protection. Targets always operate; existing timed exits are unchanged.
+  Before the first selection, preserve existing per-position defaults.
+- Owner authorization 2026-10-14: new approvals use saved
+  `protected_intraday_v1` (stop, target, no-progress/time and session exits).
+  Legacy holdings keep the earlier manual_target policy; never retroactively
+  place old stops or liquidate them during rollout. Reconcile per-position policy.
 - Owner decision 2026-09-11: `TRAIDO_PAPER_EXIT_POLICY=manual_target` overrides the
   stop-installation, emergency-flatten and timed-exit requirements below in Paper.
   Exit only on an explicit operator sell or the stored card target. Carry overnight.

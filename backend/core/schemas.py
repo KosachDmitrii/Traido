@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -209,6 +209,8 @@ class TradeCandidate(StrictModel):
     target: Decimal | None = Field(default=None, gt=0)
     risk_reward: float | None = Field(default=None, gt=0)
     exit_policy: str = "price_target"
+    position_exit_policy: Literal["protected_intraday_v1"] | None = None
+    """Persisted at entry; absent on legacy positions, which retain owner policy."""
     exit_at: datetime | None = None
     orb_plan: dict[str, Any] = Field(default_factory=dict)
     reasons: list[str] = Field(min_length=1)
@@ -272,6 +274,8 @@ class TradeCandidate(StrictModel):
                     "orb@2.1.0",
                     "orb@2.2.0",
                     "orb@2.3.0",
+                    "orb@2.4.0",
+                    "orb@2.5.0",
                 }
                 or self.target is not None
                 or self.risk_reward is not None

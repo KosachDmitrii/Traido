@@ -33,9 +33,11 @@ from core.enums import UserDecision
 from core.schemas import Position
 from market_data.providers.company_name import attach_cached_company_names
 from strategy.orb.position_policy import observed_target
+from trading.auto_stop_policy import policy_payload as auto_stop_payload
 from trading.decision_outcome import DECISION_OUTCOMES, DecisionOutcomeRecord
 from trading.desk_positions import protective_stop_for_display
 from trading.desk_viability import attach_cached_buy_viability
+from trading.exit_policy import automatic_stops_enabled, manual_target_exits
 from trading.exits import EXITS, ExitOpportunity
 from trading.ledger import LEDGER
 from trading.opportunities import OPPORTUNITIES
@@ -172,7 +174,7 @@ def _watch_funnel_payload(entry_watches: list[dict]) -> dict:
 
 def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     settings = get_settings()
-    from trading.exit_policy import manual_target_exits
+    from trading.exit_policy import automatic_stops_enabled, manual_target_exits
 
     buys = (
         buy_opportunities
@@ -188,9 +190,13 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
             "symbol": r.symbol,
             "qty": str(r.qty),
             "avg_entry": str(r.avg_entry),
+            "auto_stop_enabled": automatic_stops_enabled(r.payload or {}),
             "stop": _tick(r.stop_price),
             "target": _tick(observed_target(r.payload or {}) or r.target_price),
             "exit_policy": (r.payload or {}).get("exit_policy"),
+            "position_exit_policy": "manual_target"
+            if manual_target_exits(r.payload or {})
+            else "protected",
             "exit_at": (r.payload or {}).get("exit_at"),
             "strategy_version": r.strategy_version,
         }
@@ -200,7 +206,7 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
     from core.clock import ET
     from strategy.orb.data_access import DATA_ACCESS
     from strategy.orb.runtime import STATUS as orb_status
-    from strategy.orb.store import read_session
+    from strategy.orb.store import read_runtime_session as read_session
 
     orb = read_session(str(datetime.now(UTC).astimezone(ET).date())) or dict(orb_status)
     from strategy.orb.observation_status import observation_status
@@ -246,10 +252,11 @@ def _light_payload(*, buy_opportunities: list | None = None) -> dict:
         orb.update(status="data_blocked", reason=DATA_ACCESS.get("reason"))
     return {
         "mode": settings.trading_mode.value,
-        "position_exit_policy": "manual_target" if manual_target_exits() else "protected",
+        "position_exit_policy": "protected",
         "orb": orb,
         "entry_policy": _entry_policy_payload(),
         "auto_trigger": _auto_trigger_payload(),
+        "auto_stop": auto_stop_payload(),
         "broker_backend": _broker_backend_desk_payload(),
         "scanner": {
             "enabled": STATUS.enabled,
@@ -394,6 +401,7 @@ def _etag_for(payload: dict) -> str:
         "pos": [(p.get("symbol"), p.get("qty")) for p in payload.get("positions") or []],
         "orb": payload.get("orb"),
         "auto_trigger": payload.get("auto_trigger"),
+        "auto_stop": payload.get("auto_stop"),
         "position_exit_policy": payload.get("position_exit_policy"),
         "watches": [
             (
@@ -599,11 +607,19 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
                     "symbol": p.symbol,
                     "qty": str(p.qty),
                     "avg_entry": str(p.avg_entry),
+                    "auto_stop_enabled": automatic_stops_enabled(meta.payload or {})
+                    if meta
+                    else None,
                     "stop": _tick(stop_px),
                     "target": _tick(observed_target(meta.payload or {}) or meta.target_price)
                     if meta
                     else None,
                     "exit_policy": (meta.payload or {}).get("exit_policy") if meta else None,
+                    "position_exit_policy": (
+                        "manual_target" if manual_target_exits(meta.payload or {}) else "protected"
+                    )
+                    if meta
+                    else None,
                     "exit_at": (meta.payload or {}).get("exit_at") if meta else None,
                     "strategy_version": meta.strategy_version if meta else None,
                     "ledger_linked": meta is not None,
@@ -616,9 +632,13 @@ async def _build_broker_snapshot(*, force: bool) -> dict:
                 "symbol": r.symbol,
                 "qty": str(r.qty),
                 "avg_entry": str(r.avg_entry),
+                "auto_stop_enabled": automatic_stops_enabled(r.payload or {}),
                 "stop": _tick(r.stop_price),
                 "target": _tick(observed_target(r.payload or {}) or r.target_price),
                 "exit_policy": (r.payload or {}).get("exit_policy"),
+                "position_exit_policy": "manual_target"
+                if manual_target_exits(r.payload or {})
+                else "protected",
                 "exit_at": (r.payload or {}).get("exit_at"),
                 "strategy_version": r.strategy_version,
             }

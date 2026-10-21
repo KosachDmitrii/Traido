@@ -287,6 +287,8 @@ export type DeskPosition = {
   strategy_version?: string | null;
   exit_at?: string | null;
   exit_policy?: string | null;
+  position_exit_policy?: "protected" | "manual_target" | null;
+  auto_stop_enabled?: boolean | null;
   /** The broker's own mark. Null when it did not report one — not zero. */
   mark?: string | null;
   pnl?: string | null;
@@ -375,12 +377,15 @@ export type AutoTrigger = {
   note?: string;
 };
 
+export type AutoStop = { enabled: boolean; configured: boolean; available: boolean; reconciliation_ok?: boolean };
+
 export type DeskLight = {
   mode: string;
   position_exit_policy?: "protected" | "manual_target";
   session?: SessionState;
   entry_policy?: EntryPolicy;
   auto_trigger?: AutoTrigger;
+  auto_stop?: AutoStop;
   broker_backend?: BrokerBackend;
   scanner: {
     enabled?: boolean;
@@ -1047,4 +1052,15 @@ export async function fetchStrategyPassport(signal?: AbortSignal): Promise<Strat
   const response = await fetch(apiUrl("/api/v1/strategies/active"), { headers: apiHeaders(), signal });
   if (!response.ok) throw new Error("strategy_passport_unavailable");
   return response.json();
+}
+
+
+export async function setAutoStop(enabled: boolean): Promise<AutoStop> {
+  const res = await fetch(apiUrl("/api/v1/auto-stop"), {
+    method: "PUT", headers: { ...apiHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(parseApiError(data, "auto_stop_failed"));
+  return data as AutoStop;
 }

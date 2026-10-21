@@ -7,21 +7,32 @@ at confirmation, with a short expiry. Existing source bars remain immutable.
 from copy import deepcopy
 from datetime import datetime, timedelta
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
+from itertools import pairwise
 from typing import Literal
 
 from core.enums import Timeframe
 from core.schemas import Bar, Quote
 from strategy.orb import (
-    INTRADAY_VERSION,
-    PARAMETERS,
+    CALIBRATED_VERSIONS,
+    PDH_VERSIONS,
     RETEST_VERSIONS,
-    VERSION,
     OrbDecision,
     OrbPlan,
     _valid_bar,
+    parameters_for,
 )
 
 CENT = Decimal("0.01")
+
+
+def intraday_atr(bars: list[Bar], count: int) -> Decimal | None:
+    """Mean true range of the latest completed M5 bars, opening bar included."""
+    ranges = [bars[0].high - bars[0].low] if bars else []
+    ranges += [
+        max(b.high - b.low, abs(b.high - a.close), abs(b.low - a.close)) for a, b in pairwise(bars)
+    ]
+    ranges = ranges[-count:]
+    return sum(ranges, Decimal(0)) / Decimal(len(ranges)) if len(ranges) >= 3 else None
 
 
 def rebuild(
@@ -94,8 +105,12 @@ def rebuild(
         expected = b.ts + timedelta(minutes=5)
     if not explicit_coverage and now >= expected + timedelta(minutes=5):
         return result("DATA_BLOCKED", "ORB_RETEST_BARS_STALE")
-    band = max(CENT, base.daily_atr * Decimal(PARAMETERS["retest_band_atr"]))
-    buffer = max(CENT, base.daily_atr * Decimal(PARAMETERS["retest_stop_buffer_atr"]))
+    params = parameters_for(base.version)
+    calibrated = base.version in CALIBRATED_VERSIONS
+    band = max(CENT, base.daily_atr * Decimal(params["retest_band_atr"]))
+    buffer = max(CENT, base.daily_atr * Decimal(params["retest_stop_buffer_atr"]))
+    # Today's opening-range bar anchors the intraday ATR for calibrated stops.
+    opening_today = Bar.model_validate(base.evidence["opening"][-1]) if calibrated else None
     level = base.range_high
     breakout: Bar | None = None
     retest: Bar | None = None
@@ -120,7 +135,7 @@ def rebuild(
             # Do not use the same bar that invalidated a plan for another entry.
             continue
         if breakout is not None and end > breakout.ts + timedelta(
-            minutes=5 + PARAMETERS["setup_timeout_minutes"]
+            minutes=5 + params["setup_timeout_minutes"]
         ):
             breakout = retest = None
             wait_reason = "ORB_RETEST_EXPIRED"
@@ -151,12 +166,33 @@ def rebuild(
         stop = (low - buffer).quantize(CENT, rounding=ROUND_FLOOR)
         ceiling = min(b.close, level + band).quantize(CENT, rounding=ROUND_FLOOR)
         floor = (level + CENT).quantize(CENT, rounding=ROUND_CEILING)
+        atr5: Decimal | None = None
+        if opening_today is not None:
+            # Buy the confirmation itself; waiting for a second return to the
+            # level keeps only the setups that failed to hold it.
+            ceiling = (b.close + (b.close - stop) * Decimal(params["entry_cap_r"])).quantize(
+                CENT, rounding=ROUND_FLOOR
+            )
+            atr5 = intraday_atr(
+                [opening_today, *(x for x in rows if x.ts <= b.ts)],
+                params["intraday_atr_bars"],
+            )
+            if atr5 is None:
+                return result("DATA_BLOCKED", "ORB_RETEST_DATA_INVALID")
+            if ceiling - stop < atr5 * Decimal(params["min_stop_intraday_atr"]):
+                breakout = retest = None
+                wait_reason = "ORB_STOP_IN_NOISE"
+                continue
+            if ceiling - stop > base.daily_atr * Decimal(params["max_stop_daily_atr"]):
+                breakout = retest = None
+                wait_reason = "ORB_STOP_TOO_WIDE"
+                continue
         target = peak.quantize(CENT, rounding=ROUND_FLOOR)
         raw_target = target
         previous_day_high: Decimal | None = None
         previous_day_high_state: str | None = None
         previous_day_high_cleared = False
-        if base.version in {VERSION, INTRADAY_VERSION}:
+        if base.version in PDH_VERSIONS:
             previous_day_high = Decimal(str(base.evidence["daily"][-1]["high"]))
             previous_day_high_cleared = b.close > previous_day_high
             if previous_day_high <= floor:
@@ -168,19 +204,19 @@ def rebuild(
                 previous_day_high_state = "caps_target"
             else:
                 previous_day_high_state = "above_observed_target"
-        cost = ceiling * Decimal(PARAMETERS["cost_allowance_bps"]) / 10000
+        cost = ceiling * Decimal(params["cost_allowance_bps"]) / 10000
         risk = ceiling - stop
         reward = target - ceiling
         if (
             b.high >= target
             or not (0 < stop < floor <= ceiling < target)
-            or (reward - cost) < Decimal(PARAMETERS["min_effective_reward_risk"]) * (risk + cost)
+            or (reward - cost) < Decimal(params["min_effective_reward_risk"]) * (risk + cost)
         ):
             breakout = retest = None
             wait_reason = "ORB_RETEST_REWARD_INSUFFICIENT"
             continue
         valid_until = min(
-            base.entry_deadline, end + timedelta(minutes=PARAMETERS["signal_ttl_minutes"])
+            base.entry_deadline, end + timedelta(minutes=params["signal_ttl_minutes"])
         )
         evidence = deepcopy(base.evidence)
         evidence["retest"] = {
@@ -194,10 +230,19 @@ def rebuild(
             "retest_low": str(low),
             "bars": [x.model_dump(mode="json") for x in rows if x.ts <= b.ts],
             "after": after.isoformat() if after else None,
-            "time_exit_minutes": PARAMETERS["time_exit_minutes"],
-            "cost_allowance_bps": PARAMETERS["cost_allowance_bps"],
+            "time_exit_minutes": params["time_exit_minutes"],
+            "cost_allowance_bps": params["cost_allowance_bps"],
         }
-        if base.version in {VERSION, INTRADAY_VERSION}:
+        if calibrated:
+            evidence["retest"].update(
+                {
+                    "confirmation_close": str(b.close),
+                    "stop_buffer": str(buffer),
+                    "intraday_atr": str(atr5),
+                    "entry_cap_r": params["entry_cap_r"],
+                }
+            )
+        if base.version in PDH_VERSIONS:
             if previous_day_high is None or previous_day_high_state is None:
                 return result("DATA_BLOCKED", "ORB_RETEST_DATA_INVALID")
             confirmation_range = b.high - b.low
@@ -251,6 +296,7 @@ def check_entry(
     ) -> OrbDecision:
         return OrbDecision(state=state, reasons=[reason], plan=plan)
 
+    params = parameters_for(plan.version)
     evidence = plan.evidence.get("retest", {})
     if evidence.get("phase") != "ready":
         return result("WAIT", "ORB_RETEST_WAIT_BREAKOUT")
@@ -266,7 +312,7 @@ def check_entry(
             or target <= plan.max_entry
             or until <= confirmation
             or until > plan.entry_deadline
-            or until - confirmation > timedelta(minutes=PARAMETERS["signal_ttl_minutes"])
+            or until - confirmation > timedelta(minutes=params["signal_ttl_minutes"])
             or (limit_price is not None and (not limit_price.is_finite() or limit_price <= 0))
         ):
             raise ValueError("invalid confirmation")
@@ -278,14 +324,26 @@ def check_entry(
         return result("NO_TRADE", "ORB_STOP_BREACHED")
     if quote.bid < plan.trigger:
         return result("WAIT", "ORB_RETEST_WAIT_RECOVERY")
+    if plan.version in CALIBRATED_VERSIONS:
+        try:
+            buffer = Decimal(evidence["stop_buffer"])
+        except (KeyError, TypeError, InvalidOperation):
+            return result("DATA_BLOCKED", "ORB_RETEST_DATA_INVALID")
+        spread = quote.ask - quote.bid
+        # A stop inside a few spreads is noise, and a buffer narrower than the
+        # spread is spent on the exit fill. Spreads narrow; wait, do not move it.
+        if spread * params["stop_buffer_spreads"] > buffer or spread * params[
+            "min_stop_spreads"
+        ] > (plan.max_entry - plan.stop):
+            return result("WAIT", "ORB_SPREAD_TOO_WIDE")
     if quote.ask > plan.max_entry or (limit_price is not None and limit_price > plan.max_entry):
         return result("WAIT", "ORB_WAITING_PULLBACK")
     if limit_price is not None and limit_price < quote.ask:
         return result("DATA_BLOCKED", "ORB_LIMIT_BELOW_OFFER")
     cost = max(
-        quote.ask - quote.bid, plan.max_entry * Decimal(PARAMETERS["cost_allowance_bps"]) / 10000
+        quote.ask - quote.bid, plan.max_entry * Decimal(params["cost_allowance_bps"]) / 10000
     )
-    if target - plan.max_entry - cost < Decimal(PARAMETERS["min_effective_reward_risk"]) * (
+    if target - plan.max_entry - cost < Decimal(params["min_effective_reward_risk"]) * (
         plan.max_entry - plan.stop + cost
     ):
         return result("NO_TRADE", "ORB_RETEST_REWARD_INSUFFICIENT")

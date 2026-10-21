@@ -94,6 +94,12 @@ class RiskContext:
     unresolved_intents_trusted: bool = True
     """False when local intent ledger could not be read — fail-closed."""
 
+    exit_slippage_per_share: Decimal = Decimal(0)
+    """Expected fill below the stop on exit, charged to the risk budget.
+
+    Zero unless the strategy supplies a live estimate; it can only shrink size.
+    """
+
     now: datetime | None = None
 
     def today(self) -> date:
@@ -224,6 +230,7 @@ class RiskEngine:
             risk_pct=self.limits.max_risk_per_trade_pct,
             max_position_pct=self.limits.max_position_pct,
             cash=portfolio.cash,
+            slippage_per_share=ctx.exit_slippage_per_share,
         )
         if qty <= 0:
             reasons.append("SIZE_ZERO")

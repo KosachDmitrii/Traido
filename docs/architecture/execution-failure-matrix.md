@@ -631,6 +631,34 @@ experiment, not a return forecast. Detailed specification: `orb-retest-v2.md`.
 
 | Entry cancellation acknowledged but broker still reports ACCEPTED/PARTIAL | Keep UNKNOWN and the symbol blocked; never pretend the resting entry was canceled, even if filled quantity is currently zero |
 
+## ORB 2.4/2.5 calibrated entry, stop and tape filter (2026-10-21)
+
+New opening (`orb@2.4.0`) and intraday (`orb@2.5.0`) plans. Saved 2.2/2.3 plans,
+claims and positions keep their frozen geometry and parameters. Exits, protective
+stops, the automatic-stop switch and session-close behaviour are unchanged.
+Specification: `orb-calibrated-v2.4.md`.
+
+| Situation | Behaviour |
+|---|---|
+| Confirmation bar completes | Entry cap = confirmation close + 0.10 R (R measured at that close); no second return to the level is required |
+| Retest low minus 0.10 daily ATR leaves a stop within 0.5 × mean M5 true range (latest 14 bars, opening bar included) | No signal, `ORB_STOP_IN_NOISE`; pattern resets |
+| Stop distance above 1.0 daily ATR | No signal, `ORB_STOP_TOO_WIDE`; pattern resets |
+| Fewer than three intraday bars for the M5 ATR | `DATA_BLOCKED` / `ORB_RETEST_DATA_INVALID` |
+| Live spread × 2 exceeds the stop buffer, or spread × 3 exceeds cap − stop | WAIT / `ORB_SPREAD_TOO_WIDE`; never move the stop |
+| Signal older than one bar (5 minutes) | `ORB_RETEST_EXPIRED` |
+| Entry limit | min(cap, ask + 2 × spread), rounded up to a cent; never above the frozen cap |
+| Sizing | Risk per share = limit − stop + 1 live spread; dollar risk stays within the budget after modeled exit slippage |
+| SPY two latest completed M5 closes not both above session VWAP | Final admission `NO_TRADE` / `MARKET_BELOW_VWAP`; re-evaluated while the signal lives |
+| SPY last close ≤ previous session close − 1% | `NO_TRADE` / `MARKET_DOWN_DAY` |
+| Symbol return from the open below SPY's, or symbol close at/below its VWAP | `NO_TRADE` / `RELATIVE_STRENGTH_WEAK`, `SYMBOL_BELOW_VWAP` |
+| SPY/symbol M5 bars gapped, older than one window of lag, unreadable; SPY previous-session daily bar missing | `DATA_BLOCKED` / `MARKET_FILTER_DATA_MISSING`; never a pass |
+| Approval of a card created earlier | Final admission re-runs the tape filter on current bars; the re-check is never weaker than creation |
+| Unclaimed saved 2.2/2.3 plan on rollout | Existing locked rollout rebuilds it as 2.4 (opening) or 2.5 (intraday) from captured bars; claimed/approving/executed/UNKNOWN preserved |
+| Performance reporting | `orb-paper` evaluation reports 2.4/2.5 separately; 2.2/2.3 under `baseline` |
+
+Thresholds are fixed priors, not fitted. Acceptance: positive net expectancy in R
+over at least 200 Paper trades per version before any parameter change.
+
 ## Closed-position reentry lifecycle (`closed-position-reentry@1`)
 
 | Situation | Behaviour |
@@ -661,7 +689,8 @@ Entry reference-stop calculations remain unchanged; losses are not bounded by th
 | Cancellation unknown or raced a fill | Keep reconciliation unresolved; absorb broker fills on the usual path |
 | Missing stop | Intentional; do not recreate or flatten |
 | Target missing / quote stale | Hold, no invented target |
-| Target reached on a later day | Use original target and existing durable exit path |
+| Target reached during regular trading hours | Use original target and existing durable exit path |
+| Target reached premarket, after hours, on a weekend or holiday | Hold; do not queue a market SELL for the next session; reevaluate with a fresh quote during regular hours |
 | User sells | Existing manual exit remains available |
 
 Default `protected` behavior below is unchanged. Enable only in Paper after deployment.
@@ -793,6 +822,105 @@ are presented consistently during staggered frontend/backend rollout.
 | Broker flat while an acknowledged sale awaits local settlement | Recover the existing order through reconciliation, apply cumulative fills once, then complete the exit card; never invent a fill price |
 
 Freshness scheduling is a capacity-aware scheduling bound, not a guarantee that a vendor outage or a slow portion cannot exceed five minutes. Missing/stale trading facts still fail closed.
+
+### SIP ingestion and independent observation throughput (2026-10-13)
+
+The socket reader enqueues source messages into a bounded FIFO. One writer
+coalesces up to 500 messages, hydrates missing five-minute windows in bulk,
+upserts real source minutes and then completed M5 bars in bulk. Its bounded
+window cache is derived from durable minutes, never a substitute for missing
+minutes. Later corrections win in arrival order, including an evicted window
+rehydrated after restart. Notifications and stream freshness advance only after
+completed-bar persistence succeeds. No feed downgrade or broker operation is
+introduced by ingestion.
+
+| Condition | Behavior |
+|---|---|
+| Database writer is slow | Socket continues receiving into the bounded queue; batch telemetry reports queue depth and write duration |
+| Queue capacity exceeded | Invalidate stream freshness, report overflow and reconnect; REST must prove any missing interval before admission |
+| Minute or M5 persistence fails | No freshness/notification advances; interrupt the socket reader and recover through durable data/REST |
+| Disconnect or shutdown | Stop the reader, drain bounded pending writes; cancellation joins an active transaction before another connection starts |
+| Late correction or cache eviction | Hydrate real minutes, apply the last received correction, recompute OHLCV; no fabricated rows |
+| Entry admission is slow | The independent entry evaluator owns queued symbols; full-universe passive observation continues |
+| Entry context/database failure | Retain queued symbols for retry; queueing alone never advances last_checked_at or grants BUY |
+| Session projection update | PostgreSQL locks the same session row, reads only affected plans/states and patches those states atomically with decision events; claims, geometry and other symbols remain intact |
+
+Runtime/desk reads exclude the discovery archive; public discovery still returns
+its full durable selection after restart. Symbol evaluation reads only its own
+current plan and claim. Priority history checks use a bulk read with the same
+contiguity and successful-REST coverage requirements. Every actual entry retains
+the existing fresh quote, provenance, admission, risk and Paper-only checks.
+
+
+### Protected new Paper entries (2026-10-14)
+
+The new-entry policy is `protected_intraday_v1`, saved atomically with approval
+and copied into the position ledger. Legacy holdings without that marker keep
+the owner-selected manual/target policy; rollout does not liquidate them or
+install retroactive stops. Live trading remains prohibited.
+
+| Condition | Behavior |
+|---|---|
+| New entry approved while global Paper policy is manual_target | Freeze protected policy in the approval transaction; install a stop for actual fills using the existing durable protection path |
+| Stop rejected for a new protected entry | Existing emergency-flatten path; unresolved response stays UNKNOWN |
+| Restart or partial exit on a new protected holding | Recover persisted policy; restore/resize protection from signed broker holdings |
+| Mixed legacy/new book | Cancel owned legacy stops only; preserve and reconcile new protected stops |
+| New protected ORB holding reaches target, no-progress horizon, or session deadline | Existing exit owner submits and reconciles the close |
+| Legacy manual/target holding falls below reference stop or reaches session deadline | Preserve original policy; no automatic retroactive exit |
+| Active retest entry has less than its existing 30-minute no-progress horizon until exit_at | Reject with ORB_INSUFFICIENT_SESSION_TIME, including older persisted plans and final pre-submit checks |
+| Explicit crypto fund objective in provider metadata | Reject with CRYPTO_FUND_RISK_PROFILE_UNVALIDATED; preserve existing holdings |
+
+The entry horizon is a conservative Paper constraint derived from the existing
+time-exit rule, not a backtested optimal cutoff. Crypto funds remain blocked
+until a separate profile is validated. Broker stops do not guarantee fill price.
+
+### Concurrent reconciliation (2026-10-15)
+
+- Broker lookups may overlap execution updates. Reconciliation rereads the stored
+  intent and uses a status compare-and-swap. A lost CAS defers to the current
+  owner; it never regresses a terminal fill or emits a false UNKNOWN event.
+- Missing broker responses still make an unchanged unresolved intent UNKNOWN.
+  A concurrent settled intent is preserved. No retry submits a duplicate order.
+- A protective stop filling during resize leaves that symbol explicitly
+  unresolved (`stop_fill_reconcile_required`) for the next broker-truth pass.
+  No replacement SELL is sent; the remaining protection audit continues.
+  Other broker errors still propagate.
+
+### Owner automatic-stop switch (2026-10-15)
+
+Paper `/auto-stop` is independent of auto-buy and the kill switch. The first
+explicit operator selection applies to existing and future positions. Targets
+and the existing per-position timed exits remain active. OFF cancels only owned
+protective stops through ExecutionService and verifies cancellation; unknown or
+filled cancels remain unresolved. It suppresses new protective stops and the
+protection-failure emergency flatten. ON restores stops using stored geometry
+and broker holdings, including legacy positions; an already-breached stop may
+sell immediately. No stored selection preserves the previous per-position rules.
+Redis persists the selection on Railway; failed writes do not update memory.
+Unavailable/corrupt policy on first load blocks evaluation instead of guessing.
+
+
+### Owner automatic-selling switch revision (2026-10-19)
+
+Supersedes the 2026-10-15 timed-exit exception above. The existing Paper
+`/auto-stop` setting and persisted selection are retained; no reset is needed.
+An explicit OFF selects the shared manual/target-only policy before checking
+a position's frozen protected policy. ON and no selection keep prior defaults.
+
+| Condition | Behavior with explicit OFF in Paper |
+|---|---|
+| Existing or new protected position; no progress after 30 minutes | Keep open; no timed SELL |
+| Session deadline passes, including a later session after restart | Keep open; continue observing original target |
+| Fresh RTH bid reaches stored target | Existing target SELL path remains active |
+| Missing/stale target quote, premarket, weekend or after hours | No target SELL; re-evaluate during RTH |
+| Stop breached or protection unavailable | No stop installation or emergency automatic flatten |
+| Automatic close requested for any non-target reason | Execution boundary refuses before creating a SELL intent |
+| Explicit operator SELL | Existing manual exit path remains available |
+| Broker stop cancellation races a fill or cannot be confirmed | Preserve unresolved broker truth; never undo or conceal fills |
+
+Already executed sales cannot be undone. Reconciliation continues to process
+accepted/unknown exits and their actual fills without duplicating orders.
+The override remains Paper-only and is restored from Redis after restart.
 
 ## Automatic stored-target exits
 

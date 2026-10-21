@@ -45,3 +45,32 @@ def test_explicit_geared_objectives_block_even_misclassified_equities(name):
 )
 def test_normal_names_and_short_duration_bonds_are_not_inferred_inverse(name):
     assert not geared_exposure({"asset_name": name})
+
+
+@pytest.mark.parametrize(
+    "name", ["Bitwise Solana Staking ETF", "iShares Bitcoin Trust", "Ethereum ETF", "XRP Fund"]
+)
+def test_crypto_funds_need_separate_profile(name):
+    from universe.exposure_policy import crypto_fund_exposure
+
+    assert crypto_fund_exposure({"asset_name": name})
+    result = check_instrument(
+        Instrument(symbol="TEST", asset_class=AssetClass.ETF, metadata={"asset_name": name})
+    )
+    assert "CRYPTO_FUND_RISK_PROFILE_UNVALIDATED" in result.reasons
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Solana Labs Inc.",
+        "Apple Inc.",
+        "Vanguard Total Market ETF",
+        "",
+        "Cryptocurrency Mining Company",
+    ],
+)
+def test_crypto_fund_rule_does_not_reclassify_companies_or_plain_funds(name):
+    from universe.exposure_policy import crypto_fund_exposure
+
+    assert not crypto_fund_exposure({"asset_name": name})
