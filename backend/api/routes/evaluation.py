@@ -100,16 +100,16 @@ async def diagnostics_f3() -> dict:
 async def orb_paper_evaluation() -> dict:
     """Separate actual journal outcomes for opening and intraday Paper policies.
 
-    `baseline` keeps the pre-calibration versions apart, for comparison only.
+    `calibrated` keeps the paused 2.4/2.5 versions apart, for comparison only.
     """
-    from strategy.orb import INTRADAY_VERSION, PDH_INTRADAY_VERSION, PDH_VERSION
+    from strategy.orb import CALIBRATED_INTRADAY_VERSION, CALIBRATED_VERSION, INTRADAY_VERSION
 
     return {
         **paper_evaluation(),
         "intraday": paper_evaluation(version=INTRADAY_VERSION),
-        "baseline": {
-            "opening": paper_evaluation(version=PDH_VERSION),
-            "intraday": paper_evaluation(version=PDH_INTRADAY_VERSION),
+        "calibrated": {
+            "opening": paper_evaluation(version=CALIBRATED_VERSION),
+            "intraday": paper_evaluation(version=CALIBRATED_INTRADAY_VERSION),
         },
     }
 

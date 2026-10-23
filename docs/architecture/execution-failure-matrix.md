@@ -659,6 +659,19 @@ Specification: `orb-calibrated-v2.4.md`.
 Thresholds are fixed priors, not fitted. Acceptance: positive net expectancy in R
 over at least 200 Paper trades per version before any parameter change.
 
+### Paused for new plans (owner decision 2026-10-23)
+
+On 2026-10-22/23 the calibrated versions confirmed two setups across two full
+sessions and bought nothing; 2.2/2.3 had produced several confirmations an hour.
+New plans are 2.2 (opening) and 2.3 (intraday) again. The 2.4/2.5 code is kept.
+
+| Situation | Behaviour |
+|---|---|
+| New opening / intraday plan | `orb@2.2.0` / `orb@2.3.0` with `PDH_PARAMETERS`; no tape filter, no exit-slippage sizing |
+| Unclaimed saved 2.4/2.5 plan on rollout | Existing locked rollout (`entry_policy_revision` changed back to `paper-retest-1`) rebuilds it as 2.2 (opening) or 2.3 (intraday) from captured bars; claimed/approving/executed/UNKNOWN preserved |
+| Claimed 2.4/2.5 plan or position | Keeps its frozen 2.4/2.5 parameters via `parameters_for` |
+| Performance reporting | `orb-paper` evaluation reports 2.2/2.3 at the top level; 2.4/2.5 under `calibrated` |
+
 ## Closed-position reentry lifecycle (`closed-position-reentry@1`)
 
 | Situation | Behaviour |

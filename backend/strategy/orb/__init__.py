@@ -18,12 +18,16 @@ RETEST_VERSION = "orb@2.0.0"
 CONTEXT_VERSION = "orb@2.1.0"
 PDH_VERSION = "orb@2.2.0"
 PDH_INTRADAY_VERSION = "orb@2.3.0"
-# Calibrated entry/stop geometry and the intraday market filter. New plans use
-# these; persisted 2.2/2.3 plans and positions keep their frozen semantics.
-VERSION = "orb@2.4.0"
-INTRADAY_VERSION = "orb@2.5.0"
-CALIBRATED_VERSIONS = frozenset({VERSION, INTRADAY_VERSION})
-INTRADAY_VERSIONS = frozenset({PDH_INTRADAY_VERSION, INTRADAY_VERSION})
+# Calibrated entry/stop geometry and the intraday market filter. Persisted
+# 2.4/2.5 plans and positions keep their frozen semantics.
+CALIBRATED_VERSION = "orb@2.4.0"
+CALIBRATED_INTRADAY_VERSION = "orb@2.5.0"
+# New plans. Owner rollback 2026-10-23: 2.4/2.5 confirmed two setups in two
+# sessions, so new plans return to 2.2/2.3.
+VERSION = PDH_VERSION
+INTRADAY_VERSION = PDH_INTRADAY_VERSION
+CALIBRATED_VERSIONS = frozenset({CALIBRATED_VERSION, CALIBRATED_INTRADAY_VERSION})
+INTRADAY_VERSIONS = frozenset({PDH_INTRADAY_VERSION, CALIBRATED_INTRADAY_VERSION})
 PDH_VERSIONS = frozenset({PDH_VERSION, PDH_INTRADAY_VERSION, *CALIBRATED_VERSIONS})
 RETEST_VERSIONS = frozenset({RETEST_VERSION, CONTEXT_VERSION, *PDH_VERSIONS})
 SUPPORTED_VERSIONS = frozenset(
@@ -119,6 +123,8 @@ PARAMETERS = {
     "validation": "experimental_paper_not_backtested",
 }
 CALIBRATED_PARAMETERS = PARAMETERS
+# Parameters of the versions new plans use (VERSION / INTRADAY_VERSION).
+PARAMETERS = PDH_PARAMETERS
 
 
 def parameters_for(version: str) -> dict[str, Any]:
@@ -239,8 +245,11 @@ def form_plan(
     if version not in SUPPORTED_VERSIONS:
         return blocked("ORB_INVALID_PROVENANCE")
     parameters = {
-        INTRADAY_VERSION: {**PARAMETERS, "range_policy": "completed_intraday_5m_same_clock_volume"},
-        VERSION: PARAMETERS,
+        CALIBRATED_INTRADAY_VERSION: {
+            **CALIBRATED_PARAMETERS,
+            "range_policy": "completed_intraday_5m_same_clock_volume",
+        },
+        CALIBRATED_VERSION: CALIBRATED_PARAMETERS,
         PDH_INTRADAY_VERSION: {
             **PDH_PARAMETERS,
             "range_policy": "completed_intraday_5m_same_clock_volume",

@@ -13,10 +13,10 @@ from core.schemas import Bar, TradeCandidate
 from risk.position_sizing import size_long_shares
 from risk.risk_engine import RiskContext
 from strategy.orb import (
+    CALIBRATED_INTRADAY_VERSION,
     CALIBRATED_PARAMETERS,
-    INTRADAY_VERSION,
+    CALIBRATED_VERSION,
     PDH_VERSION,
-    VERSION,
     _previous_sessions,
     evaluate_trigger,
     form_plan,
@@ -78,7 +78,7 @@ def bars(pattern=PATTERN, start=None, symbol="AAPL"):
     ]
 
 
-def base_plan(version=VERSION):
+def base_plan(version=CALIBRATED_VERSION):
     daily, opening = calibrated_evidence()
     plan = form_plan("AAPL", daily, opening, now=NOW, feed="sip", version=version).plan
     assert plan is not None
@@ -94,7 +94,7 @@ def test_confirmation_geometry_uses_structural_buffer_and_entry_cap():
     plan = decision.plan
     retest = plan.evidence["retest"]
     assert decision.reasons == ["ORB_RETEST_CONFIRMED"]
-    assert plan.version == VERSION
+    assert plan.version == CALIBRATED_VERSION
     # Stop: retest low 101.05 minus 0.10 x daily ATR 2.00.
     assert plan.stop == D("100.85")
     assert D(retest["stop_buffer"]) == D("0.20")
@@ -157,10 +157,25 @@ def test_stop_wider_than_daily_atr_is_refused():
 def test_frozen_versions_keep_their_parameters():
     assert parameters_for(PDH_VERSION)["signal_ttl_minutes"] == 10
     assert parameters_for(PDH_VERSION)["retest_stop_buffer_atr"] == "0.02"
-    assert parameters_for(VERSION) is CALIBRATED_PARAMETERS
-    assert parameters_for(INTRADAY_VERSION) is CALIBRATED_PARAMETERS
+    assert parameters_for(CALIBRATED_VERSION) is CALIBRATED_PARAMETERS
+    assert parameters_for(CALIBRATED_INTRADAY_VERSION) is CALIBRATED_PARAMETERS
     legacy = base_plan(PDH_VERSION)
     assert "entry_cap_r" not in legacy.evidence["parameters"]
+
+
+def test_new_plans_use_the_pre_calibration_versions():
+    from strategy.orb import (
+        INTRADAY_VERSION,
+        PARAMETERS,
+        PDH_INTRADAY_VERSION,
+        PDH_PARAMETERS,
+        VERSION,
+    )
+
+    assert (VERSION, INTRADAY_VERSION) == (PDH_VERSION, PDH_INTRADAY_VERSION)
+    assert PARAMETERS is PDH_PARAMETERS
+    assert PARAMETERS["entry_policy_revision"] != CALIBRATED_PARAMETERS["entry_policy_revision"]
+    assert "entry_cap_r" not in base_plan(VERSION).evidence["parameters"]
 
 
 def test_sizing_charges_exit_slippage_to_the_risk_budget():
@@ -215,9 +230,11 @@ def candidate(version):
 def test_exit_slippage_applies_to_calibrated_entries_only():
     ctx = RiskContext()
     live = quote("101.60", "101.64", CONFIRMED)
-    assert with_exit_slippage(ctx, candidate(VERSION), live).exit_slippage_per_share == D("0.04")
-    assert with_exit_slippage(ctx, candidate(VERSION), None) is ctx
-    legacy = candidate(VERSION).model_copy(update={"strategy_version": PDH_VERSION})
+    assert with_exit_slippage(
+        ctx, candidate(CALIBRATED_VERSION), live
+    ).exit_slippage_per_share == D("0.04")
+    assert with_exit_slippage(ctx, candidate(CALIBRATED_VERSION), None) is ctx
+    legacy = candidate(CALIBRATED_VERSION).model_copy(update={"strategy_version": PDH_VERSION})
     assert with_exit_slippage(ctx, legacy, live) is ctx
     assert replace(ctx, exit_slippage_per_share=D(0)) == ctx
 
@@ -349,7 +366,7 @@ def calibrated_session(now):
     opening[-1] = opening[-1].model_copy(
         update={"open": D("100.5"), "high": D(101), "low": D("100.4"), "close": D("100.9")}
     )
-    base = form_plan("AAPL", daily, opening, now=now, feed="sip").plan
+    base = form_plan("AAPL", daily, opening, now=now, feed="sip", version=CALIBRATED_VERSION).plan
     flat = ("100.60", "100.90", "100.50", "100.70")
     count = int((now - base.range_end).total_seconds() // 300)
     rows = bars([flat] * (count - len(PATTERN)) + PATTERN, start=base.range_end)

@@ -1,6 +1,12 @@
 # ORB 2.4 / 2.5 — calibrated entry, stop and intraday tape filter
 
-Status: experimental Paper implementation, not statistically validated.
+Status: **paused for new plans (owner decision 2026-10-23).** Two confirmed
+setups and no entries across the 2026-10-22/23 sessions: the wider stop
+against an unchanged observed-peak target fails the 1.5 R:R gate almost
+always. New plans use 2.2/2.3 again; persisted 2.4/2.5 data keeps these
+parameters. Reintroduce one parameter at a time.
+
+Experimental Paper implementation, not statistically validated.
 Versions: `orb@2.4.0` (09:30 opening range) and `orb@2.5.0` (rolling intraday
 ranges). Authorized by the owner on 2026-10-21. Breakout, retest, confirmation,
 target (observed pre-retest peak, PDH cap) and every exit rule are inherited
